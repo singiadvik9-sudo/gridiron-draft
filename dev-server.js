@@ -1,4 +1,4 @@
-// Local dev server: serves ./public (or the dir in argv[3]) and mounts every file in ./api as /api/<name>. Usage: node server.js 5055 [dir]
+// Local dev server (not used on Vercel): serves ./public (or the dir in argv[3]) and mounts every file in ./api as /api/<name>. Usage: node server.js 5055 [dir]
 const http = require('http'), fs = require('fs'), path = require('path');
 const dir = path.resolve(process.argv[3] || 'public');
 const handlers = {};

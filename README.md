@@ -24,7 +24,7 @@ Leagues and tournaments poll a tiny version key every 5 s while open. Free-tier 
 ## Develop
 ```
 python3 build.py          # inlines lib/ + src/ into public/index.html
-node server.js 3000       # serves public/ and mounts every api/*.js (in-memory store)
+node dev-server.js 3000       # serves public/ and mounts every api/*.js (in-memory store)
 node test_league.js && node test_custom.js && node test_api.js
 ```
 - `lib/engine.js` shared game engine; `lib/league.js` season/draft/trade/bracket logic (browser + server); `lib/data.json` real players (built by `build_data.py` from nflverse depth charts, rosters and schedule + EA Madden ratings; players without a published rating inherit comparable players' ratings).
