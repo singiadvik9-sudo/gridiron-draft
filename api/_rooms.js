@@ -2,10 +2,10 @@
 const { cmd, setJ, getJ, parse, randCode } = require('./_lib');
 const TTL = 60 * 60 * 24;
 const rkey = (code, part) => 'gd:' + code + ':' + part;
-async function createRoom(seed, ctx, seats) {
+async function createRoom(seed, ctx, seats, extra) {
   for (let i = 0; i < 10; i++) {
     const code = randCode();
-    const ok = await cmd(['SET', rkey(code, 'room'), JSON.stringify({ seed, created: Date.now(), ctx: ctx || null }), 'EX', TTL, 'NX']);
+    const ok = await cmd(['SET', rkey(code, 'room'), JSON.stringify(Object.assign({ seed, created: Date.now(), ctx: ctx || null }, extra || {})), 'EX', TTL, 'NX']);
     if (ok === null) continue;
     for (const s of ['a', 'b']) if (seats && seats[s]) await setJ(rkey(code, s), seats[s], TTL);
     return code;

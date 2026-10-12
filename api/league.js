@@ -17,6 +17,7 @@ function cleanCfg(c, base) {
   if (c.playoffs != null) o.playoffs = num(c.playoffs, 0, 16, 4);
   if (c.rounds != null) o.rounds = num(c.rounds, 21, 30, 24);
   if (c.rookieRounds != null) o.rookieRounds = num(c.rookieRounds, 1, 7, 3);
+  if (c.cap != null) o.cap = [0, 270, 300, 335].includes(+c.cap) ? +c.cap : 0;
   if (c.deadline != null) o.deadline = num(c.deadline, 0, 20, 10);
   return o;
 }
@@ -227,7 +228,7 @@ module.exports = async function (req, res) {
         case 'draftskip': {   // manager makes the pick for whoever is on the clock
           needMgr(); if (L.phase !== 'draft') bad('Not drafting.');
           const tid = LG.onClock(L); if (tid == null) bad('bad_request');
-          const pool = L.draft.kind === 'league' ? L.draft.pool.filter(id => LG.canDraftPos(L, tid, L.players[id].p)) : L.draft.pool;
+          const pool = L.draft.kind === 'league' ? L.draft.pool.filter(id => LG.affordable(L, tid, L.players[id]) && LG.canDraftPos(L, tid, L.players[id].p)) : L.draft.pool;
           LG.draftPick(L, tid, LG.cpuPickFor(L, tid, pool.length ? pool : L.draft.pool)); return { ok: true };
         }
         case 'trade': {

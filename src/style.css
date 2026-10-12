@@ -370,3 +370,34 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .awards li span { display: inline-block; min-width: 190px; }
 .awards li.me { color: var(--flag); }
 .awardrow { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* ---------- snake draft board ---------- */
+.sd { display: grid; gap: 12px; width: 100%; max-width: 1080px; margin: 0 auto; }
+.sd-head { gap: 10px; }
+.sd-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sd-top h2 { font-size: 18px; } .sd-top h2.turn { color: var(--flag); }
+.sd-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.capbar { display: grid; gap: 6px; } .capnums { display: flex; justify-content: space-between; font-family: var(--display); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--mute); }
+.capnums b { color: var(--good); }
+.capfill { height: 10px; background: var(--ink); border: 2px solid var(--line); } .capfill i { display: block; height: 100%; background: var(--flag); }
+.sd-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; align-items: start; }
+.sd-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.sd-tab { font-family: var(--display); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; padding: 8px 10px; background: var(--panel2); color: var(--chalk); border: 2px solid var(--line); border-radius: 2px; display: grid; gap: 2px; text-align: center; }
+.sd-tab i { font-style: normal; font-size: 9px; color: var(--mute); } .sd-tab.on { border-color: var(--flag); color: var(--flag); } .sd-tab.full { opacity: .55; }
+.sd-q { background: var(--ink); color: var(--chalk); border: 2px solid var(--line); border-radius: 6px; padding: 9px 10px; font: inherit; width: 100%; }
+.sd-list { display: grid; gap: 4px; max-height: 62vh; overflow: auto; }
+.sd-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px 8px; background: var(--panel2); border-left: 4px solid var(--line); }
+.sd-row.no { opacity: .55; }
+.sd-row.g-S, .sd-row.g-A { border-left-color: var(--flag); } .sd-row.g-B { border-left-color: var(--good); }
+.sd-ovr { font-family: var(--display); font-size: 18px; text-align: center; }
+.sd-nm { display: grid; min-width: 0; } .sd-nm b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
+.sd-nm span { color: var(--mute); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-sal { font-family: var(--display); font-size: 12px; color: var(--good); }
+.sd-side { display: grid; gap: 12px; }
+.sd-lu, .sd-recent { list-style: none; display: grid; gap: 4px; padding: 0; margin: 0; }
+.sd-lu li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; font-size: 15px; }
+.sd-lu li .k { font-family: var(--display); font-size: 10px; color: var(--mute); } .sd-lu li b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-lu li i { font-style: normal; font-family: var(--display); font-size: 12px; } .sd-lu li .m { font-size: 12px; color: var(--good); }
+.sd-lu li.empty { opacity: .45; } .sd-lu.small li { font-size: 13px; }
+.sd-recent li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; font-size: 14px; } .sd-recent i { color: var(--mute); font-style: normal; }
+@media (max-width: 800px) { .sd-body { grid-template-columns: 1fr; } .sd-list { max-height: 55vh; } .sd-row { grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 6px; } }

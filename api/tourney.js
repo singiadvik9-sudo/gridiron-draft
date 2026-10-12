@@ -3,6 +3,8 @@ const { putZ, getZ, cmd, getJ, setJ, parse, withLock, readBody, send, fail, clea
 const { createRoom, readRoom, rkey } = require('./_rooms');
 const E = require('../lib/engine.js');
 const LG = require('../lib/league.js');
+const DR = require('../lib/draft.js');
+const CAPVALS = Object.values(DR.CAPS);
 const key = c => 'gd:tn:' + c, skey = c => 'gd:tns:' + c;
 const bad = (msg, code) => { const e = new Error(msg); e.http = code || 400; throw e; };
 const num = (v, a, b, d) => { v = Math.round(+v); return isFinite(v) ? Math.max(a, Math.min(b, v)) : d; };
@@ -18,12 +20,28 @@ function cleanCfg(c, base0) {
   ['early', 'semi', 'final'].forEach(k => { if (c[k] != null) o[k] = BO.indexOf(+c[k]) >= 0 ? +c[k] : 1; });
   if (c.max != null) o.max = num(c.max, 2, 64, 16);
   if (c.open != null) o.open = !!c.open;
+  if (c.cap != null) o.cap = CAPVALS.includes(+c.cap) ? +c.cap : 0;
+  if (o.teamMode === 'draft' && o.max > 16) o.max = 16;
   return o;
 }
 function boList(cfg, rounds) {
   const a = [];
   for (let rd = 1; rd <= rounds; rd++) { const left = rounds - rd + 1; a.push(left === 1 ? cfg.final : left === 2 ? cfg.semi : cfg.early); }
   return a;
+}
+// drafting: doc.dr = { d, order:[entrant ids by team index] }; CPU entrants pick on their own
+function advanceDraft(doc) {
+  const dr = doc.dr; if (!dr) return;
+  const d = dr.d;
+  while (!DR.isDone(d)) {
+    const t = DR.onClock(d), e = entOf(doc, dr.order[t]);
+    if (e.kind !== 'cpu' && !e.auto) break;
+    DR.apply(d, t, DR.cpuPick(d, t, E.mulberry32(E.hashStr(doc.code + ':' + d.picks.length))));
+  }
+  if (DR.isDone(d)) {
+    dr.order.forEach((id, t) => { const e = entOf(doc, id); e.roster = DR.toRoster(DR.teamIds(d, t)); e.squad = E.squadFromRoster(e.roster); delete e.auto; });
+    doc.phase = 'setup'; doc.drafted = true;
+  }
 }
 function summary(doc) { return { code: doc.code, name: doc.cfg.name, mgr: doc.mgr, phase: doc.phase, n: doc.ent.length, mode: doc.cfg.teamMode, ver: doc.ver, champ: doc.champ != null ? (doc.ent.find(e => e.id === doc.champ) || {}).name : null }; }
 async function save(doc) { doc.ver = (doc.ver || 0) + 1; await putZ(key(doc.code), doc); await setJ(skey(doc.code), summary(doc)); }
@@ -142,10 +160,11 @@ module.exports = async function (req, res) {
           if (mine) return { ok: true };
           needSetup(); if (!doc.cfg.open && !mgr) bad('This tournament is closed.');
           if (doc.ent.length >= doc.cfg.max) bad('The tournament is full.');
+          if (doc.drafted && doc.cfg.teamMode === 'draft') bad('The draft is finished, so no new players can join.');
           doc.nid++; doc.ent.push({ id: 'e' + doc.nid, kind: 'human', owner: me, name: me });
           await addToUser(me, 'tn', code); return { ok: true };
         }
-        case 'cfg': { needMgr(); const nc = cleanCfg(b.cfg, doc.cfg); if (!setup) { nc.teamMode = doc.cfg.teamMode; nc.max = doc.cfg.max; } if (nc.teamMode !== doc.cfg.teamMode) { doc.ent.forEach(e => { delete e.squad; delete e.roster; delete e.abbr; if (e.kind === 'human') e.name = e.owner; }); } doc.cfg = nc; return { ok: true }; }
+        case 'cfg': { needMgr(); if (doc.phase === 'drafting') bad('The draft is in progress.'); const nc = cleanCfg(b.cfg, doc.cfg); if (!setup) { nc.teamMode = doc.cfg.teamMode; nc.max = doc.cfg.max; } if (nc.teamMode !== doc.cfg.teamMode) { doc.drafted = false; doc.ent.forEach(e => { delete e.squad; delete e.roster; delete e.abbr; if (e.kind === 'human') e.name = e.owner; }); } doc.cfg = nc; return { ok: true }; }
         case 'addcpu': {
           needMgr(); needSetup(); const n = num(b.n, 1, 63, 1);
           for (let i = 0; i < n && doc.ent.length < doc.cfg.max; i++) { doc.nid++; doc.ent.push({ id: 'e' + doc.nid, kind: 'cpu', name: CPU_NAMES[doc.nid % CPU_NAMES.length] + ' CPU ' + doc.nid }); }
@@ -161,10 +180,37 @@ module.exports = async function (req, res) {
           await withLock('user:' + me.toLowerCase(), async () => { const cu = await getJ(uKey(me)); cu.tn = (cu.tn || []).filter(x => x !== code); await setJ(uKey(me), cu); });
           return { ok: true };
         }
-        case 'team': {   // draft mode: submit a finished 7-player roster
-          needSetup(); if (!mine) bad('Join first.'); if (doc.cfg.teamMode !== 'draft') bad('This tournament uses NFL teams.');
-          if (!E.validRoster(b.roster)) bad('That roster is not valid.');
-          mine.roster = b.roster; mine.squad = E.squadFromRoster(b.roster); mine.name = clean(b.name, 18) || me; return { ok: true };
+        case 'team': {   // draft mode: set your team name once drafted
+          if (!mine) bad('Join first.'); mine.name = clean(b.name, 18) || mine.name; return { ok: true };
+        }
+        case 'startdraft': {
+          needMgr(); needSetup(); if (doc.cfg.teamMode !== 'draft') bad('This tournament uses NFL teams.');
+          if (doc.ent.length < 2) bad('You need at least 2 teams.'); if (doc.ent.length > 16) bad('Drafted tournaments hold up to 16 teams.');
+          const ids = doc.ent.map(e => e.id), r = E.mulberry32(Math.floor(Math.random() * 2147483647));
+          for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); const t = ids[i]; ids[i] = ids[j]; ids[j] = t; }
+          doc.ent.forEach(e => { delete e.squad; delete e.roster; delete e.auto; });
+          doc.dr = { d: DR.newDraft(ids.length, doc.cfg.cap || 0, 0), order: ids }; doc.phase = 'drafting'; doc.drafted = false;
+          advanceDraft(doc); return { ok: true };
+        }
+        case 'dpick': {
+          if (doc.phase !== 'drafting' || !doc.dr) bad('There is no draft running.'); if (!mine) bad('Join first.');
+          const t = doc.dr.order.indexOf(mine.id), id = clean(b.id, 8);
+          if (DR.onClock(doc.dr.d) !== t) bad('turn', 409); if (DR.taken(doc.dr.d)[id]) bad('taken', 409);
+          if (DR.legal(doc.dr.d, t, id)) bad('illegal', 409);
+          DR.apply(doc.dr.d, t, id); advanceDraft(doc); return { ok: true };
+        }
+        case 'dauto': {   // manager skips whoever is on the clock, or finishes the whole draft
+          needMgr(); if (doc.phase !== 'drafting' || !doc.dr) bad('There is no draft running.');
+          if (b.all) doc.ent.forEach(e => { e.auto = true; });
+          else { const e = entOf(doc, doc.dr.order[DR.onClock(doc.dr.d)]); if (e) { DR.apply(doc.dr.d, DR.onClock(doc.dr.d), DR.cpuPick(doc.dr.d, DR.onClock(doc.dr.d))); } }
+          advanceDraft(doc); return { ok: true };
+        }
+        case 'myauto': {   // draft automatically for me from now on
+          if (doc.phase !== 'drafting' || !mine) bad('bad_request'); mine.auto = !!b.on; advanceDraft(doc); return { ok: true };
+        }
+        case 'dcancel': {
+          needMgr(); if (doc.phase !== 'drafting') bad('bad_request');
+          doc.phase = 'setup'; doc.dr = null; doc.drafted = false; doc.ent.forEach(e => { delete e.squad; delete e.roster; delete e.auto; }); return { ok: true };
         }
         case 'pick': {   // nfl mode: choose a franchise
           needSetup(); if (!mine) bad('Join first.'); if (doc.cfg.teamMode !== 'nfl') bad('This tournament uses drafted teams.');
@@ -189,7 +235,7 @@ module.exports = async function (req, res) {
           needMgr(); needSetup();
           if (doc.ent.length < 2) bad('You need at least 2 teams.');
           const miss = doc.ent.filter(e => e.kind === 'human' && !e.squad);
-          if (miss.length) bad('Waiting for a team from: ' + miss.map(e => e.owner).join(', '));
+          if (miss.length) bad(doc.cfg.teamMode === 'draft' ? 'Run the draft first.' : 'Waiting for a team from: ' + miss.map(e => e.owner).join(', '));
           fillCpu(doc);
           const ids = doc.ent.map(e => e.id);
           doc.seeds = doc.seeds.length === ids.length && ids.every(i => doc.seeds.indexOf(i) >= 0) ? doc.seeds : ids;

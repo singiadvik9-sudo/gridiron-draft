@@ -1,5 +1,7 @@
 /* ---------- tournaments (accounts only) ---------- */
-const NEWT = { name: 'Gridiron Cup', teamMode: 'draft', early: 1, semi: 1, final: 1, max: 16, open: true };
+const NEWT = { name: 'Gridiron Cup', teamMode: 'draft', early: 1, semi: 1, final: 1, max: 16, open: true, cap: 0 };
+const CAPSEG = [[0, 'No cap'], [270, 'Tight $270M'], [300, 'Standard $300M'], [335, 'Loose $335M']];
+const maxSeg = mode => mode === 'draft' ? [[4, '4'], [8, '8'], [16, '16']] : [[8, '8'], [16, '16'], [32, '32'], [64, '64']];
 const TNS = { code: '', ver: 0, T: null, tname: '' };
 const BOS = [[1, 'Single game'], [3, 'Best of 3'], [5, 'Best of 5']];
 
@@ -14,14 +16,15 @@ V.tourneys = async () => {
 ACT['tn-open'] = t => go('tourney', { code: t.dataset.code });
 ACT['tn-new'] = () => go('tourneynew');
 V.tourneynew = () => {
-  const n = NEWT;
+  const n = NEWT; if (n.teamMode === 'draft' && n.max > 16) n.max = 16;
   setMain('<section class="panel narrow"><h2>Create a tournament</h2>' +
     '<label class="fld" for="nt-name">Name</label><input id="nt-name" type="text" maxlength="24" value="' + esc(n.name) + '">' +
-    '<label class="fld">Teams</label>' + seg('teamMode', n.teamMode, [['draft', 'Everyone drafts a team'], ['nfl', 'Pick a real NFL team']]) +
+    '<label class="fld">Teams</label>' + seg('teamMode', n.teamMode, [['draft', 'Snake draft from one shared pool'], ['nfl', 'Pick a real NFL team']]) +
+    (n.teamMode === 'draft' ? '<label class="fld">Salary cap</label>' + seg('cap', n.cap, CAPSEG) : '') +
     '<label class="fld">Early rounds</label>' + seg('early', n.early, BOS) +
     '<label class="fld">Semifinals</label>' + seg('semi', n.semi, BOS) +
     '<label class="fld">Final</label>' + seg('final', n.final, BOS) +
-    '<label class="fld">Maximum teams</label>' + seg('max', n.max, [[8, '8'], [16, '16'], [32, '32'], [64, '64']]) +
+    '<label class="fld">Maximum teams</label>' + seg('max', n.max, maxSeg(n.teamMode)) +
     '<label class="fld">Anyone with the code can join</label>' + seg('open', n.open, [[true, 'Yes'], [false, 'No, I add people']]) +
     '<div class="row"><button class="btn primary" data-h="tn-create">Create tournament</button><button class="btn ghost" data-h="tourneys">Cancel</button></div></section>');
   const nm = $('#nt-name'); nm.addEventListener('input', () => { n.name = nm.value; });
@@ -58,9 +61,10 @@ function tnRender() {
   const T = TNS.T, me = H.user, mgr = T.mgr === me, mine = T.ent.find(e => e.owner === me), c = T.cfg;
   const boTxt = n => n === 1 ? '1 game' : 'Bo' + n;
   let h = '<section class="panel"><div class="row between"><h2>' + esc(c.name) + '</h2><button class="btn small" data-h="copy" data-code="' + T.code + '">Code ' + T.code + ' · copy</button></div>' +
-    '<div class="chips"><span class="chip">' + ({ setup: 'Signing up', live: 'In progress', done: 'Finished' }[T.phase]) + '</span><span class="chip">' + (c.teamMode === 'nfl' ? 'Real NFL teams' : 'Drafted teams') + '</span><span class="chip">Early ' + boTxt(c.early) + '</span><span class="chip">Semis ' + boTxt(c.semi) + '</span><span class="chip">Final ' + boTxt(c.final) + '</span><span class="chip">Max ' + c.max + '</span></div>' +
+    '<div class="chips"><span class="chip">' + ({ setup: 'Signing up', drafting: 'Drafting', live: 'In progress', done: 'Finished' }[T.phase]) + '</span><span class="chip">' + (c.teamMode === 'nfl' ? 'Real NFL teams' : 'Snake draft' + (c.cap ? ' · $' + c.cap + 'M cap' : '')) + '</span><span class="chip">Early ' + boTxt(c.early) + '</span><span class="chip">Semis ' + boTxt(c.semi) + '</span><span class="chip">Final ' + boTxt(c.final) + '</span><span class="chip">Max ' + c.max + '</span></div>' +
     (T.phase === 'done' ? '<div class="champ">🏆 ' + entLabel(T, T.champ, me) + ' win the tournament</div>' : '') + '</section>';
-  if (T.phase === 'setup') h += tnSetup(T, me, mgr, mine);
+  if (T.phase === 'drafting') h += tnDraftPanel(T, me, mgr, mine);
+  else if (T.phase === 'setup') h += tnSetup(T, me, mgr, mine);
   else h += tnBracket(T, me, mgr, mine);
   h += '<section class="panel"><div class="row"><button class="btn" data-h="tourneys">All tournaments</button>' + (mgr ? '<button class="btn ghost" data-h="tn-del">Delete tournament</button>' : (T.phase === 'setup' && mine ? '<button class="btn ghost" data-h="tn-leave">Leave</button>' : '')) + '</div></section>';
   setMain(h);
@@ -71,8 +75,9 @@ function tnSetup(T, me, mgr, mine) {
   if (!mine) {
     h += '<section class="panel"><h3>Join the field</h3><p class="sub">' + (c.open || mgr ? 'Add yourself as a player.' : 'This tournament is closed. Ask the manager to add you.') + '</p>' + (c.open || mgr ? '<div class="row"><button class="btn primary" data-h="tn-join">Join as a player</button></div>' : '') + '</section>';
   } else if (c.teamMode === 'draft') {
-    h += '<section class="panel"><h3>Your team</h3>' + (mine.squad ? '<p class="sub">Drafted: QB ' + esc(mine.squad.qb.n) + ', HB ' + esc(mine.squad.hb.n) + ', WR ' + esc(mine.squad.wr[0].n) + ' &amp; ' + esc(mine.squad.wr[1].n) + ', TE ' + esc(mine.squad.te.n) + ', ' + esc(mine.squad.ol.tm) + ' line, ' + esc(mine.squad.df.tm) + ' defense. Rating ' + E.teamUnits({ squad: mine.squad }).ovrR + '.</p>' : '<p class="sub">Draft seven picks: QB, HB, two WRs, TE, an offensive line and a defense. The same draw every time, so a redraft does not reroll your luck.</p>') +
-      '<label class="fld" for="tn-tname">Team name</label><input id="tn-tname" type="text" maxlength="18" value="' + esc(TNS.tname || mine.name || me) + '"><div class="row"><button class="btn primary" data-h="tn-draft">' + (mine.squad ? 'Redraft my team' : 'Draft my team') + '</button></div></section>';
+    h += '<section class="panel"><h3>Your team</h3>' + (mine.squad ? '<p class="sub">Drafted: QB ' + esc(mine.squad.qb.n) + ', HB ' + esc(mine.squad.hb.n) + ', WR ' + esc(mine.squad.wr[0].n) + ' &amp; ' + esc(mine.squad.wr[1].n) + ', TE ' + esc(mine.squad.te.n) + ', ' + esc(mine.squad.ol.tm) + ' line, ' + esc(mine.squad.df.tm) + ' defense. Rating ' + E.teamUnits({ squad: mine.squad }).ovrR + '.</p>' +
+      '<label class="fld" for="tn-tname">Team name</label><div class="addrow"><input id="tn-tname" type="text" maxlength="18" value="' + esc(mine.name || me) + '"><button class="btn small" data-h="tn-rename">Rename</button></div>' :
+      '<p class="sub">' + (mgr ? 'When everyone has joined, start the draft below.' : 'The manager will start a snake draft once everyone has joined. Every player can only be on one team.') + '</p>') + '</section>';
   } else {
     const taken = {}; T.ent.forEach(e => { if (e.abbr && e !== mine) taken[e.abbr] = 1; });
     h += '<section class="panel"><h3>Your team</h3><p class="sub">' + (mine.squad ? 'You picked ' + esc(mine.name) + '.' : 'Choose a real NFL team.') + '</p><div class="addrow"><select id="tn-fr" aria-label="Team">' + E.TEAMS.map(t => '<option value="' + t.abbr + '"' + (taken[t.abbr] ? ' disabled' : '') + (mine.abbr === t.abbr ? ' selected' : '') + '>' + esc(t.city + ' ' + t.nick) + (taken[t.abbr] ? ' (taken)' : '') + '</option>').join('') + '</select><button class="btn primary" data-h="tn-pick">Choose</button></div></section>';
@@ -86,9 +91,10 @@ function tnSetup(T, me, mgr, mine) {
   if (mgr) {
     h += '<section class="panel"><h3>Settings</h3><div class="setgrid"><div><label class="fld">Teams</label>' + seg('teamMode', c.teamMode, [['draft', 'Drafted'], ['nfl', 'NFL teams']]) + '</div>' +
       '<div><label class="fld">Early rounds</label>' + seg('early', c.early, BOS) + '</div><div><label class="fld">Semifinals</label>' + seg('semi', c.semi, BOS) + '</div><div><label class="fld">Final</label>' + seg('final', c.final, BOS) + '</div>' +
-      '<div><label class="fld">Max teams</label>' + seg('max', c.max, [[8, '8'], [16, '16'], [32, '32'], [64, '64']]) + '</div><div><label class="fld">Open to anyone with the code</label>' + seg('open', c.open, [[true, 'Yes'], [false, 'No']]) + '</div></div>' +
+      '<div><label class="fld">Max teams</label>' + seg('max', c.max, maxSeg(c.teamMode)) + '</div><div><label class="fld">Open to anyone with the code</label>' + seg('open', c.open, [[true, 'Yes'], [false, 'No']]) + '</div></div>' +
+      (c.teamMode === 'draft' ? '<div><label class="fld">Salary cap</label>' + seg('cap', c.cap || 0, CAPSEG) + '</div>' : '') +
       (T.ent.length && T.ent.some(e => e.squad) ? '<p class="hint">Switching between drafted and NFL teams clears everyone\'s team choice.</p>' : '') +
-      '<div class="row"><button class="btn primary" data-h="tn-start">Start the tournament</button></div></section>';
+      '<div class="row">' + (c.teamMode === 'draft' ? '<button class="btn ' + (T.drafted ? '' : 'primary') + '" data-h="tn-sdraft">' + (T.drafted ? 'Redo the draft' : 'Start the draft') + '</button>' : '') + '<button class="btn primary" data-h="tn-start"' + (c.teamMode === 'draft' && !T.drafted ? ' disabled' : '') + '>Start the tournament</button></div></section>';
   }
   return h;
 }
@@ -109,14 +115,37 @@ ACT['tn-mv'] = t => {
   const x = ord[i]; ord[i] = ord[j]; ord[j] = x; tnOp('seeds', { order: ord });
 };
 ACT['tn-start'] = async () => { const r = await tnOp('start'); if (r) toast('The tournament has started.'); };
-ACT['tn-draft'] = () => {
-  const name = ($('#tn-tname') && $('#tn-tname').value.trim()) || H.user; TNS.tname = name;
-  const rnd = E.mulberry32(E.hashStr(TNS.code + ':' + H.user));
-  G.startDraftOnly({ rnd, onDone: async roster => {
-    const r = await run(() => call('tourney', { op: 'team', code: TNS.code, roster, name }));
-    G.exitToHub(); go('tourney', { code: TNS.code }); if (r) toast('Team locked in.');
-  } });
+ACT['tn-rename'] = () => tnOp('team', { name: $('#tn-tname').value });
+ACT['tn-sdraft'] = async () => {
+  if (TNS.T.drafted && !confirm('Throw out the current teams and draft again?')) return;
+  if (await tnOp('startdraft')) toast('The draft has started.');
 };
+ACT['tn-dskip'] = () => tnOp('dauto');
+ACT['tn-dall'] = () => { if (confirm('Auto-draft the rest of the board for everyone?')) tnOp('dauto', { all: true }); };
+ACT['tn-dcancel'] = () => { if (confirm('Cancel the draft?')) tnOp('dcancel'); };
+ACT['tn-board'] = () => {
+  const T = TNS.T, dr = T.dr, mine = T.ent.find(e => e.owner === H.user), code = TNS.code;
+  if (!dr || T.phase !== 'drafting') { toast('There is no draft running.'); return; }
+  const fetchD = async () => {
+    const r = await call('tourney', { op: 'get', code, ver: 0 }); TNS.T = r.T; TNS.ver = r.ver;
+    if (!r.T.dr || (r.T.phase === 'setup' && !r.T.drafted)) { G.exitToHub(); go('tourney', { code }); toast('The draft was canceled.'); return null; }
+    return r.T.dr.d;
+  };
+  G.startBoard({
+    label: c0(T), d: dr.d, me: mine ? dr.order.indexOf(mine.id) : 0, watch: !mine, names: dr.order.map(id => entName(T, id).name), poll: fetchD,
+    post: async cid => { await call('tourney', { op: 'dpick', code, id: cid }); return fetchD(); },
+    onDone: () => { G.exitToHub(); go('tourney', { code }); toast('Draft complete. Your team is set.'); }
+  });
+};
+const c0 = T => T.cfg.name + ' draft';
+function tnDraftPanel(T, me, mgr, mine) {
+  const dr = T.dr, d = dr.d, clock = DR.onClock(d);
+  const nm = t => esc(entName(T, dr.order[t]).name);
+  let h = '<section class="panel"><h3>The draft is live</h3><p class="sub">' + (DR.isDone(d) ? 'Finishing up…' : 'Pick ' + (d.picks.length + 1) + ' of ' + d.order.length + ' · on the clock: <b>' + nm(clock) + '</b>' + (entName(T, dr.order[clock]).owner === me ? ' (you)' : '')) + '</p>' +
+    '<ol class="ordlist">' + dr.order.map((id, t) => { const e = entName(T, id), n = DR.teamIds(d, t).length; return '<li><span class="seedn">' + (t + 1) + '</span><span class="nm">' + entLabel(T, id, me) + '</span><span class="sub">' + n + ' / 7 picks' + (d.cap ? ' · $' + Math.round(DR.spent(DR.teamIds(d, t))) + 'M' : '') + (e.auto ? ' · auto' : '') + '</span></li>'; }).join('') + '</ol>' +
+    '<div class="row">' + (mine ? '<button class="btn primary" data-h="tn-board">Open the draft board</button>' : '') + (mgr ? '<button class="btn small" data-h="tn-dskip">Auto-pick for whoever is on the clock</button><button class="btn small" data-h="tn-dall">Auto-draft everything left</button><button class="btn small ghost" data-h="tn-dcancel">Cancel draft</button>' : '') + '</div></section>';
+  return h;
+}
 
 /* bracket */
 function tnBracket(T, me, mgr, mine) {

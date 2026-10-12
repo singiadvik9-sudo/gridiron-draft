@@ -22,8 +22,8 @@ const PID = (() => {
 /* ---------- state ---------- */
 const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
-  draft: null, myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
-  poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, drawRnd: null, draftCb: null
+  myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
+  poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null
 };
 
 /* ---------- sprites ---------- */
@@ -344,7 +344,7 @@ const Field = {
 function renderHeader() {
   const el = $('#hdr-right'); if (!el) return;
   if (S.mode === 'lobby') { if (window.HUB) window.HUB.renderHeader(); else el.innerHTML = ''; return; }
-  const label = S.ctx ? S.ctx.label : S.mode === 'local' ? 'Practice' : S.mode === 'draftonly' ? 'Draft' : 'Room ' + S.code;
+  const label = S.ctx ? S.ctx.label : S.mode === 'local' ? 'Practice' : S.mode === 'sdraft' ? ((S.sd && S.sd.label) || 'Draft') : 'Room ' + S.code;
   el.innerHTML = '<span class="chip room">' + esc(label) + '</span><button class="btn small" data-act="leave">Leave</button>';
 }
 
@@ -352,9 +352,10 @@ function renderHeader() {
 /* ---------- lobby ---------- */
 function screenName() {
   if (S.mode === 'lobby') return 'lobby';
-  if (S.mode === 'draftonly') return 'draft';
+  if (S.mode === 'sdraft') return 'draft';
   if (S.ctx) return bothReady() ? 'game' : 'wait';
-  if (S.me && !validSeat(S.seats[S.me])) return 'draft';
+  if (S.sd && !DR.isDone(S.sd.d)) return 'draft';
+  if (S.mode === 'local' && S.me && !validSeat(S.seats[S.me])) return 'draft';
   if (!bothReady()) return 'wait';
   return 'game';
 }
@@ -371,14 +372,16 @@ function buildLobby() {
     '<div class="panel join-panel">' +
     '<label class="fld" for="team">Team name</label>' +
     '<input id="team" type="text" maxlength="18" autocomplete="off" placeholder="Your team name" value="' + esc(S.myName) + '">' +
+    '<label class="fld" for="cap">Salary cap</label>' +
+    '<select id="cap">' + CAP_OPTS.map(o => '<option value="' + o[0] + '"' + (o[0] === lsGet('gd_cap') ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
     '<div class="row"><button class="btn primary" data-act="create" id="b-create" disabled>Create room</button></div>' +
     '<div class="row joinrow"><input id="code" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="ROOM CODE" aria-label="Room code"><button class="btn" data-act="join" id="b-join" disabled>Join room</button></div>' +
     '<div class="or"><span>or</span></div>' +
     '<button class="btn" data-act="cpu" id="b-cpu">Practice vs CPU</button>' +
     '<p class="hint" id="access"></p></div>' +
     '<div class="panel how"><h2>How a game works</h2><ol>' +
-    '<li><b>Draft 7 slots.</b> Quarterback, running back, two receivers, tight end, an entire offensive line, and an entire defense. Each round deals three options from across the league. Pick one, or spend one of your two rerolls.</li>' +
-    '<li><b>Lock in.</b> Everyone drafts separately on their own device. When both rosters are locked, the game starts.</li>' +
+    '<li><b>Snake draft 7 slots.</b> Quarterback, running back, two receivers, tight end, an entire offensive line, and an entire defense. You and your opponent take turns from one shared pool (1-2-2-1…), and every player can only be on one team.</li>' +
+    '<li><b>Optional salary cap.</b> Every player and unit has a salary based on rating and position. QBs and pass rushers cost the most, running backs and safeties the least. Stay under the cap or the pick is blocked.</li>' +
     '<li><b>Call plays.</b> Offense and defense pick in secret at the same time. Pro-game ratings decide who wins the matchup.</li></ol>' +
     '<p class="hint">Ratings are Madden NFL 27 overalls for current starters. Unofficial fan project, no logos.</p></div>' +
     '</section>';
@@ -390,6 +393,11 @@ function updateLobbyHints() {
   if (!create) return;
   create.disabled = !S.api; join.disabled = !S.api;
   hint.textContent = !S.ready ? 'Connecting…' : S.api ? 'Create a room and send the code to a friend.' : 'Online rooms are unavailable right now. Practice vs CPU still works.';
+}
+const CAP_OPTS = [['0', 'No cap'], ['tight', 'Tight · $270M'], ['standard', 'Standard · $300M'], ['loose', 'Loose · $335M']];
+function readCap() {
+  const el = $('#cap'), v = el ? el.value : (lsGet('gd_cap') || '0');
+  lsSet('gd_cap', v); return DR.CAPS[v] || 0;
 }
 function readName() {
   const v = ($('#team') && $('#team').value || '').trim().slice(0, 18);
@@ -411,15 +419,15 @@ async function api(body, ep) {
 function resetForMode() {
   stopPoll();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
-  S.cpuSides = []; S.ctx = null; S.drawRnd = null; S.draftCb = null; S.draft = newDraft(); S.screen = null; Field.queue = []; Field.busy = false; Field.scene = null;
+  S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; Field.scene = null;
 }
 function startLocal() {
   readName();
   resetForMode();
   S.mode = 'local'; S.code = null; S.me = 'a'; S.cpuSides = ['b']; S.seed = Math.floor(Math.random() * 2147483647);
-  S.seats.b = { pid: 'cpu', name: 'CPU Squad', status: 'ready', roster: E.autoDraft() };
-  beginPicks();
-  render();
+  const cap = readCap(), first = Math.random() < 0.5 ? 0 : 1;
+  sdStart({ label: 'Practice', d: DR.newDraft(2, cap, first), me: 0, names: [S.myName, 'CPU Squad'], cpu: [false, true], localCpu: true });
+  render(); sdStep();
 }
 function setBusy(b) {
   ['b-create', 'b-join', 'b-cpu'].forEach(id => { const el = $('#' + id); if (el) el.disabled = b || (id !== 'b-cpu' && !S.api); });
@@ -428,7 +436,7 @@ async function createRoom() {
   if (S.busy) return;
   const name = readName(); S.busy = true; setBusy(true);
   try {
-    const r = await api({ op: 'create', pid: PID, name });
+    const r = await api({ op: 'create', pid: PID, name, cap: readCap() });
     enterRoom(r.code, r.seed, 'a');
   } catch (e) { handleErr(e); }
   finally { S.busy = false; setBusy(false); }
@@ -453,7 +461,6 @@ function enterRoom(code, seed, seat) {
   resetForMode();
   S.mode = 'online'; S.code = code; S.seed = seed; S.me = seat;
   ssSet('gd_room', code);
-  if (seat) beginPicks();
   startPoll();
   render();
 }
@@ -470,7 +477,7 @@ function startPoll() {
         S.seats = r.seats || {};
         const o = {};
         ['a', 'b'].forEach(s => { const m = (r.moves && r.moves[s]) || {}; for (const n in m) o[n + '-' + s] = { pick: m[n] }; });
-        S.moves = o; render();
+        S.moves = o; sdOnline(r); render();
       }
     } catch (e) { /* transient: keep polling */ }
     if (S.mode === 'online') S.poll = setTimeout(tick, S.screen === 'game' ? 700 : 1200);
@@ -480,90 +487,158 @@ function startPoll() {
 function stopPoll() { if (S.poll) { clearTimeout(S.poll); S.poll = null; } }
 function leave() {
   stopPoll(); ssSet('gd_room', null);
-  S.mode = 'lobby'; S.code = null; S.me = null; resetForMode(); S.draft = null;
+  S.mode = 'lobby'; S.code = null; S.me = null; resetForMode();
   render();
 }
 
-/* ---------- draft ---------- */
-function newDraft() { return { phase: 'pick', idx: 0, picks: [], rerolls: 2, opts: [] }; }
-function beginPicks() {
-  const D2 = S.draft = newDraft();
-  D2.opts = E.drawOptions([], 0, S.drawRnd);
-  S.screen = null;
+/* ---------- snake draft ---------- */
+const money = x => '$' + (Math.round(x * 10) / 10) + 'M';
+const KLAB = { QB: 'QB', HB: 'HB', WR: 'WR', TE: 'TE', OL: 'O-Line', DEF: 'Defense' };
+const SLOT_ORDER = ['QB', 'HB', 'WR', 'WR', 'TE', 'OL', 'DEF'];
+// o: {label, d, me, names[], cpu[] (local CPU teams), localCpu, post(cid)->draft, poll()->draft, onDone(roster, draft)}
+function sdStart(o) {
+  sdStop();
+  S.sd = Object.assign({ tab: null, q: '', auto: false, cpu: [], names: [], me: 0, busy: false, timer: 0, pollT: 0, built: false }, o);
+  sdFixTab(); S.screen = null;
 }
-function avgOvr(D2) {
-  if (!D2.picks.length) return null;
-  let t = 0; D2.picks.forEach((id, i) => { t += E.ovrOf(i, id); });
-  return Math.round(t / D2.picks.length);
+function sdStop() {
+  const sd = S.sd; if (!sd) return;
+  if (sd.timer) clearTimeout(sd.timer); if (sd.pollT) clearTimeout(sd.pollT);
+  sd.timer = 0; sd.pollT = 0; S.sd = null;
 }
-function oppChipHTML() {
-  const o = S.seats[other(S.me || 'a')];
-  if (S.mode !== 'online') return '';
-  if (!o) return '<span class="chip">Waiting for a friend to join</span>';
-  return '<span class="chip ' + (o.status === 'ready' ? 'ok' : '') + '">' + esc(o.name || 'Opponent') + (o.status === 'ready' ? ' is ready' : ' is drafting') + '</span>';
+function sdFixTab() {
+  const sd = S.sd; if (!sd) return;
+  const left = DR.openKinds(DR.teamIds(sd.d, sd.me));
+  if (!sd.tab || left[sd.tab] <= 0) sd.tab = DR.KINDS.find(k => left[k] > 0) || sd.tab || 'QB';
 }
-function updateDraftChip() { const el = $('#oppchip'); if (el) el.innerHTML = oppChipHTML(); }
-function drawDraft() {
-  const D2 = S.draft, m = $('#main');
-  if (!D2) return;
-  if (D2.phase === 'pick') {
-    const slot = E.SLOTS[D2.idx], f = avgOvr(D2);
-    let strip = '';
-    E.SLOTS.forEach((s, i) => {
-      const done = i < D2.picks.length;
-      strip += '<div class="slot' + (i === D2.idx ? ' cur' : '') + (done ? ' done' : '') + '" title="' + esc(s.label) + '"><span class="s-lbl">' + s.short + '</span>' +
-        (done ? spCanvas(slotKey(i, D2.picks[i]), 2) : '<span class="empty"></span>') + '</div>';
-    });
-    m.innerHTML = '<section class="draft">' +
-      '<div class="dr-head"><div class="dr-round"><span class="eyebrow">Round</span><b>' + (D2.idx + 1) + '</b><span class="of">/ ' + E.SLOTS.length + '</span></div>' +
-      '<div class="dr-title"><span class="pos-tag">' + slot.short + '</span><h2>' + slot.label + '</h2></div>' +
-      '<div class="dr-ovr"><span class="eyebrow">Avg OVR</span><b>' + (f == null ? '--' : f) + '</b></div></div>' +
-      '<div class="cards">' + D2.opts.map((id, i) => cardHTML(id, i, D2.idx)).join('') + '</div>' +
-      '<div class="dr-actions"><button class="btn" data-act="reroll"' + (D2.rerolls < 1 ? ' disabled' : '') + '>Reroll · ' + D2.rerolls + '</button>' +
-      '<span class="keys">1 2 3 pick · R reroll</span><button class="btn ghost" data-act="auto">Auto-pick the rest</button><span id="oppchip">' + oppChipHTML() + '</span></div>' +
-      '<div class="strip">' + strip + '</div></section>';
-    paintCanvases(m);
+function sdSet(nd) {
+  const sd = S.sd; if (!sd || !nd || nd.picks.length < sd.d.picks.length) return false;
+  const ch = nd.picks.length !== sd.d.picks.length; sd.d = nd; return ch;
+}
+function sdSub(c) {
+  const D = E.DATA, last = n => String(n).split(' ').slice(-1)[0];
+  if (c.k === 'OL') return D.OLU[c.n].players.map(p => last(p[0]) + ' ' + p[1]).join(' · ');
+  if (c.k === 'DEF') return D.DFU[c.n].players.slice().sort((x, y) => y[3] - x[3]).slice(0, 4).map(p => last(p[2]) + ' ' + p[3]).join(' · ');
+  return '';
+}
+function sdShell() {
+  $('#main').innerHTML = '<section class="sd"><div class="sd-head panel" id="sd-head"></div><div class="sd-body"><div class="sd-main panel">' +
+    '<div class="sd-tabs" id="sd-tabs"></div><input id="sd-q" class="sd-q" type="search" autocomplete="off" placeholder="Search players or teams" aria-label="Search"><div class="sd-list" id="sd-list"></div></div>' +
+    '<aside class="sd-side"><div class="panel" id="sd-lineup"></div><div class="panel" id="sd-log"></div></aside></div></section>';
+  $('#sd-q').value = S.sd.q;
+  S.sd.built = true;
+}
+function sdSlots(ids) {
+  const used = {}, out = [];
+  SLOT_ORDER.forEach(k => {
+    const id = ids.find(i => DR.BY[i].k === k && !used[i]);
+    if (id) used[id] = 1; out.push({ k, c: id ? DR.BY[id] : null });
+  });
+  return out;
+}
+function sdUpdate() {
+  const sd = S.sd; if (!sd) return;
+  if (!sd.built || !$('#sd-head')) sdShell();
+  sdFixTab();
+  const d = sd.d, done = DR.isDone(d), clock = done ? null : DR.onClock(d), mine = DR.teamIds(d, sd.me), myTurn = clock === sd.me && !sd.watch;
+  const nm = t => sd.names[t] || 'Team ' + (t + 1);
+  const status = done ? 'Draft complete' : myTurn ? 'You are on the clock' : 'Waiting for ' + nm(clock);
+  let cap = '<span class="chip">No salary cap</span>';
+  if (d.cap) {
+    const sp = DR.spent(mine), pct = Math.min(100, sp / d.cap * 100);
+    cap = '<div class="capbar"><div class="capnums"><span>Salary cap ' + money(d.cap) + '</span><b>' + money(d.cap - sp) + ' left</b></div><div class="capfill"><i style="width:' + pct + '%"></i></div></div>';
+  }
+  $('#sd-head').innerHTML = '<div class="sd-top"><div><span class="eyebrow">' + esc(sd.label || 'Snake draft') + ' · Pick ' + Math.min(d.picks.length + 1, d.order.length) + ' of ' + d.order.length + '</span><h2 class="' + (myTurn ? 'turn' : '') + '">' + esc(status) + '</h2></div>' +
+    '<div class="sd-btns"><button class="btn small" data-act="sd-best"' + (myTurn && !sd.busy ? '' : ' disabled') + '>Pick for me</button><button class="btn small ' + (sd.auto ? 'primary' : 'ghost') + '" data-act="sd-auto">Auto-draft: ' + (sd.auto ? 'on' : 'off') + '</button></div></div>' + cap;
+  const left = DR.openKinds(mine);
+  $('#sd-tabs').innerHTML = DR.KINDS.map(k => '<button class="sd-tab' + (sd.tab === k ? ' on' : '') + (left[k] <= 0 ? ' full' : '') + '" data-act="sd-tab" data-k="' + k + '">' + KLAB[k] + '<i>' + (left[k] > 0 ? left[k] + ' to go' : '✓') + '</i></button>').join('');
+  sdList();
+  const slots = sdSlots(mine);
+  $('#sd-lineup').innerHTML = '<h3>' + esc(nm(sd.me)) + (d.cap ? ' · ' + money(DR.spent(mine)) : '') + '</h3><ul class="sd-lu">' + slots.map(x => x.c ?
+    '<li><span class="k">' + x.k + '</span><b>' + esc(x.c.name) + '</b><i>' + x.c.ovr + '</i><span class="m">' + money(x.c.sal) + '</span></li>' :
+    '<li class="empty"><span class="k">' + x.k + '</span><b>—</b></li>').join('') + '</ul>';
+  const recent = d.picks.slice(-10).reverse();
+  let others = '';
+  if (d.n === 2) {
+    const t = 1 - sd.me, os = sdSlots(DR.teamIds(d, t));
+    others = '<h3>' + esc(nm(t)) + (d.cap ? ' · ' + money(DR.spent(DR.teamIds(d, t))) : '') + '</h3><ul class="sd-lu small">' + os.map(x => x.c ? '<li><span class="k">' + x.k + '</span><b>' + esc(x.c.name) + '</b><i>' + x.c.ovr + '</i></li>' : '<li class="empty"><span class="k">' + x.k + '</span><b>—</b></li>').join('') + '</ul>';
+  } else {
+    others = '<h3>Recent picks</h3><ol class="sd-recent">' + (recent.map(p => '<li><span>#' + p.n + '</span><b>' + esc(DR.BY[p.id].name) + '</b><i>' + esc(nm(p.t)) + '</i></li>').join('') || '<li><i>None yet</i></li>') + '</ol>';
+  }
+  $('#sd-log').innerHTML = others;
+}
+function sdList() {
+  const sd = S.sd, d = sd.d, done = DR.isDone(d), myTurn = !done && DR.onClock(d) === sd.me;
+  const tk = DR.taken(d), q = sd.q.trim().toLowerCase(), left = DR.openKinds(DR.teamIds(d, sd.me));
+  let rows = DR.CANDS.filter(c => c.k === sd.tab && !tk[c.id] && (!q || (c.name + ' ' + c.tm).toLowerCase().includes(q))).sort((a, b) => b.ovr - a.ovr || a.sal - b.sal);
+  const total = rows.length; rows = rows.slice(0, 70);
+  const cap = !!d.cap;
+  let h = rows.map(c => {
+    let why = '';
+    if (left[c.k] <= 0) why = 'Filled'; else if (myTurn) { const e = DR.legal(d, sd.me, c.id); if (e) why = cap && /cap/.test(e) ? 'Over cap' : 'No'; }
+    const g = E.grade(c.ovr);
+    return '<div class="sd-row g-' + g + (why ? ' no' : '') + '"><b class="sd-ovr">' + c.ovr + '</b><div class="sd-nm"><b>' + esc(c.name) + '</b><span>' + esc(c.tm || '') + (sdSub(c) ? ' · ' + esc(sdSub(c)) : '') + '</span></div>' +
+      '<span class="sd-sal">' + money(c.sal) + '</span><button class="btn small primary" data-act="sd-pick" data-id="' + c.id + '"' + (myTurn && !why && !sd.busy ? '' : ' disabled') + '>' + (why || 'Draft') + '</button></div>';
+  }).join('');
+  if (!rows.length) h = '<p class="hint">Nobody matches.</p>';
+  else if (total > rows.length) h += '<p class="hint">Showing the top ' + rows.length + ' of ' + total + '. Search to find more.</p>';
+  const el = $('#sd-list'); if (el) el.innerHTML = h;
+}
+async function sdPick(cid) {
+  const sd = S.sd; if (!sd || sd.busy) return;
+  const err = DR.legal(sd.d, sd.me, cid); if (err) { toast(err); return; }
+  sd.busy = true; sdUpdate();
+  try {
+    if (sd.post) sdSet(await sd.post(cid)); else DR.apply(sd.d, sd.me, cid);
+  } catch (e) { toast(e.code === 'illegal' || e.code === 'taken' ? 'That pick is not available. The board has been refreshed.' : e.code === 'turn' ? 'It is not your turn yet.' : 'Could not draft that player. Try again.'); if (sd.poll) { try { sdSet(await sd.poll()); } catch (e2) {} } }
+  if (S.sd !== sd) return;
+  sd.busy = false; sdAfter();
+}
+function sdBest() { const sd = S.sd; if (!sd || DR.isDone(sd.d) || DR.onClock(sd.d) !== sd.me) return; sdPick(DR.cpuPick(sd.d, sd.me)); }
+function sdAfter() {
+  const sd = S.sd; if (!sd) return;
+  if (DR.isDone(sd.d)) { sdFinish(); return; }
+  if (S.screen === 'draft') sdUpdate(); else render();
+  sdStep();
+}
+function sdStep() {
+  const sd = S.sd; if (!sd || DR.isDone(sd.d) || sd.timer) return;
+  const t = DR.onClock(sd.d);
+  if (sd.localCpu && sd.cpu[t]) {
+    sd.timer = setTimeout(() => { sd.timer = 0; if (S.sd !== sd || DR.isDone(sd.d) || DR.onClock(sd.d) !== t) return; DR.apply(sd.d, t, DR.cpuPick(sd.d, t)); sdAfter(); }, 650);
+  } else if (sd.auto && t === sd.me && !sd.busy) {
+    sd.timer = setTimeout(() => { sd.timer = 0; if (S.sd === sd && DR.onClock(sd.d) === sd.me) sdPick(DR.cpuPick(sd.d, sd.me)); }, 450);
+  }
+}
+function sdPollLoop() {
+  const sd = S.sd; if (!sd || !sd.poll) return;
+  sd.pollT = setTimeout(async () => {
+    sd.pollT = 0; if (S.sd !== sd) return;
+    try { if (!sd.busy) { const ch = sdSet(await sd.poll()); if (ch) { sdAfter(); if (S.sd !== sd) return; } } } catch (e) {}
+    if (S.sd === sd) sdPollLoop();
+  }, 1500);
+}
+function sdFinish() {
+  const sd = S.sd; if (!sd) return;
+  if (sd.timer) { clearTimeout(sd.timer); sd.timer = 0; }
+  if (sd.pollT) { clearTimeout(sd.pollT); sd.pollT = 0; }
+  if (S.mode === 'local' && sd.localCpu) {
+    ['a', 'b'].forEach((seat, t) => { S.seats[seat] = { pid: t === sd.me ? PID : 'cpu', name: sd.names[t], status: 'ready', roster: DR.toRoster(DR.teamIds(sd.d, t)) }; });
+    S.sd = null; S.screen = null; render(); return;
+  }
+  if (S.mode === 'sdraft') {
+    const cb = sd.onDone, roster = DR.toRoster(DR.teamIds(sd.d, sd.me)), d = sd.d;
+    if (cb) cb(roster, d); else sdUpdate();
     return;
   }
-  const teamObj = { name: S.myName || 'My team', roster: D2.picks, squad: E.squadFromRoster(D2.picks) };
-  const U = E.teamUnits(teamObj);
-  m.innerHTML = '<section class="panel review"><h2>Your lineup is set</h2>' +
-    '<div class="ratings"><div><span class="eyebrow">Offense</span><b>' + U.offR + '</b></div><div><span class="eyebrow">Defense</span><b>' + U.defR + '</b></div><div><span class="eyebrow">Overall</span><b>' + U.ovrR + '</b></div></div>' +
-    rosterListHTML(teamObj) +
-    '<div class="row"><button class="btn primary" data-act="lock">' + (S.mode === 'local' ? 'Kick off' : S.mode === 'draftonly' ? 'Use this team' : 'Lock roster') + '</button></div></section>';
-  paintCanvases(m);
+  sdUpdate(); render();
 }
-function pickOpt(i) {
-  const D2 = S.draft; if (!D2 || D2.phase !== 'pick') return;
-  if (D2.opts[i] == null) return;
-  D2.picks.push(D2.opts[i]); D2.idx++;
-  if (D2.idx >= E.SLOTS.length) D2.phase = 'review';
-  else D2.opts = E.drawOptions(D2.picks, D2.idx, S.drawRnd);
-  drawDraft();
-}
-function rerollOpts() {
-  const D2 = S.draft; if (!D2 || D2.phase !== 'pick' || D2.rerolls < 1) return;
-  D2.rerolls--; D2.opts = E.drawOptions(D2.picks, D2.idx, S.drawRnd); drawDraft();
-}
-function autoRest() {
-  const D2 = S.draft; if (!D2 || D2.phase !== 'pick') return;
-  while (D2.idx < E.SLOTS.length) {
-    const opts = E.drawOptions(D2.picks, D2.idx, S.drawRnd);
-    opts.sort((a, b) => E.ovrOf(D2.idx, b) - E.ovrOf(D2.idx, a));
-    D2.picks.push(opts[0]); D2.idx++;
-  }
-  D2.phase = 'review'; drawDraft();
-}
-async function lockRoster() {
-  const D2 = S.draft; if (!D2 || D2.phase !== 'review') return;
-  if (S.mode === 'draftonly') { const cb = S.draftCb; if (cb) cb(D2.picks.slice()); return; }
-  const doc = { pid: PID, name: readName(), status: 'ready', roster: D2.picks.slice() };
-  S.seats[S.me] = doc;
-  if (S.mode === 'online') {
-    try { await api({ op: 'seat', code: S.code, seat: S.me, pid: PID, doc }); }
-    catch (e) { delete S.seats[S.me]; handleErr(e); }
-  }
-  render();
+function sdOnline(r) {   // a poll result from the quick room
+  if (!r.dr) { if (S.sd) sdStop(); return; }
+  const me = S.me === 'a' ? 0 : S.me === 'b' ? 1 : -1;
+  const names = [(r.seats.a || {}).name || 'Team A', (r.seats.b || {}).name || 'Team B'];
+  if (!S.sd) { sdStart({ label: 'Room ' + S.code, d: r.dr, me: Math.max(0, me), names, watch: me < 0, post: cid => api({ op: 'pick', code: S.code, seat: S.me, pid: PID, id: cid }).then(x => x.dr) }); sdStep(); }
+  else { S.sd.names = names; if (sdSet(r.dr)) { if (DR.isDone(S.sd.d)) sdFinish(); else sdStep(); } }
 }
 
 /* ---------- roster list + modals ---------- */
@@ -626,12 +701,12 @@ function drawWait() {
   const m = $('#main');
   const mk = seat => {
     const d = S.seats[seat];
-    return '<li class="' + (validSeat(d) ? 'ok' : '') + '"><span class="dot" style="background:' + TEAM_COL[seat] + '"></span><b>' + esc(d ? d.name || 'Team' : 'Open seat') + '</b><span>' + (!d ? 'Waiting for a friend' : validSeat(d) ? 'Roster locked' : 'Drafting') + '</span></li>';
+    return '<li class="' + (validSeat(d) ? 'ok' : '') + '"><span class="dot" style="background:' + TEAM_COL[seat] + '"></span><b>' + esc(d ? d.name || 'Team' : 'Open seat') + '</b><span>' + (!d ? 'Waiting for a friend' : validSeat(d) ? 'Roster locked' : 'Joined') + '</span></li>';
   };
   m.innerHTML = '<section class="panel wait"><span class="eyebrow">Room code</span><div class="bigcode">' + esc(S.code) + '</div>' +
     (S.ctx ? '<p class="sub">Waiting for the game to load…</p>' : '<p class="sub">Send this code to your friend. They open this page and press Join room.</p><div class="row"><button class="btn" data-act="copy">Copy code</button></div>') +
     '<ul class="seats">' + mk('a') + mk('b') + '</ul>' +
-    '<p class="hint">' + (S.me ? 'Your roster is locked. The game starts when both teams are ready.' : 'You are watching this room.') + '</p></section>';
+    '<p class="hint">' + (S.me ? (validSeat(S.seats[S.me]) ? 'Your roster is locked. The game starts when both teams are ready.' : 'The snake draft begins as soon as your friend joins.') : 'You are watching this room.') + '</p></section>';
 }
 
 /* ---------- game screen ---------- */
@@ -754,21 +829,21 @@ function startCtxCpu(info, ctx) {   // info: {T, seed, side, cpuSide}
   S.mode = 'local'; S.code = null; S.me = info.side; S.cpuSides = info.cpuSide ? [info.cpuSide] : []; S.seed = info.seed;
   S.seats.a = { status: 'ready', name: info.T.a.name, squad: info.T.a.squad }; S.seats.b = { status: 'ready', name: info.T.b.name, squad: info.T.b.squad };
   S.ctx = Object.assign({ kind: 'cpu', label: 'Game', sent: false, status: '' }, ctx);
-  S.draft = null; render();
+  render();
 }
 function startCtxRoom(info, ctx) {  // info: {room, seed, side}
   resetForMode();
   S.mode = 'online'; S.code = info.room; S.seed = info.seed; S.me = info.side;
   S.ctx = Object.assign({ kind: 'room', label: 'Live game', sent: false, status: '' }, ctx);
-  S.draft = null; startPoll(); render();
+  startPoll(); render();
 }
-function startDraftOnly(opts) {   // opts: {rnd, onDone(roster), label}
+function startBoard(o) {   // hub-driven snake draft (tournaments): {label, d, me, names, post, poll, onDone}
   resetForMode();
-  S.mode = 'draftonly'; S.me = 'a'; S.drawRnd = opts.rnd || null; S.draftCb = opts.onDone;
-  beginPicks(); render();
+  S.mode = 'sdraft'; S.me = null;
+  sdStart(o); sdPollLoop(); render(); sdStep();
 }
 function exitToHub() { leave(); }
-window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startDraftOnly, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S };
+window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S };
 
 /* ---------- router ---------- */
 function render() {
@@ -776,7 +851,7 @@ function render() {
   S.screen = sc;
   renderHeader();
   if (sc === 'lobby') { if (changed) { if (window.HUB) window.HUB.show(); else buildLobby(); } }
-  else if (sc === 'draft') { if (changed) drawDraft(); else updateDraftChip(); }
+  else if (sc === 'draft') { if (changed) { S.sd && (S.sd.built = false); sdUpdate(); } else sdUpdate(); }
   else if (sc === 'wait') drawWait();
   else { if (changed) buildGame(); updateGame(); }
 }
@@ -791,10 +866,10 @@ document.addEventListener('click', ev => {
   else if (a === 'leave') leave();
   else if (a === 'ctx-done') { const c = S.ctx; leave(); if (c && c.onDone) c.onDone(); }
   else if (a === 'ctx-retry') { const c = S.ctx; if (c) { c.sent = false; ctxFinish(S.G); renderCall(S.G); } }
-  else if (a === 'pick') pickOpt(+t.dataset.i);
-  else if (a === 'reroll') rerollOpts();
-  else if (a === 'auto') autoRest();
-  else if (a === 'lock') lockRoster();
+  else if (a === 'sd-pick') sdPick(t.dataset.id);
+  else if (a === 'sd-best') sdBest();
+  else if (a === 'sd-auto') { const sd = S.sd; if (sd) { sd.auto = !sd.auto; sdUpdate(); sdStep(); } }
+  else if (a === 'sd-tab') { const sd = S.sd; if (sd) { sd.tab = t.dataset.k; sdUpdate(); } }
   else if (a === 'copy') { const done = () => toast('Room code copied.'); try { navigator.clipboard.writeText(S.code).then(done, () => toast('Copy failed. Select the code and copy it.')); } catch (e) { toast('Copy failed. Select the code and copy it.'); } }
   else if (a === 'call') submitCall(t.dataset.id);
   else if (a === 'rosters') showRosters();
@@ -807,15 +882,13 @@ document.addEventListener('keydown', ev => {
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   if (ev.key === 'Escape') { closeModal(); return; }
   const m = $('#modal'); if (m && !m.hidden) return;
-  if (S.screen === 'draft' && S.draft && S.draft.phase === 'pick') {
-    if (ev.key >= '1' && ev.key <= '3') pickOpt(+ev.key - 1);
-    else if (ev.key === 'r' || ev.key === 'R') rerollOpts();
-  } else if (S.screen === 'game' && /^[1-9]$/.test(ev.key)) {
+  if (S.screen === 'game' && /^[1-9]$/.test(ev.key)) {
     const btns = document.querySelectorAll('#callpanel .call:not([disabled])');
     const b = btns[+ev.key - 1]; if (b) submitCall(b.dataset.id);
   }
 });
 document.addEventListener('input', ev => {
+  if (ev.target && ev.target.id === 'sd-q' && S.sd) { S.sd.q = ev.target.value; sdList(); return; }
   if (ev.target && ev.target.id === 'code') ev.target.value = ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
 });
 

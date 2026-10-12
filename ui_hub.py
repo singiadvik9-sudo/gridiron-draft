@@ -20,8 +20,11 @@ with sync_playwright() as p:
     pg.screenshot(path='shots/home.png')
     # quick practice via menu
     pg.click('[data-h=quick]'); pg.wait_for_timeout(200)
-    pg.fill('#team','Hog'); pg.click('#b-cpu'); pg.wait_for_timeout(200)
-    pg.click('[data-act=auto]'); pg.click('[data-act=lock]'); pg.wait_for_timeout(300)
+    pg.fill('#team','Hog'); pg.select_option('#cap','standard'); pg.click('#b-cpu'); pg.wait_for_selector('.sd'); pg.screenshot(path='shots/sd_start.png',full_page=True)
+    print('cap bar:', pg.inner_text('.capnums').replace('\n',' '), '| rows', len(pg.query_selector_all('.sd-row')))
+    dr=pg.query_selector('.sd-row:not(.no) [data-act=sd-pick]:not([disabled])')
+    if dr: dr.click(); pg.wait_for_timeout(150)
+    pg.click('[data-act=sd-auto]'); pg.wait_for_selector('.game',timeout=20000)
     n=play_game(pg); print('quick game iters',n, pg.inner_text('#sb-as'),'-',pg.inner_text('#sb-bs'))
     pg.click('[data-act=leave]'); pg.wait_for_timeout(200)
     print('back at home:', bool(pg.query_selector('.tiles')))

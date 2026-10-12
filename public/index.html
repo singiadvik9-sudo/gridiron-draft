@@ -376,6 +376,37 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .awards li.me { color: var(--flag); }
 .awardrow { display: flex; flex-wrap: wrap; gap: 4px; }
 
+/* ---------- snake draft board ---------- */
+.sd { display: grid; gap: 12px; width: 100%; max-width: 1080px; margin: 0 auto; }
+.sd-head { gap: 10px; }
+.sd-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sd-top h2 { font-size: 18px; } .sd-top h2.turn { color: var(--flag); }
+.sd-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.capbar { display: grid; gap: 6px; } .capnums { display: flex; justify-content: space-between; font-family: var(--display); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--mute); }
+.capnums b { color: var(--good); }
+.capfill { height: 10px; background: var(--ink); border: 2px solid var(--line); } .capfill i { display: block; height: 100%; background: var(--flag); }
+.sd-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; align-items: start; }
+.sd-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.sd-tab { font-family: var(--display); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; padding: 8px 10px; background: var(--panel2); color: var(--chalk); border: 2px solid var(--line); border-radius: 2px; display: grid; gap: 2px; text-align: center; }
+.sd-tab i { font-style: normal; font-size: 9px; color: var(--mute); } .sd-tab.on { border-color: var(--flag); color: var(--flag); } .sd-tab.full { opacity: .55; }
+.sd-q { background: var(--ink); color: var(--chalk); border: 2px solid var(--line); border-radius: 6px; padding: 9px 10px; font: inherit; width: 100%; }
+.sd-list { display: grid; gap: 4px; max-height: 62vh; overflow: auto; }
+.sd-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px 8px; background: var(--panel2); border-left: 4px solid var(--line); }
+.sd-row.no { opacity: .55; }
+.sd-row.g-S, .sd-row.g-A { border-left-color: var(--flag); } .sd-row.g-B { border-left-color: var(--good); }
+.sd-ovr { font-family: var(--display); font-size: 18px; text-align: center; }
+.sd-nm { display: grid; min-width: 0; } .sd-nm b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; }
+.sd-nm span { color: var(--mute); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-sal { font-family: var(--display); font-size: 12px; color: var(--good); }
+.sd-side { display: grid; gap: 12px; }
+.sd-lu, .sd-recent { list-style: none; display: grid; gap: 4px; padding: 0; margin: 0; }
+.sd-lu li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; font-size: 15px; }
+.sd-lu li .k { font-family: var(--display); font-size: 10px; color: var(--mute); } .sd-lu li b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-lu li i { font-style: normal; font-family: var(--display); font-size: 12px; } .sd-lu li .m { font-size: 12px; color: var(--good); }
+.sd-lu li.empty { opacity: .45; } .sd-lu.small li { font-size: 13px; }
+.sd-recent li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; font-size: 14px; } .sd-recent i { color: var(--mute); font-style: normal; }
+@media (max-width: 800px) { .sd-body { grid-template-columns: 1fr; } .sd-list { max-height: 55vh; } .sd-row { grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 6px; } }
+
 </style>
 <div class="wrap">
   <header class="mast">
@@ -1414,12 +1445,28 @@ function needScore(ctx, p) {
   const c = ctx[p.p];
   return (p.o - c.low) * 0.55 + c.short * 12 + (c.depth < MIN_DEPTH[p.p] ? 2 : 0) + (p.p === 'QB' ? (c.top > p.o ? -10 : 2) : 0);
 }
+/* salary cap (custom league drafts): each player's price comes from rating and position (lib/draft.js) */
+const DRx = () => root.DR || require('./draft.js');
+const salOf = p => DRx().salaryOfPos(p.p, p.o);
+const CAP_FILL = 1.0;   // every unfilled pick is assumed to cost about this much, so nobody gets priced out
+function capInfo(L, tid) {
+  const d = L.draft; if (!d || !d.cap) return null;
+  const left = d.seq.slice(d.pos).filter(t => t === tid).length, spent = (d.spent && d.spent[tid]) || 0;
+  return { cap: d.cap, spent, left, room: d.cap - spent };
+}
+function affordable(L, tid, p) {
+  const ci = capInfo(L, tid); if (!ci) return true;
+  return salOf(p) + Math.max(0, ci.left - 1) * CAP_FILL <= ci.room + 1e-6;
+}
 function cpuPickFor(L, tid, pool) {
-  const ctx = needCtx(L, tid);
+  const ctx = needCtx(L, tid), ci = L.draft && L.draft.kind === 'league' ? capInfo(L, tid) : null;
+  const fair = ci ? Math.max(1, (ci.room - ci.left * CAP_FILL) / Math.max(1, ci.left)) : 0;
   let best = null, bs = -1e9;
   pool.forEach(id => {
     const p = L.players[id];
-    const s = p.o * 0.9 + (p.pt - p.o) * 0.35 - (p.a - 21) * 0.4 + needScore(ctx, p);
+    if (ci && !affordable(L, tid, p)) return;
+    let s = p.o * 0.9 + (p.pt - p.o) * 0.35 - (p.a - 21) * 0.4 + needScore(ctx, p);
+    if (ci) s -= 1.1 * Math.max(0, salOf(p) - 1.7 * fair);
     if (s > bs) { bs = s; best = id; }
   });
   return best;
@@ -1429,7 +1476,7 @@ function draftPick(L, tid, pid) {
   const d = L.draft; if (!d || onClock(L) !== tid) return false;
   const k = d.pool.indexOf(pid); if (k < 0) return false;
   const p = L.players[pid];
-  if (d.kind === 'league') { if (!canDraftPos(L, tid, p.p)) return false; }
+  if (d.kind === 'league') { if (!canDraftPos(L, tid, p.p) || !affordable(L, tid, p)) return false; if (d.cap) { d.spent = d.spent || {}; d.spent[tid] = Math.round(((d.spent[tid] || 0) + salOf(p)) * 10) / 10; } }
   d.pool.splice(k, 1); d.picks.push({ t: tid, p: pid, n: d.pos + 1 });
   p.t = tid; if (d.kind === 'rookie') p.y = L.season;
   d.pos++;
@@ -1452,7 +1499,7 @@ function autoDraftToHuman(L) {
     if (L.teams[tid].owner && d.auto && d.auto[tid] !== true && d.auto.all !== true) return false;
     let pid = null;
     if (d.kind === 'league') {
-      const ok = d.pool.filter(id => canDraftPos(L, tid, L.players[id].p));
+      const ok = d.pool.filter(id => affordable(L, tid, L.players[id]) && canDraftPos(L, tid, L.players[id].p));
       pid = cpuPickFor(L, tid, ok.length ? ok : d.pool);
     } else pid = cpuPickFor(L, tid, d.pool);
     if (pid == null || !draftPick(L, tid, pid)) { d.pos++; }
@@ -1667,7 +1714,7 @@ function startCustom(L) {
   let order = L.draftOrder && L.draftOrder.length === L.teams.length ? L.draftOrder.slice() : shuffle(rng(L, 'dord'), L.teams.map(t => t.id));
   const seq = [];
   for (let rd = 0; rd < rounds; rd++) (rd % 2 ? order.slice().reverse() : order).forEach(t => seq.push(t));
-  L.draft = { kind: 'league', rounds, seq, pos: 0, picks: [], pool: Object.keys(L.players), auto: {} };
+  L.draft = { kind: 'league', rounds, seq, pos: 0, picks: [], pool: Object.keys(L.players), auto: {}, cap: c.cap || 0, spent: {} };
   L.draft.pool.sort((x, y) => L.players[y].o - L.players[x].o);
   L.phase = 'draft';
   autoDraftToHuman(L);
@@ -1762,13 +1809,142 @@ const LG = {
   newNFL, rosterOf, posCount, lineup, squadOf, teamsFor, teamRating, gameSeed,
   simGame, playVerified, weekGames, simWeek, advanceWeek, runUntilHuman, humanSides, checkFinal,
   records, standings, overallRank, rank, startPlayoffs, advancePlayoffs,
-  progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, startSeason, trimRoster, fillDepth, finishDraft,
+  progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, startSeason, trimRoster, fillDepth, finishDraft,
   playerValue, tradeCheck, cpuTrade, doTrade, canTrade, cpuOffers, signFA, release,
   newCustom, addTeam, removeTeam, assignDivisions, startCustom, finalizeLeagueDraft, customSchedule, ownerRecord, leaders, leagueTables,
   computeAwards, makeBracket, reportSeries, setSeries, bracketOrder, nflMatchups, assignWeeks, rrSchedule, mkPlayer, rng, shuffle
 };
 if (typeof module !== 'undefined' && module.exports) module.exports = LG;
 else root.LG = LG;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+/* Snake draft over the whole board: every QB/HB/WR/TE, every O-line package and every defense package can be taken
+   once. Optional salary cap: each player has a salary from rating and position; a package costs the sum of its players. */
+(function (root) {
+'use strict';
+const E = root.E || require('./engine.js');
+const { PLAYERS, OLU, DFU, TEAMS } = E.DATA ? { PLAYERS: E.DATA.PLAYERS, OLU: E.DATA.OLU, DFU: E.DATA.DFU, TEAMS: E.DATA.TEAMS } : {};
+const clamp = E.clamp;
+
+/* ---------- salaries ($M per season) ---------- */
+// top-of-market salary by position class, roughly the real pay scale: QB >> edge/WR > CB/OL/DT > LB > TE/S > HB
+const SAL_MAX = { QB: 56, DE: 36, WR: 38, CB: 30, DT: 30, OL: 28, LB: 22, TE: 19, S: 18, HB: 16 };
+const SAL_MIN = 0.8;
+function salOne(cls, ovr) {
+  const t = clamp((ovr - 58) / 41, 0, 1);
+  return SAL_MIN + (SAL_MAX[cls] - SAL_MIN) * Math.pow(t, 1.8);
+}
+const defCls = pos => /DE$/.test(pos) ? 'DE' : /DT$|^NT$/.test(pos) ? 'DT' : /LB$/.test(pos) ? 'LB' : /CB$/.test(pos) ? 'CB' : 'S';
+const r1 = x => Math.round(x * 10) / 10;
+// general (league) positions
+const LEAGUE_CLS = { QB: 'QB', HB: 'HB', WR: 'WR', TE: 'TE', OL: 'OL', DL: 'DE', LB: 'LB', CB: 'CB', S: 'S' };
+const salaryOfPos = (pos, ovr) => r1(salOne(LEAGUE_CLS[pos] || 'S', ovr));
+
+/* ---------- the board ---------- */
+// candidate id: 'P<index>' skill player, 'O<index>' o-line package, 'D<index>' defense package
+const CANDS = [];
+PLAYERS.forEach((p, i) => CANDS.push({ id: 'P' + i, k: p.pos, ovr: p.ovr, sal: r1(salOne(p.pos, p.ovr)), name: p.name, tm: p.team, n: i }));
+OLU.forEach((u, i) => CANDS.push({ id: 'O' + i, k: 'OL', ovr: u.ovr, sal: r1(u.players.reduce((t, p) => t + salOne('OL', p[1]), 0)), name: u.tm.nick + ' O-Line', tm: u.team, n: i }));
+DFU.forEach((u, i) => CANDS.push({ id: 'D' + i, k: 'DEF', ovr: u.ovr, sal: r1(u.players.reduce((t, p) => t + salOne(defCls(p[0]), p[3]), 0)), name: u.tm.nick + ' Defense', tm: u.team, n: i }));
+const BY = {}; CANDS.forEach(c => { BY[c.id] = c; });
+const KINDS = ['QB', 'HB', 'WR', 'TE', 'OL', 'DEF'];
+const NEED = { QB: 1, HB: 1, WR: 2, TE: 1, OL: 1, DEF: 1 };
+const ROUNDS = 7;
+const MINSAL = {}; KINDS.forEach(k => { MINSAL[k] = Math.min.apply(null, CANDS.filter(c => c.k === k).map(c => c.sal)); });
+// how much each slot moves the team rating (matches teamUnits: offense weights halved because defense is the other half)
+const W = { QB: 0.125, HB: 0.06, WR: 0.05, TE: 0.04, OL: 0.175, DEF: 0.5 };
+
+/* ---------- draft state ---------- */
+// { n, order:[teamIdx...], picks:[{t,id,n}], cap:0|number }
+function snakeOrder(n, first) {
+  const out = [], base = Array.from({ length: n }, (_, i) => (i + (first || 0)) % n);
+  for (let r = 0; r < ROUNDS; r++) (r % 2 ? base.slice().reverse() : base).forEach(t => out.push(t));
+  return out;
+}
+function newDraft(n, cap, first) { return { n, order: snakeOrder(n, first), picks: [], cap: cap || 0 }; }
+const onClock = d => d.picks.length < d.order.length ? d.order[d.picks.length] : null;
+const isDone = d => d.picks.length >= d.order.length;
+const teamIds = (d, t) => d.picks.filter(p => p.t === t).map(p => p.id);
+const taken = d => { const s = {}; d.picks.forEach(p => { s[p.id] = 1; }); return s; };
+function openKinds(ids) {
+  const left = Object.assign({}, NEED);
+  ids.forEach(id => { left[BY[id].k]--; });
+  return left;
+}
+const spent = ids => r1(ids.reduce((t, id) => t + BY[id].sal, 0));
+// cheapest way to fill the remaining slots, assuming rivals grab the cheapest players they still need (so a team can never be priced out)
+function reserve(d, t, left, tk, skipKind) {
+  const opp = {}; KINDS.forEach(k => { opp[k] = 0; });
+  for (let u = 0; u < d.n; u++) if (u !== t) { const l = openKinds(teamIds(d, u)); KINDS.forEach(k => { opp[k] += Math.max(0, l[k]); }); }
+  let r = 0;
+  KINDS.forEach(k => {
+    const n = k === skipKind ? left[k] - 1 : left[k];
+    if (n <= 0) return;
+    const cheap = CANDS.filter(c => c.k === k && !tk[c.id]).map(c => c.sal).sort((a, b) => a - b);
+    for (let i = 0; i < n; i++) r += cheap[Math.min(cheap.length - 1, opp[k] + i)];
+  });
+  return r;
+}
+// returns null when the pick is allowed, otherwise the reason
+function legal(d, t, cid) {
+  const c = BY[cid]; if (!c) return 'Unknown player.';
+  if (onClock(d) !== t) return 'It is not your turn.';
+  const tk = taken(d); if (tk[cid]) return 'Already drafted.';
+  const ids = teamIds(d, t), left = openKinds(ids);
+  if (left[c.k] <= 0) return 'Your ' + c.k + ' slot' + (NEED[c.k] > 1 ? 's are' : ' is') + ' already filled.';
+  if (d.cap) {
+    const after = spent(ids) + c.sal + reserve(d, t, left, Object.assign({ [cid]: 1 }, tk), c.k);
+    if (after > d.cap + 1e-6) return 'That would put you over the salary cap.';
+  }
+  return null;
+}
+function apply(d, t, cid) { d.picks.push({ t, id: cid, n: d.picks.length + 1 }); }
+// seven-slot roster (indexes into PLAYERS / OLU / DFU) for a finished set of picks
+function toRoster(ids) {
+  const g = k => ids.filter(id => BY[id].k === k).map(id => BY[id].n);
+  const wr = g('WR');
+  if (g('QB').length !== 1 || g('HB').length !== 1 || wr.length !== 2 || g('TE').length !== 1 || g('OL').length !== 1 || g('DEF').length !== 1) return null;
+  return [g('QB')[0], g('HB')[0], wr[0], wr[1], g('TE')[0], g('OL')[0], g('DEF')[0]];
+}
+// room left under the cap after the picks in ids, for display
+const capLeft = (d, ids) => d.cap ? r1(d.cap - spent(ids)) : null;
+
+/* ---------- CPU drafting ---------- */
+// Value over what would still be there next time around, weighted by how much the slot moves team rating;
+// with a cap, each slot gets a fair share of the remaining budget (by market price) and the best player that fits is taken.
+function cpuPick(d, t, rnd) {
+  rnd = rnd || Math.random;
+  const tk = taken(d), ids = teamIds(d, t), left = openKinds(ids), budget = d.cap ? d.cap - spent(ids) : Infinity;
+  const open = KINDS.filter(k => left[k] > 0);
+  const avail = {}; open.forEach(k => { avail[k] = CANDS.filter(c => c.k === k && !tk[c.id]).sort((a, b) => b.ovr - a.ovr); });
+  const share = {}; let tot = 0;
+  open.forEach(k => { const top = avail[k].slice(0, 12), m = top.reduce((s, c) => s + c.sal, 0) / top.length * left[k]; share[k] = m; tot += m; });
+  const opts = [];
+  open.forEach(k => {
+    const fair = d.cap ? budget * share[k] / tot : Infinity, cap1 = d.cap ? Math.min(fair * 1.3 / left[k], budget - reserve(d, t, left, tk, k)) : Infinity;
+    const ok = avail[k].filter(c => c.sal <= cap1 + 1e-6 || (!d.cap));
+    if (!ok.length) return;
+    const repl = ok[Math.min(ok.length - 1, 2 + (left[k] > 1 ? 2 : 0))].ovr;
+    // when two slots are open at a position the second-best is worth almost as much; a lone slot rewards scarcity
+    const best = ok[0], gain = W[k] * (best.ovr - repl) + 0.15 * W[k] * best.ovr;
+    opts.push({ c: best, gain });
+  });
+  if (!opts.length) { // nothing fits the fair-share rule: best legal player overall, else the cheapest fill
+    const all = []; open.forEach(k => avail[k].forEach(c => all.push(c)));
+    const fit = all.filter(c => !d.cap || spent(ids) + c.sal + reserve(d, t, left, Object.assign({ [c.id]: 1 }, tk), c.k) <= d.cap + 1e-6).sort((a, b) => b.ovr - a.ovr);
+    return (fit[0] || all.sort((a, b) => a.sal - b.sal)[0]).id;
+  }
+  opts.sort((a, b) => b.gain - a.gain);
+  const pick = opts.length > 1 && rnd() < 0.12 ? opts[1] : opts[0];
+  return pick.c.id;
+}
+function autoRun(d, caps) { // fill the whole draft with CPU picks (testing / auto-draft everyone)
+  while (!isDone(d)) { const t = onClock(d); apply(d, t, cpuPick(d, t)); }
+  return d;
+}
+const CAPS = { tight: 270, standard: 300, loose: 335 };
+const DR = { CAPS, CANDS, BY, KINDS, NEED, ROUNDS, W, SAL_MAX, salaryOfPos, snakeOrder, newDraft, onClock, isDone, teamIds, taken, openKinds, spent, legal, apply, toRoster, capLeft, cpuPick, autoRun, reserve };
+if (typeof module !== 'undefined' && module.exports) module.exports = DR; else root.DR = DR;
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -1797,8 +1973,8 @@ const PID = (() => {
 /* ---------- state ---------- */
 const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
-  draft: null, myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
-  poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, drawRnd: null, draftCb: null
+  myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
+  poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null
 };
 
 /* ---------- sprites ---------- */
@@ -2119,7 +2295,7 @@ const Field = {
 function renderHeader() {
   const el = $('#hdr-right'); if (!el) return;
   if (S.mode === 'lobby') { if (window.HUB) window.HUB.renderHeader(); else el.innerHTML = ''; return; }
-  const label = S.ctx ? S.ctx.label : S.mode === 'local' ? 'Practice' : S.mode === 'draftonly' ? 'Draft' : 'Room ' + S.code;
+  const label = S.ctx ? S.ctx.label : S.mode === 'local' ? 'Practice' : S.mode === 'sdraft' ? ((S.sd && S.sd.label) || 'Draft') : 'Room ' + S.code;
   el.innerHTML = '<span class="chip room">' + esc(label) + '</span><button class="btn small" data-act="leave">Leave</button>';
 }
 
@@ -2127,9 +2303,10 @@ function renderHeader() {
 /* ---------- lobby ---------- */
 function screenName() {
   if (S.mode === 'lobby') return 'lobby';
-  if (S.mode === 'draftonly') return 'draft';
+  if (S.mode === 'sdraft') return 'draft';
   if (S.ctx) return bothReady() ? 'game' : 'wait';
-  if (S.me && !validSeat(S.seats[S.me])) return 'draft';
+  if (S.sd && !DR.isDone(S.sd.d)) return 'draft';
+  if (S.mode === 'local' && S.me && !validSeat(S.seats[S.me])) return 'draft';
   if (!bothReady()) return 'wait';
   return 'game';
 }
@@ -2146,14 +2323,16 @@ function buildLobby() {
     '<div class="panel join-panel">' +
     '<label class="fld" for="team">Team name</label>' +
     '<input id="team" type="text" maxlength="18" autocomplete="off" placeholder="Your team name" value="' + esc(S.myName) + '">' +
+    '<label class="fld" for="cap">Salary cap</label>' +
+    '<select id="cap">' + CAP_OPTS.map(o => '<option value="' + o[0] + '"' + (o[0] === lsGet('gd_cap') ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
     '<div class="row"><button class="btn primary" data-act="create" id="b-create" disabled>Create room</button></div>' +
     '<div class="row joinrow"><input id="code" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="ROOM CODE" aria-label="Room code"><button class="btn" data-act="join" id="b-join" disabled>Join room</button></div>' +
     '<div class="or"><span>or</span></div>' +
     '<button class="btn" data-act="cpu" id="b-cpu">Practice vs CPU</button>' +
     '<p class="hint" id="access"></p></div>' +
     '<div class="panel how"><h2>How a game works</h2><ol>' +
-    '<li><b>Draft 7 slots.</b> Quarterback, running back, two receivers, tight end, an entire offensive line, and an entire defense. Each round deals three options from across the league. Pick one, or spend one of your two rerolls.</li>' +
-    '<li><b>Lock in.</b> Everyone drafts separately on their own device. When both rosters are locked, the game starts.</li>' +
+    '<li><b>Snake draft 7 slots.</b> Quarterback, running back, two receivers, tight end, an entire offensive line, and an entire defense. You and your opponent take turns from one shared pool (1-2-2-1…), and every player can only be on one team.</li>' +
+    '<li><b>Optional salary cap.</b> Every player and unit has a salary based on rating and position. QBs and pass rushers cost the most, running backs and safeties the least. Stay under the cap or the pick is blocked.</li>' +
     '<li><b>Call plays.</b> Offense and defense pick in secret at the same time. Pro-game ratings decide who wins the matchup.</li></ol>' +
     '<p class="hint">Ratings are Madden NFL 27 overalls for current starters. Unofficial fan project, no logos.</p></div>' +
     '</section>';
@@ -2165,6 +2344,11 @@ function updateLobbyHints() {
   if (!create) return;
   create.disabled = !S.api; join.disabled = !S.api;
   hint.textContent = !S.ready ? 'Connecting…' : S.api ? 'Create a room and send the code to a friend.' : 'Online rooms are unavailable right now. Practice vs CPU still works.';
+}
+const CAP_OPTS = [['0', 'No cap'], ['tight', 'Tight · $270M'], ['standard', 'Standard · $300M'], ['loose', 'Loose · $335M']];
+function readCap() {
+  const el = $('#cap'), v = el ? el.value : (lsGet('gd_cap') || '0');
+  lsSet('gd_cap', v); return DR.CAPS[v] || 0;
 }
 function readName() {
   const v = ($('#team') && $('#team').value || '').trim().slice(0, 18);
@@ -2186,15 +2370,15 @@ async function api(body, ep) {
 function resetForMode() {
   stopPoll();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
-  S.cpuSides = []; S.ctx = null; S.drawRnd = null; S.draftCb = null; S.draft = newDraft(); S.screen = null; Field.queue = []; Field.busy = false; Field.scene = null;
+  S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; Field.scene = null;
 }
 function startLocal() {
   readName();
   resetForMode();
   S.mode = 'local'; S.code = null; S.me = 'a'; S.cpuSides = ['b']; S.seed = Math.floor(Math.random() * 2147483647);
-  S.seats.b = { pid: 'cpu', name: 'CPU Squad', status: 'ready', roster: E.autoDraft() };
-  beginPicks();
-  render();
+  const cap = readCap(), first = Math.random() < 0.5 ? 0 : 1;
+  sdStart({ label: 'Practice', d: DR.newDraft(2, cap, first), me: 0, names: [S.myName, 'CPU Squad'], cpu: [false, true], localCpu: true });
+  render(); sdStep();
 }
 function setBusy(b) {
   ['b-create', 'b-join', 'b-cpu'].forEach(id => { const el = $('#' + id); if (el) el.disabled = b || (id !== 'b-cpu' && !S.api); });
@@ -2203,7 +2387,7 @@ async function createRoom() {
   if (S.busy) return;
   const name = readName(); S.busy = true; setBusy(true);
   try {
-    const r = await api({ op: 'create', pid: PID, name });
+    const r = await api({ op: 'create', pid: PID, name, cap: readCap() });
     enterRoom(r.code, r.seed, 'a');
   } catch (e) { handleErr(e); }
   finally { S.busy = false; setBusy(false); }
@@ -2228,7 +2412,6 @@ function enterRoom(code, seed, seat) {
   resetForMode();
   S.mode = 'online'; S.code = code; S.seed = seed; S.me = seat;
   ssSet('gd_room', code);
-  if (seat) beginPicks();
   startPoll();
   render();
 }
@@ -2245,7 +2428,7 @@ function startPoll() {
         S.seats = r.seats || {};
         const o = {};
         ['a', 'b'].forEach(s => { const m = (r.moves && r.moves[s]) || {}; for (const n in m) o[n + '-' + s] = { pick: m[n] }; });
-        S.moves = o; render();
+        S.moves = o; sdOnline(r); render();
       }
     } catch (e) { /* transient: keep polling */ }
     if (S.mode === 'online') S.poll = setTimeout(tick, S.screen === 'game' ? 700 : 1200);
@@ -2255,90 +2438,158 @@ function startPoll() {
 function stopPoll() { if (S.poll) { clearTimeout(S.poll); S.poll = null; } }
 function leave() {
   stopPoll(); ssSet('gd_room', null);
-  S.mode = 'lobby'; S.code = null; S.me = null; resetForMode(); S.draft = null;
+  S.mode = 'lobby'; S.code = null; S.me = null; resetForMode();
   render();
 }
 
-/* ---------- draft ---------- */
-function newDraft() { return { phase: 'pick', idx: 0, picks: [], rerolls: 2, opts: [] }; }
-function beginPicks() {
-  const D2 = S.draft = newDraft();
-  D2.opts = E.drawOptions([], 0, S.drawRnd);
-  S.screen = null;
+/* ---------- snake draft ---------- */
+const money = x => '$' + (Math.round(x * 10) / 10) + 'M';
+const KLAB = { QB: 'QB', HB: 'HB', WR: 'WR', TE: 'TE', OL: 'O-Line', DEF: 'Defense' };
+const SLOT_ORDER = ['QB', 'HB', 'WR', 'WR', 'TE', 'OL', 'DEF'];
+// o: {label, d, me, names[], cpu[] (local CPU teams), localCpu, post(cid)->draft, poll()->draft, onDone(roster, draft)}
+function sdStart(o) {
+  sdStop();
+  S.sd = Object.assign({ tab: null, q: '', auto: false, cpu: [], names: [], me: 0, busy: false, timer: 0, pollT: 0, built: false }, o);
+  sdFixTab(); S.screen = null;
 }
-function avgOvr(D2) {
-  if (!D2.picks.length) return null;
-  let t = 0; D2.picks.forEach((id, i) => { t += E.ovrOf(i, id); });
-  return Math.round(t / D2.picks.length);
+function sdStop() {
+  const sd = S.sd; if (!sd) return;
+  if (sd.timer) clearTimeout(sd.timer); if (sd.pollT) clearTimeout(sd.pollT);
+  sd.timer = 0; sd.pollT = 0; S.sd = null;
 }
-function oppChipHTML() {
-  const o = S.seats[other(S.me || 'a')];
-  if (S.mode !== 'online') return '';
-  if (!o) return '<span class="chip">Waiting for a friend to join</span>';
-  return '<span class="chip ' + (o.status === 'ready' ? 'ok' : '') + '">' + esc(o.name || 'Opponent') + (o.status === 'ready' ? ' is ready' : ' is drafting') + '</span>';
+function sdFixTab() {
+  const sd = S.sd; if (!sd) return;
+  const left = DR.openKinds(DR.teamIds(sd.d, sd.me));
+  if (!sd.tab || left[sd.tab] <= 0) sd.tab = DR.KINDS.find(k => left[k] > 0) || sd.tab || 'QB';
 }
-function updateDraftChip() { const el = $('#oppchip'); if (el) el.innerHTML = oppChipHTML(); }
-function drawDraft() {
-  const D2 = S.draft, m = $('#main');
-  if (!D2) return;
-  if (D2.phase === 'pick') {
-    const slot = E.SLOTS[D2.idx], f = avgOvr(D2);
-    let strip = '';
-    E.SLOTS.forEach((s, i) => {
-      const done = i < D2.picks.length;
-      strip += '<div class="slot' + (i === D2.idx ? ' cur' : '') + (done ? ' done' : '') + '" title="' + esc(s.label) + '"><span class="s-lbl">' + s.short + '</span>' +
-        (done ? spCanvas(slotKey(i, D2.picks[i]), 2) : '<span class="empty"></span>') + '</div>';
-    });
-    m.innerHTML = '<section class="draft">' +
-      '<div class="dr-head"><div class="dr-round"><span class="eyebrow">Round</span><b>' + (D2.idx + 1) + '</b><span class="of">/ ' + E.SLOTS.length + '</span></div>' +
-      '<div class="dr-title"><span class="pos-tag">' + slot.short + '</span><h2>' + slot.label + '</h2></div>' +
-      '<div class="dr-ovr"><span class="eyebrow">Avg OVR</span><b>' + (f == null ? '--' : f) + '</b></div></div>' +
-      '<div class="cards">' + D2.opts.map((id, i) => cardHTML(id, i, D2.idx)).join('') + '</div>' +
-      '<div class="dr-actions"><button class="btn" data-act="reroll"' + (D2.rerolls < 1 ? ' disabled' : '') + '>Reroll · ' + D2.rerolls + '</button>' +
-      '<span class="keys">1 2 3 pick · R reroll</span><button class="btn ghost" data-act="auto">Auto-pick the rest</button><span id="oppchip">' + oppChipHTML() + '</span></div>' +
-      '<div class="strip">' + strip + '</div></section>';
-    paintCanvases(m);
+function sdSet(nd) {
+  const sd = S.sd; if (!sd || !nd || nd.picks.length < sd.d.picks.length) return false;
+  const ch = nd.picks.length !== sd.d.picks.length; sd.d = nd; return ch;
+}
+function sdSub(c) {
+  const D = E.DATA, last = n => String(n).split(' ').slice(-1)[0];
+  if (c.k === 'OL') return D.OLU[c.n].players.map(p => last(p[0]) + ' ' + p[1]).join(' · ');
+  if (c.k === 'DEF') return D.DFU[c.n].players.slice().sort((x, y) => y[3] - x[3]).slice(0, 4).map(p => last(p[2]) + ' ' + p[3]).join(' · ');
+  return '';
+}
+function sdShell() {
+  $('#main').innerHTML = '<section class="sd"><div class="sd-head panel" id="sd-head"></div><div class="sd-body"><div class="sd-main panel">' +
+    '<div class="sd-tabs" id="sd-tabs"></div><input id="sd-q" class="sd-q" type="search" autocomplete="off" placeholder="Search players or teams" aria-label="Search"><div class="sd-list" id="sd-list"></div></div>' +
+    '<aside class="sd-side"><div class="panel" id="sd-lineup"></div><div class="panel" id="sd-log"></div></aside></div></section>';
+  $('#sd-q').value = S.sd.q;
+  S.sd.built = true;
+}
+function sdSlots(ids) {
+  const used = {}, out = [];
+  SLOT_ORDER.forEach(k => {
+    const id = ids.find(i => DR.BY[i].k === k && !used[i]);
+    if (id) used[id] = 1; out.push({ k, c: id ? DR.BY[id] : null });
+  });
+  return out;
+}
+function sdUpdate() {
+  const sd = S.sd; if (!sd) return;
+  if (!sd.built || !$('#sd-head')) sdShell();
+  sdFixTab();
+  const d = sd.d, done = DR.isDone(d), clock = done ? null : DR.onClock(d), mine = DR.teamIds(d, sd.me), myTurn = clock === sd.me && !sd.watch;
+  const nm = t => sd.names[t] || 'Team ' + (t + 1);
+  const status = done ? 'Draft complete' : myTurn ? 'You are on the clock' : 'Waiting for ' + nm(clock);
+  let cap = '<span class="chip">No salary cap</span>';
+  if (d.cap) {
+    const sp = DR.spent(mine), pct = Math.min(100, sp / d.cap * 100);
+    cap = '<div class="capbar"><div class="capnums"><span>Salary cap ' + money(d.cap) + '</span><b>' + money(d.cap - sp) + ' left</b></div><div class="capfill"><i style="width:' + pct + '%"></i></div></div>';
+  }
+  $('#sd-head').innerHTML = '<div class="sd-top"><div><span class="eyebrow">' + esc(sd.label || 'Snake draft') + ' · Pick ' + Math.min(d.picks.length + 1, d.order.length) + ' of ' + d.order.length + '</span><h2 class="' + (myTurn ? 'turn' : '') + '">' + esc(status) + '</h2></div>' +
+    '<div class="sd-btns"><button class="btn small" data-act="sd-best"' + (myTurn && !sd.busy ? '' : ' disabled') + '>Pick for me</button><button class="btn small ' + (sd.auto ? 'primary' : 'ghost') + '" data-act="sd-auto">Auto-draft: ' + (sd.auto ? 'on' : 'off') + '</button></div></div>' + cap;
+  const left = DR.openKinds(mine);
+  $('#sd-tabs').innerHTML = DR.KINDS.map(k => '<button class="sd-tab' + (sd.tab === k ? ' on' : '') + (left[k] <= 0 ? ' full' : '') + '" data-act="sd-tab" data-k="' + k + '">' + KLAB[k] + '<i>' + (left[k] > 0 ? left[k] + ' to go' : '✓') + '</i></button>').join('');
+  sdList();
+  const slots = sdSlots(mine);
+  $('#sd-lineup').innerHTML = '<h3>' + esc(nm(sd.me)) + (d.cap ? ' · ' + money(DR.spent(mine)) : '') + '</h3><ul class="sd-lu">' + slots.map(x => x.c ?
+    '<li><span class="k">' + x.k + '</span><b>' + esc(x.c.name) + '</b><i>' + x.c.ovr + '</i><span class="m">' + money(x.c.sal) + '</span></li>' :
+    '<li class="empty"><span class="k">' + x.k + '</span><b>—</b></li>').join('') + '</ul>';
+  const recent = d.picks.slice(-10).reverse();
+  let others = '';
+  if (d.n === 2) {
+    const t = 1 - sd.me, os = sdSlots(DR.teamIds(d, t));
+    others = '<h3>' + esc(nm(t)) + (d.cap ? ' · ' + money(DR.spent(DR.teamIds(d, t))) : '') + '</h3><ul class="sd-lu small">' + os.map(x => x.c ? '<li><span class="k">' + x.k + '</span><b>' + esc(x.c.name) + '</b><i>' + x.c.ovr + '</i></li>' : '<li class="empty"><span class="k">' + x.k + '</span><b>—</b></li>').join('') + '</ul>';
+  } else {
+    others = '<h3>Recent picks</h3><ol class="sd-recent">' + (recent.map(p => '<li><span>#' + p.n + '</span><b>' + esc(DR.BY[p.id].name) + '</b><i>' + esc(nm(p.t)) + '</i></li>').join('') || '<li><i>None yet</i></li>') + '</ol>';
+  }
+  $('#sd-log').innerHTML = others;
+}
+function sdList() {
+  const sd = S.sd, d = sd.d, done = DR.isDone(d), myTurn = !done && DR.onClock(d) === sd.me;
+  const tk = DR.taken(d), q = sd.q.trim().toLowerCase(), left = DR.openKinds(DR.teamIds(d, sd.me));
+  let rows = DR.CANDS.filter(c => c.k === sd.tab && !tk[c.id] && (!q || (c.name + ' ' + c.tm).toLowerCase().includes(q))).sort((a, b) => b.ovr - a.ovr || a.sal - b.sal);
+  const total = rows.length; rows = rows.slice(0, 70);
+  const cap = !!d.cap;
+  let h = rows.map(c => {
+    let why = '';
+    if (left[c.k] <= 0) why = 'Filled'; else if (myTurn) { const e = DR.legal(d, sd.me, c.id); if (e) why = cap && /cap/.test(e) ? 'Over cap' : 'No'; }
+    const g = E.grade(c.ovr);
+    return '<div class="sd-row g-' + g + (why ? ' no' : '') + '"><b class="sd-ovr">' + c.ovr + '</b><div class="sd-nm"><b>' + esc(c.name) + '</b><span>' + esc(c.tm || '') + (sdSub(c) ? ' · ' + esc(sdSub(c)) : '') + '</span></div>' +
+      '<span class="sd-sal">' + money(c.sal) + '</span><button class="btn small primary" data-act="sd-pick" data-id="' + c.id + '"' + (myTurn && !why && !sd.busy ? '' : ' disabled') + '>' + (why || 'Draft') + '</button></div>';
+  }).join('');
+  if (!rows.length) h = '<p class="hint">Nobody matches.</p>';
+  else if (total > rows.length) h += '<p class="hint">Showing the top ' + rows.length + ' of ' + total + '. Search to find more.</p>';
+  const el = $('#sd-list'); if (el) el.innerHTML = h;
+}
+async function sdPick(cid) {
+  const sd = S.sd; if (!sd || sd.busy) return;
+  const err = DR.legal(sd.d, sd.me, cid); if (err) { toast(err); return; }
+  sd.busy = true; sdUpdate();
+  try {
+    if (sd.post) sdSet(await sd.post(cid)); else DR.apply(sd.d, sd.me, cid);
+  } catch (e) { toast(e.code === 'illegal' || e.code === 'taken' ? 'That pick is not available. The board has been refreshed.' : e.code === 'turn' ? 'It is not your turn yet.' : 'Could not draft that player. Try again.'); if (sd.poll) { try { sdSet(await sd.poll()); } catch (e2) {} } }
+  if (S.sd !== sd) return;
+  sd.busy = false; sdAfter();
+}
+function sdBest() { const sd = S.sd; if (!sd || DR.isDone(sd.d) || DR.onClock(sd.d) !== sd.me) return; sdPick(DR.cpuPick(sd.d, sd.me)); }
+function sdAfter() {
+  const sd = S.sd; if (!sd) return;
+  if (DR.isDone(sd.d)) { sdFinish(); return; }
+  if (S.screen === 'draft') sdUpdate(); else render();
+  sdStep();
+}
+function sdStep() {
+  const sd = S.sd; if (!sd || DR.isDone(sd.d) || sd.timer) return;
+  const t = DR.onClock(sd.d);
+  if (sd.localCpu && sd.cpu[t]) {
+    sd.timer = setTimeout(() => { sd.timer = 0; if (S.sd !== sd || DR.isDone(sd.d) || DR.onClock(sd.d) !== t) return; DR.apply(sd.d, t, DR.cpuPick(sd.d, t)); sdAfter(); }, 650);
+  } else if (sd.auto && t === sd.me && !sd.busy) {
+    sd.timer = setTimeout(() => { sd.timer = 0; if (S.sd === sd && DR.onClock(sd.d) === sd.me) sdPick(DR.cpuPick(sd.d, sd.me)); }, 450);
+  }
+}
+function sdPollLoop() {
+  const sd = S.sd; if (!sd || !sd.poll) return;
+  sd.pollT = setTimeout(async () => {
+    sd.pollT = 0; if (S.sd !== sd) return;
+    try { if (!sd.busy) { const ch = sdSet(await sd.poll()); if (ch) { sdAfter(); if (S.sd !== sd) return; } } } catch (e) {}
+    if (S.sd === sd) sdPollLoop();
+  }, 1500);
+}
+function sdFinish() {
+  const sd = S.sd; if (!sd) return;
+  if (sd.timer) { clearTimeout(sd.timer); sd.timer = 0; }
+  if (sd.pollT) { clearTimeout(sd.pollT); sd.pollT = 0; }
+  if (S.mode === 'local' && sd.localCpu) {
+    ['a', 'b'].forEach((seat, t) => { S.seats[seat] = { pid: t === sd.me ? PID : 'cpu', name: sd.names[t], status: 'ready', roster: DR.toRoster(DR.teamIds(sd.d, t)) }; });
+    S.sd = null; S.screen = null; render(); return;
+  }
+  if (S.mode === 'sdraft') {
+    const cb = sd.onDone, roster = DR.toRoster(DR.teamIds(sd.d, sd.me)), d = sd.d;
+    if (cb) cb(roster, d); else sdUpdate();
     return;
   }
-  const teamObj = { name: S.myName || 'My team', roster: D2.picks, squad: E.squadFromRoster(D2.picks) };
-  const U = E.teamUnits(teamObj);
-  m.innerHTML = '<section class="panel review"><h2>Your lineup is set</h2>' +
-    '<div class="ratings"><div><span class="eyebrow">Offense</span><b>' + U.offR + '</b></div><div><span class="eyebrow">Defense</span><b>' + U.defR + '</b></div><div><span class="eyebrow">Overall</span><b>' + U.ovrR + '</b></div></div>' +
-    rosterListHTML(teamObj) +
-    '<div class="row"><button class="btn primary" data-act="lock">' + (S.mode === 'local' ? 'Kick off' : S.mode === 'draftonly' ? 'Use this team' : 'Lock roster') + '</button></div></section>';
-  paintCanvases(m);
+  sdUpdate(); render();
 }
-function pickOpt(i) {
-  const D2 = S.draft; if (!D2 || D2.phase !== 'pick') return;
-  if (D2.opts[i] == null) return;
-  D2.picks.push(D2.opts[i]); D2.idx++;
-  if (D2.idx >= E.SLOTS.length) D2.phase = 'review';
-  else D2.opts = E.drawOptions(D2.picks, D2.idx, S.drawRnd);
-  drawDraft();
-}
-function rerollOpts() {
-  const D2 = S.draft; if (!D2 || D2.phase !== 'pick' || D2.rerolls < 1) return;
-  D2.rerolls--; D2.opts = E.drawOptions(D2.picks, D2.idx, S.drawRnd); drawDraft();
-}
-function autoRest() {
-  const D2 = S.draft; if (!D2 || D2.phase !== 'pick') return;
-  while (D2.idx < E.SLOTS.length) {
-    const opts = E.drawOptions(D2.picks, D2.idx, S.drawRnd);
-    opts.sort((a, b) => E.ovrOf(D2.idx, b) - E.ovrOf(D2.idx, a));
-    D2.picks.push(opts[0]); D2.idx++;
-  }
-  D2.phase = 'review'; drawDraft();
-}
-async function lockRoster() {
-  const D2 = S.draft; if (!D2 || D2.phase !== 'review') return;
-  if (S.mode === 'draftonly') { const cb = S.draftCb; if (cb) cb(D2.picks.slice()); return; }
-  const doc = { pid: PID, name: readName(), status: 'ready', roster: D2.picks.slice() };
-  S.seats[S.me] = doc;
-  if (S.mode === 'online') {
-    try { await api({ op: 'seat', code: S.code, seat: S.me, pid: PID, doc }); }
-    catch (e) { delete S.seats[S.me]; handleErr(e); }
-  }
-  render();
+function sdOnline(r) {   // a poll result from the quick room
+  if (!r.dr) { if (S.sd) sdStop(); return; }
+  const me = S.me === 'a' ? 0 : S.me === 'b' ? 1 : -1;
+  const names = [(r.seats.a || {}).name || 'Team A', (r.seats.b || {}).name || 'Team B'];
+  if (!S.sd) { sdStart({ label: 'Room ' + S.code, d: r.dr, me: Math.max(0, me), names, watch: me < 0, post: cid => api({ op: 'pick', code: S.code, seat: S.me, pid: PID, id: cid }).then(x => x.dr) }); sdStep(); }
+  else { S.sd.names = names; if (sdSet(r.dr)) { if (DR.isDone(S.sd.d)) sdFinish(); else sdStep(); } }
 }
 
 /* ---------- roster list + modals ---------- */
@@ -2401,12 +2652,12 @@ function drawWait() {
   const m = $('#main');
   const mk = seat => {
     const d = S.seats[seat];
-    return '<li class="' + (validSeat(d) ? 'ok' : '') + '"><span class="dot" style="background:' + TEAM_COL[seat] + '"></span><b>' + esc(d ? d.name || 'Team' : 'Open seat') + '</b><span>' + (!d ? 'Waiting for a friend' : validSeat(d) ? 'Roster locked' : 'Drafting') + '</span></li>';
+    return '<li class="' + (validSeat(d) ? 'ok' : '') + '"><span class="dot" style="background:' + TEAM_COL[seat] + '"></span><b>' + esc(d ? d.name || 'Team' : 'Open seat') + '</b><span>' + (!d ? 'Waiting for a friend' : validSeat(d) ? 'Roster locked' : 'Joined') + '</span></li>';
   };
   m.innerHTML = '<section class="panel wait"><span class="eyebrow">Room code</span><div class="bigcode">' + esc(S.code) + '</div>' +
     (S.ctx ? '<p class="sub">Waiting for the game to load…</p>' : '<p class="sub">Send this code to your friend. They open this page and press Join room.</p><div class="row"><button class="btn" data-act="copy">Copy code</button></div>') +
     '<ul class="seats">' + mk('a') + mk('b') + '</ul>' +
-    '<p class="hint">' + (S.me ? 'Your roster is locked. The game starts when both teams are ready.' : 'You are watching this room.') + '</p></section>';
+    '<p class="hint">' + (S.me ? (validSeat(S.seats[S.me]) ? 'Your roster is locked. The game starts when both teams are ready.' : 'The snake draft begins as soon as your friend joins.') : 'You are watching this room.') + '</p></section>';
 }
 
 /* ---------- game screen ---------- */
@@ -2529,21 +2780,21 @@ function startCtxCpu(info, ctx) {   // info: {T, seed, side, cpuSide}
   S.mode = 'local'; S.code = null; S.me = info.side; S.cpuSides = info.cpuSide ? [info.cpuSide] : []; S.seed = info.seed;
   S.seats.a = { status: 'ready', name: info.T.a.name, squad: info.T.a.squad }; S.seats.b = { status: 'ready', name: info.T.b.name, squad: info.T.b.squad };
   S.ctx = Object.assign({ kind: 'cpu', label: 'Game', sent: false, status: '' }, ctx);
-  S.draft = null; render();
+  render();
 }
 function startCtxRoom(info, ctx) {  // info: {room, seed, side}
   resetForMode();
   S.mode = 'online'; S.code = info.room; S.seed = info.seed; S.me = info.side;
   S.ctx = Object.assign({ kind: 'room', label: 'Live game', sent: false, status: '' }, ctx);
-  S.draft = null; startPoll(); render();
+  startPoll(); render();
 }
-function startDraftOnly(opts) {   // opts: {rnd, onDone(roster), label}
+function startBoard(o) {   // hub-driven snake draft (tournaments): {label, d, me, names, post, poll, onDone}
   resetForMode();
-  S.mode = 'draftonly'; S.me = 'a'; S.drawRnd = opts.rnd || null; S.draftCb = opts.onDone;
-  beginPicks(); render();
+  S.mode = 'sdraft'; S.me = null;
+  sdStart(o); sdPollLoop(); render(); sdStep();
 }
 function exitToHub() { leave(); }
-window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startDraftOnly, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S };
+window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S };
 
 /* ---------- router ---------- */
 function render() {
@@ -2551,7 +2802,7 @@ function render() {
   S.screen = sc;
   renderHeader();
   if (sc === 'lobby') { if (changed) { if (window.HUB) window.HUB.show(); else buildLobby(); } }
-  else if (sc === 'draft') { if (changed) drawDraft(); else updateDraftChip(); }
+  else if (sc === 'draft') { if (changed) { S.sd && (S.sd.built = false); sdUpdate(); } else sdUpdate(); }
   else if (sc === 'wait') drawWait();
   else { if (changed) buildGame(); updateGame(); }
 }
@@ -2566,10 +2817,10 @@ document.addEventListener('click', ev => {
   else if (a === 'leave') leave();
   else if (a === 'ctx-done') { const c = S.ctx; leave(); if (c && c.onDone) c.onDone(); }
   else if (a === 'ctx-retry') { const c = S.ctx; if (c) { c.sent = false; ctxFinish(S.G); renderCall(S.G); } }
-  else if (a === 'pick') pickOpt(+t.dataset.i);
-  else if (a === 'reroll') rerollOpts();
-  else if (a === 'auto') autoRest();
-  else if (a === 'lock') lockRoster();
+  else if (a === 'sd-pick') sdPick(t.dataset.id);
+  else if (a === 'sd-best') sdBest();
+  else if (a === 'sd-auto') { const sd = S.sd; if (sd) { sd.auto = !sd.auto; sdUpdate(); sdStep(); } }
+  else if (a === 'sd-tab') { const sd = S.sd; if (sd) { sd.tab = t.dataset.k; sdUpdate(); } }
   else if (a === 'copy') { const done = () => toast('Room code copied.'); try { navigator.clipboard.writeText(S.code).then(done, () => toast('Copy failed. Select the code and copy it.')); } catch (e) { toast('Copy failed. Select the code and copy it.'); } }
   else if (a === 'call') submitCall(t.dataset.id);
   else if (a === 'rosters') showRosters();
@@ -2582,15 +2833,13 @@ document.addEventListener('keydown', ev => {
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   if (ev.key === 'Escape') { closeModal(); return; }
   const m = $('#modal'); if (m && !m.hidden) return;
-  if (S.screen === 'draft' && S.draft && S.draft.phase === 'pick') {
-    if (ev.key >= '1' && ev.key <= '3') pickOpt(+ev.key - 1);
-    else if (ev.key === 'r' || ev.key === 'R') rerollOpts();
-  } else if (S.screen === 'game' && /^[1-9]$/.test(ev.key)) {
+  if (S.screen === 'game' && /^[1-9]$/.test(ev.key)) {
     const btns = document.querySelectorAll('#callpanel .call:not([disabled])');
     const b = btns[+ev.key - 1]; if (b) submitCall(b.dataset.id);
   }
 });
 document.addEventListener('input', ev => {
+  if (ev.target && ev.target.id === 'sd-q' && S.sd) { S.sd.q = ev.target.value; sdList(); return; }
   if (ev.target && ev.target.id === 'code') ev.target.value = ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
 });
 
@@ -2951,9 +3200,10 @@ FRV.draft = A => {
   const left = d.seq.slice(d.pos).filter(t => t === tid).length;
   let h = '<div class="panel next"><span class="eyebrow">Pick ' + Math.min(d.pos + 1, d.seq.length) + ' of ' + d.seq.length + '</span><h2>' + (mineTurn ? 'You are on the clock' : on != null ? esc(L.teams[on].name) + ' are on the clock' : 'Draft complete') + '</h2>' +
     '<p class="sub">You have ' + left + ' pick' + (left === 1 ? '' : 's') + ' left. ' + (d.kind === 'league' ? 'You must still be able to fill every starting spot.' : '') + '</p>' +
+    (d.cap && tid >= 0 ? (ci => '<p class="sub">Salary cap $' + d.cap + 'M · spent <b>$' + Math.round(ci.spent * 10) / 10 + 'M</b> · room <b>$' + Math.round(ci.room * 10) / 10 + 'M</b>. Salaries follow rating and position: QBs and pass rushers cost the most, running backs and safeties the least.</p>')(LG.capInfo(L, tid)) : '') +
     '<div class="row">' + (tid >= 0 ? '<button class="btn' + (auto ? ' primary' : '') + '" data-h="fr-dauto">' + (auto ? 'Auto-draft is ON' : 'Auto-draft for me') + '</button>' : '') + (A.draftBtns ? A.draftBtns() : '') + '</div></div>';
   h += '<div class="panel"><div class="row between"><h3>Available players</h3><span class="row"><input type="text" id="dq" placeholder="Search name" value="' + esc(FR.dq) + '" aria-label="Search"><select data-hc="dpos" aria-label="Position"><option>ALL</option>' + POSN.map(p => '<option' + (p === FR.dpos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select></span></div>' +
-    tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, pool, p => mineTurn ? '<button class="btn small primary" data-h="fr-draft" data-id="' + p.i + '"' + (d.kind === 'league' && !LG.canDraftPos(L, tid, p.p) ? ' disabled' : '') + '>Draft</button>' : '')) + '</div>';
+    tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, pool, p => mineTurn ? '<button class="btn small primary" data-h="fr-draft" data-id="' + p.i + '"' + (d.kind === 'league' && (!LG.canDraftPos(L, tid, p.p) || !LG.affordable(L, tid, p)) ? ' disabled' : '') + '>Draft' + (d.cap ? ' · $' + Math.round(LG.salOf(p) * 10) / 10 + 'M' : '') + '</button>' : '')) + '</div>';
   if (myPicks.length) h += '<div class="panel"><h3>Your picks</h3><ul class="news">' + myPicks.map(p => '<li>' + p.p + ' ' + esc(p.n) + ' <b>' + p.o + '</b></li>').join('') + '</ul></div>';
   const recent = d.picks.slice(-8).reverse();
   if (recent.length) h += '<div class="panel"><h3>Recent picks</h3><ul class="news">' + recent.map(x => '<li><span>#' + x.n + '</span> ' + esc(L.teams[x.t].nick) + ': ' + esc(plLabel(L, x.p)) + '</li>').join('') + '</ul></div>';
@@ -3090,7 +3340,7 @@ function campAdapter() {
 V.camphub = () => { if (!C.L) { go('camp'); return; } frShow(campAdapter()); };
 
 /* ---------- custom leagues (accounts only, shared through the server) ---------- */
-const NEWL = { name: 'My League', entry: 'nfl', divisions: false, nDivs: 2, cpus: true, games: 8, playoffs: 4, trades: true, deadline: 10, rounds: 24, rookieRounds: 3 };
+const NEWL = { name: 'My League', entry: 'nfl', divisions: false, nDivs: 2, cpus: true, games: 8, playoffs: 4, trades: true, deadline: 10, rounds: 24, rookieRounds: 3, cap: 0 };
 const LGS = { code: '', ver: 0, mgr: '', members: [], L: null, member: false };
 const parseV = v => v === 'true' ? true : v === 'false' ? false : (/^-?\d+$/.test(v) ? +v : v);
 
@@ -3119,6 +3369,7 @@ V.leaguenew = () => {
     '<label class="fld" for="nl-name">League name</label><input id="nl-name" type="text" maxlength="24" value="' + esc(n.name) + '">' +
     '<label class="fld">How do teams start?</label>' + seg('entry', n.entry, [['nfl', 'Pick an NFL team'], ['draft', 'Draft players']]) +
     '<p class="hint">' + (n.entry === 'nfl' ? 'Each manager takes a real franchise with its real starters. Teams can still trade.' : 'Every NFL player goes into one pool and the managers snake-draft their rosters.') + '</p>' +
+    (n.entry === 'draft' ? '<label class="fld">Salary cap</label>' + seg('cap', n.cap || 0, [[0, 'None'], [270, 'Tight $270M'], [300, '$300M'], [335, 'Loose $335M']]) + '<p class="hint">With a cap, every player has a salary from his rating and position, and your whole drafted roster has to fit under it.</p>' : '') +
     '<label class="fld">Divisions</label>' + seg('divisions', n.divisions, yn) +
     (n.divisions ? '<label class="fld">How many divisions</label>' + seg('nDivs', n.nDivs, [[2, '2'], [3, '3'], [4, '4']]) : '') +
     '<label class="fld">CPU teams can fill empty spots</label>' + seg('cpus', n.cpus, yn) +
@@ -3184,7 +3435,7 @@ function lgLobby() {
     '<div><label class="fld">Games each</label>' + seg('games', c.games, [[4, '4'], [8, '8'], [12, '12'], [16, '16']]) + '</div>' +
     '<div><label class="fld">Playoff teams</label>' + seg('playoffs', c.playoffs, [[0, 'None'], [2, '2'], [4, '4'], [8, '8']]) + '</div>' +
     '<div><label class="fld">Trading</label>' + seg('trades', c.trades, yn) + '</div>' +
-    (c.entry === 'draft' ? '<div><label class="fld">Draft rounds</label>' + seg('rounds', c.rounds, [[21, '21'], [24, '24'], [28, '28']]) + '</div>' : '') +
+    (c.entry === 'draft' ? '<div><label class="fld">Draft rounds</label>' + seg('rounds', c.rounds, [[21, '21'], [24, '24'], [28, '28']]) + '</div><div><label class="fld">Salary cap</label>' + seg('cap', c.cap || 0, [[0, 'None'], [270, 'Tight $270M'], [300, '$300M'], [335, 'Loose $335M']]) + '</div>' : '') +
     '</div>' : '<div class="chips">' + [c.entry === 'nfl' ? 'NFL teams' : 'Player draft', c.divisions ? c.nDivs + ' divisions' : 'No divisions', c.cpus ? 'CPU teams on' : 'No CPUs', c.games + ' games', c.playoffs ? c.playoffs + ' in playoffs' : 'No playoffs', c.trades ? 'Trading on' : 'No trading'].map(x => '<span class="chip">' + x + '</span>').join('') + '</div>';
   h += '<section class="panel"><h3>Settings' + (mgr ? '' : ' <small>(set by the manager)</small>') + '</h3>' + sett + '</section>';
   // teams
@@ -3284,7 +3535,9 @@ CH.lgdl = el => lgCfg({ deadline: +el.value });
 ACT['lg-simweek'] = async () => { if (confirm('Sim every unplayed game this week, including human games?')) lgOp('simweek'); };
 
 /* ---------- tournaments (accounts only) ---------- */
-const NEWT = { name: 'Gridiron Cup', teamMode: 'draft', early: 1, semi: 1, final: 1, max: 16, open: true };
+const NEWT = { name: 'Gridiron Cup', teamMode: 'draft', early: 1, semi: 1, final: 1, max: 16, open: true, cap: 0 };
+const CAPSEG = [[0, 'No cap'], [270, 'Tight $270M'], [300, 'Standard $300M'], [335, 'Loose $335M']];
+const maxSeg = mode => mode === 'draft' ? [[4, '4'], [8, '8'], [16, '16']] : [[8, '8'], [16, '16'], [32, '32'], [64, '64']];
 const TNS = { code: '', ver: 0, T: null, tname: '' };
 const BOS = [[1, 'Single game'], [3, 'Best of 3'], [5, 'Best of 5']];
 
@@ -3299,14 +3552,15 @@ V.tourneys = async () => {
 ACT['tn-open'] = t => go('tourney', { code: t.dataset.code });
 ACT['tn-new'] = () => go('tourneynew');
 V.tourneynew = () => {
-  const n = NEWT;
+  const n = NEWT; if (n.teamMode === 'draft' && n.max > 16) n.max = 16;
   setMain('<section class="panel narrow"><h2>Create a tournament</h2>' +
     '<label class="fld" for="nt-name">Name</label><input id="nt-name" type="text" maxlength="24" value="' + esc(n.name) + '">' +
-    '<label class="fld">Teams</label>' + seg('teamMode', n.teamMode, [['draft', 'Everyone drafts a team'], ['nfl', 'Pick a real NFL team']]) +
+    '<label class="fld">Teams</label>' + seg('teamMode', n.teamMode, [['draft', 'Snake draft from one shared pool'], ['nfl', 'Pick a real NFL team']]) +
+    (n.teamMode === 'draft' ? '<label class="fld">Salary cap</label>' + seg('cap', n.cap, CAPSEG) : '') +
     '<label class="fld">Early rounds</label>' + seg('early', n.early, BOS) +
     '<label class="fld">Semifinals</label>' + seg('semi', n.semi, BOS) +
     '<label class="fld">Final</label>' + seg('final', n.final, BOS) +
-    '<label class="fld">Maximum teams</label>' + seg('max', n.max, [[8, '8'], [16, '16'], [32, '32'], [64, '64']]) +
+    '<label class="fld">Maximum teams</label>' + seg('max', n.max, maxSeg(n.teamMode)) +
     '<label class="fld">Anyone with the code can join</label>' + seg('open', n.open, [[true, 'Yes'], [false, 'No, I add people']]) +
     '<div class="row"><button class="btn primary" data-h="tn-create">Create tournament</button><button class="btn ghost" data-h="tourneys">Cancel</button></div></section>');
   const nm = $('#nt-name'); nm.addEventListener('input', () => { n.name = nm.value; });
@@ -3343,9 +3597,10 @@ function tnRender() {
   const T = TNS.T, me = H.user, mgr = T.mgr === me, mine = T.ent.find(e => e.owner === me), c = T.cfg;
   const boTxt = n => n === 1 ? '1 game' : 'Bo' + n;
   let h = '<section class="panel"><div class="row between"><h2>' + esc(c.name) + '</h2><button class="btn small" data-h="copy" data-code="' + T.code + '">Code ' + T.code + ' · copy</button></div>' +
-    '<div class="chips"><span class="chip">' + ({ setup: 'Signing up', live: 'In progress', done: 'Finished' }[T.phase]) + '</span><span class="chip">' + (c.teamMode === 'nfl' ? 'Real NFL teams' : 'Drafted teams') + '</span><span class="chip">Early ' + boTxt(c.early) + '</span><span class="chip">Semis ' + boTxt(c.semi) + '</span><span class="chip">Final ' + boTxt(c.final) + '</span><span class="chip">Max ' + c.max + '</span></div>' +
+    '<div class="chips"><span class="chip">' + ({ setup: 'Signing up', drafting: 'Drafting', live: 'In progress', done: 'Finished' }[T.phase]) + '</span><span class="chip">' + (c.teamMode === 'nfl' ? 'Real NFL teams' : 'Snake draft' + (c.cap ? ' · $' + c.cap + 'M cap' : '')) + '</span><span class="chip">Early ' + boTxt(c.early) + '</span><span class="chip">Semis ' + boTxt(c.semi) + '</span><span class="chip">Final ' + boTxt(c.final) + '</span><span class="chip">Max ' + c.max + '</span></div>' +
     (T.phase === 'done' ? '<div class="champ">🏆 ' + entLabel(T, T.champ, me) + ' win the tournament</div>' : '') + '</section>';
-  if (T.phase === 'setup') h += tnSetup(T, me, mgr, mine);
+  if (T.phase === 'drafting') h += tnDraftPanel(T, me, mgr, mine);
+  else if (T.phase === 'setup') h += tnSetup(T, me, mgr, mine);
   else h += tnBracket(T, me, mgr, mine);
   h += '<section class="panel"><div class="row"><button class="btn" data-h="tourneys">All tournaments</button>' + (mgr ? '<button class="btn ghost" data-h="tn-del">Delete tournament</button>' : (T.phase === 'setup' && mine ? '<button class="btn ghost" data-h="tn-leave">Leave</button>' : '')) + '</div></section>';
   setMain(h);
@@ -3356,8 +3611,9 @@ function tnSetup(T, me, mgr, mine) {
   if (!mine) {
     h += '<section class="panel"><h3>Join the field</h3><p class="sub">' + (c.open || mgr ? 'Add yourself as a player.' : 'This tournament is closed. Ask the manager to add you.') + '</p>' + (c.open || mgr ? '<div class="row"><button class="btn primary" data-h="tn-join">Join as a player</button></div>' : '') + '</section>';
   } else if (c.teamMode === 'draft') {
-    h += '<section class="panel"><h3>Your team</h3>' + (mine.squad ? '<p class="sub">Drafted: QB ' + esc(mine.squad.qb.n) + ', HB ' + esc(mine.squad.hb.n) + ', WR ' + esc(mine.squad.wr[0].n) + ' &amp; ' + esc(mine.squad.wr[1].n) + ', TE ' + esc(mine.squad.te.n) + ', ' + esc(mine.squad.ol.tm) + ' line, ' + esc(mine.squad.df.tm) + ' defense. Rating ' + E.teamUnits({ squad: mine.squad }).ovrR + '.</p>' : '<p class="sub">Draft seven picks: QB, HB, two WRs, TE, an offensive line and a defense. The same draw every time, so a redraft does not reroll your luck.</p>') +
-      '<label class="fld" for="tn-tname">Team name</label><input id="tn-tname" type="text" maxlength="18" value="' + esc(TNS.tname || mine.name || me) + '"><div class="row"><button class="btn primary" data-h="tn-draft">' + (mine.squad ? 'Redraft my team' : 'Draft my team') + '</button></div></section>';
+    h += '<section class="panel"><h3>Your team</h3>' + (mine.squad ? '<p class="sub">Drafted: QB ' + esc(mine.squad.qb.n) + ', HB ' + esc(mine.squad.hb.n) + ', WR ' + esc(mine.squad.wr[0].n) + ' &amp; ' + esc(mine.squad.wr[1].n) + ', TE ' + esc(mine.squad.te.n) + ', ' + esc(mine.squad.ol.tm) + ' line, ' + esc(mine.squad.df.tm) + ' defense. Rating ' + E.teamUnits({ squad: mine.squad }).ovrR + '.</p>' +
+      '<label class="fld" for="tn-tname">Team name</label><div class="addrow"><input id="tn-tname" type="text" maxlength="18" value="' + esc(mine.name || me) + '"><button class="btn small" data-h="tn-rename">Rename</button></div>' :
+      '<p class="sub">' + (mgr ? 'When everyone has joined, start the draft below.' : 'The manager will start a snake draft once everyone has joined. Every player can only be on one team.') + '</p>') + '</section>';
   } else {
     const taken = {}; T.ent.forEach(e => { if (e.abbr && e !== mine) taken[e.abbr] = 1; });
     h += '<section class="panel"><h3>Your team</h3><p class="sub">' + (mine.squad ? 'You picked ' + esc(mine.name) + '.' : 'Choose a real NFL team.') + '</p><div class="addrow"><select id="tn-fr" aria-label="Team">' + E.TEAMS.map(t => '<option value="' + t.abbr + '"' + (taken[t.abbr] ? ' disabled' : '') + (mine.abbr === t.abbr ? ' selected' : '') + '>' + esc(t.city + ' ' + t.nick) + (taken[t.abbr] ? ' (taken)' : '') + '</option>').join('') + '</select><button class="btn primary" data-h="tn-pick">Choose</button></div></section>';
@@ -3371,9 +3627,10 @@ function tnSetup(T, me, mgr, mine) {
   if (mgr) {
     h += '<section class="panel"><h3>Settings</h3><div class="setgrid"><div><label class="fld">Teams</label>' + seg('teamMode', c.teamMode, [['draft', 'Drafted'], ['nfl', 'NFL teams']]) + '</div>' +
       '<div><label class="fld">Early rounds</label>' + seg('early', c.early, BOS) + '</div><div><label class="fld">Semifinals</label>' + seg('semi', c.semi, BOS) + '</div><div><label class="fld">Final</label>' + seg('final', c.final, BOS) + '</div>' +
-      '<div><label class="fld">Max teams</label>' + seg('max', c.max, [[8, '8'], [16, '16'], [32, '32'], [64, '64']]) + '</div><div><label class="fld">Open to anyone with the code</label>' + seg('open', c.open, [[true, 'Yes'], [false, 'No']]) + '</div></div>' +
+      '<div><label class="fld">Max teams</label>' + seg('max', c.max, maxSeg(c.teamMode)) + '</div><div><label class="fld">Open to anyone with the code</label>' + seg('open', c.open, [[true, 'Yes'], [false, 'No']]) + '</div></div>' +
+      (c.teamMode === 'draft' ? '<div><label class="fld">Salary cap</label>' + seg('cap', c.cap || 0, CAPSEG) + '</div>' : '') +
       (T.ent.length && T.ent.some(e => e.squad) ? '<p class="hint">Switching between drafted and NFL teams clears everyone\'s team choice.</p>' : '') +
-      '<div class="row"><button class="btn primary" data-h="tn-start">Start the tournament</button></div></section>';
+      '<div class="row">' + (c.teamMode === 'draft' ? '<button class="btn ' + (T.drafted ? '' : 'primary') + '" data-h="tn-sdraft">' + (T.drafted ? 'Redo the draft' : 'Start the draft') + '</button>' : '') + '<button class="btn primary" data-h="tn-start"' + (c.teamMode === 'draft' && !T.drafted ? ' disabled' : '') + '>Start the tournament</button></div></section>';
   }
   return h;
 }
@@ -3394,14 +3651,37 @@ ACT['tn-mv'] = t => {
   const x = ord[i]; ord[i] = ord[j]; ord[j] = x; tnOp('seeds', { order: ord });
 };
 ACT['tn-start'] = async () => { const r = await tnOp('start'); if (r) toast('The tournament has started.'); };
-ACT['tn-draft'] = () => {
-  const name = ($('#tn-tname') && $('#tn-tname').value.trim()) || H.user; TNS.tname = name;
-  const rnd = E.mulberry32(E.hashStr(TNS.code + ':' + H.user));
-  G.startDraftOnly({ rnd, onDone: async roster => {
-    const r = await run(() => call('tourney', { op: 'team', code: TNS.code, roster, name }));
-    G.exitToHub(); go('tourney', { code: TNS.code }); if (r) toast('Team locked in.');
-  } });
+ACT['tn-rename'] = () => tnOp('team', { name: $('#tn-tname').value });
+ACT['tn-sdraft'] = async () => {
+  if (TNS.T.drafted && !confirm('Throw out the current teams and draft again?')) return;
+  if (await tnOp('startdraft')) toast('The draft has started.');
 };
+ACT['tn-dskip'] = () => tnOp('dauto');
+ACT['tn-dall'] = () => { if (confirm('Auto-draft the rest of the board for everyone?')) tnOp('dauto', { all: true }); };
+ACT['tn-dcancel'] = () => { if (confirm('Cancel the draft?')) tnOp('dcancel'); };
+ACT['tn-board'] = () => {
+  const T = TNS.T, dr = T.dr, mine = T.ent.find(e => e.owner === H.user), code = TNS.code;
+  if (!dr || T.phase !== 'drafting') { toast('There is no draft running.'); return; }
+  const fetchD = async () => {
+    const r = await call('tourney', { op: 'get', code, ver: 0 }); TNS.T = r.T; TNS.ver = r.ver;
+    if (!r.T.dr || (r.T.phase === 'setup' && !r.T.drafted)) { G.exitToHub(); go('tourney', { code }); toast('The draft was canceled.'); return null; }
+    return r.T.dr.d;
+  };
+  G.startBoard({
+    label: c0(T), d: dr.d, me: mine ? dr.order.indexOf(mine.id) : 0, watch: !mine, names: dr.order.map(id => entName(T, id).name), poll: fetchD,
+    post: async cid => { await call('tourney', { op: 'dpick', code, id: cid }); return fetchD(); },
+    onDone: () => { G.exitToHub(); go('tourney', { code }); toast('Draft complete. Your team is set.'); }
+  });
+};
+const c0 = T => T.cfg.name + ' draft';
+function tnDraftPanel(T, me, mgr, mine) {
+  const dr = T.dr, d = dr.d, clock = DR.onClock(d);
+  const nm = t => esc(entName(T, dr.order[t]).name);
+  let h = '<section class="panel"><h3>The draft is live</h3><p class="sub">' + (DR.isDone(d) ? 'Finishing up…' : 'Pick ' + (d.picks.length + 1) + ' of ' + d.order.length + ' · on the clock: <b>' + nm(clock) + '</b>' + (entName(T, dr.order[clock]).owner === me ? ' (you)' : '')) + '</p>' +
+    '<ol class="ordlist">' + dr.order.map((id, t) => { const e = entName(T, id), n = DR.teamIds(d, t).length; return '<li><span class="seedn">' + (t + 1) + '</span><span class="nm">' + entLabel(T, id, me) + '</span><span class="sub">' + n + ' / 7 picks' + (d.cap ? ' · $' + Math.round(DR.spent(DR.teamIds(d, t))) + 'M' : '') + (e.auto ? ' · auto' : '') + '</span></li>'; }).join('') + '</ol>' +
+    '<div class="row">' + (mine ? '<button class="btn primary" data-h="tn-board">Open the draft board</button>' : '') + (mgr ? '<button class="btn small" data-h="tn-dskip">Auto-pick for whoever is on the clock</button><button class="btn small" data-h="tn-dall">Auto-draft everything left</button><button class="btn small ghost" data-h="tn-dcancel">Cancel draft</button>' : '') + '</div></section>';
+  return h;
+}
 
 /* bracket */
 function tnBracket(T, me, mgr, mine) {

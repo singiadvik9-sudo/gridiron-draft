@@ -1,5 +1,5 @@
 /* ---------- custom leagues (accounts only, shared through the server) ---------- */
-const NEWL = { name: 'My League', entry: 'nfl', divisions: false, nDivs: 2, cpus: true, games: 8, playoffs: 4, trades: true, deadline: 10, rounds: 24, rookieRounds: 3 };
+const NEWL = { name: 'My League', entry: 'nfl', divisions: false, nDivs: 2, cpus: true, games: 8, playoffs: 4, trades: true, deadline: 10, rounds: 24, rookieRounds: 3, cap: 0 };
 const LGS = { code: '', ver: 0, mgr: '', members: [], L: null, member: false };
 const parseV = v => v === 'true' ? true : v === 'false' ? false : (/^-?\d+$/.test(v) ? +v : v);
 
@@ -28,6 +28,7 @@ V.leaguenew = () => {
     '<label class="fld" for="nl-name">League name</label><input id="nl-name" type="text" maxlength="24" value="' + esc(n.name) + '">' +
     '<label class="fld">How do teams start?</label>' + seg('entry', n.entry, [['nfl', 'Pick an NFL team'], ['draft', 'Draft players']]) +
     '<p class="hint">' + (n.entry === 'nfl' ? 'Each manager takes a real franchise with its real starters. Teams can still trade.' : 'Every NFL player goes into one pool and the managers snake-draft their rosters.') + '</p>' +
+    (n.entry === 'draft' ? '<label class="fld">Salary cap</label>' + seg('cap', n.cap || 0, [[0, 'None'], [270, 'Tight $270M'], [300, '$300M'], [335, 'Loose $335M']]) + '<p class="hint">With a cap, every player has a salary from his rating and position, and your whole drafted roster has to fit under it.</p>' : '') +
     '<label class="fld">Divisions</label>' + seg('divisions', n.divisions, yn) +
     (n.divisions ? '<label class="fld">How many divisions</label>' + seg('nDivs', n.nDivs, [[2, '2'], [3, '3'], [4, '4']]) : '') +
     '<label class="fld">CPU teams can fill empty spots</label>' + seg('cpus', n.cpus, yn) +
@@ -93,7 +94,7 @@ function lgLobby() {
     '<div><label class="fld">Games each</label>' + seg('games', c.games, [[4, '4'], [8, '8'], [12, '12'], [16, '16']]) + '</div>' +
     '<div><label class="fld">Playoff teams</label>' + seg('playoffs', c.playoffs, [[0, 'None'], [2, '2'], [4, '4'], [8, '8']]) + '</div>' +
     '<div><label class="fld">Trading</label>' + seg('trades', c.trades, yn) + '</div>' +
-    (c.entry === 'draft' ? '<div><label class="fld">Draft rounds</label>' + seg('rounds', c.rounds, [[21, '21'], [24, '24'], [28, '28']]) + '</div>' : '') +
+    (c.entry === 'draft' ? '<div><label class="fld">Draft rounds</label>' + seg('rounds', c.rounds, [[21, '21'], [24, '24'], [28, '28']]) + '</div><div><label class="fld">Salary cap</label>' + seg('cap', c.cap || 0, [[0, 'None'], [270, 'Tight $270M'], [300, '$300M'], [335, 'Loose $335M']]) + '</div>' : '') +
     '</div>' : '<div class="chips">' + [c.entry === 'nfl' ? 'NFL teams' : 'Player draft', c.divisions ? c.nDivs + ' divisions' : 'No divisions', c.cpus ? 'CPU teams on' : 'No CPUs', c.games + ' games', c.playoffs ? c.playoffs + ' in playoffs' : 'No playoffs', c.trades ? 'Trading on' : 'No trading'].map(x => '<span class="chip">' + x + '</span>').join('') + '</div>';
   h += '<section class="panel"><h3>Settings' + (mgr ? '' : ' <small>(set by the manager)</small>') + '</h3>' + sett + '</section>';
   // teams

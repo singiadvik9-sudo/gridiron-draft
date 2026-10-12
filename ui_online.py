@@ -9,14 +9,18 @@ with sync_playwright() as p:
         pg.on('pageerror', lambda e,t=tag: errs.append(t+' PAGEERROR '+str(e)))
         pg.on('console', lambda m,t=tag: errs.append(t+' CONSOLE '+m.text) if m.type=='error' and 'ERR_' not in m.text and 'Failed to load resource' not in m.text else None)
         pg.goto('http://localhost:5055/'); pg.wait_for_timeout(400); pg.click('[data-h=quick]'); pg.wait_for_timeout(150)
-    A.fill('#team','Alpha'); A.click('#b-create'); A.wait_for_selector('.chip.room')
+    A.fill('#team','Alpha'); A.select_option('#cap','tight'); A.click('#b-create'); A.wait_for_selector('.chip.room')
     code=A.inner_text('.chip.room').split()[-1]; print('room code',code)
     B.fill('#team','Bravo'); B.fill('#code',code.lower()); B.click('#b-join'); B.wait_for_selector('.chip.room')
-    A.wait_for_timeout(300); print('A opp chip:', A.inner_text('#oppchip'))
-    for pg in (A,B): pg.click('[data-act=auto]')
-    A.click('[data-act=lock]'); A.wait_for_timeout(400)
-    print('A wait screen:', A.query_selector('.bigcode') is not None)
-    B.click('[data-act=lock]'); A.wait_for_timeout(500)
+    A.wait_for_selector('.sd'); B.wait_for_selector('.sd'); A.wait_for_timeout(300)
+    print('A cap:', A.inner_text('.capnums').replace('\n',' '), '| status A:', A.inner_text('.sd-top h2'), '| status B:', B.inner_text('.sd-top h2'))
+    A.screenshot(path='shots/sd_online.png',full_page=True)
+    # manual pick by whoever is up, then both auto-draft
+    for pg in (A,B):
+        bt=pg.query_selector('.sd-row:not(.no) [data-act=sd-pick]:not([disabled])')
+        if bt: bt.click(); pg.wait_for_timeout(300); print('manual pick made'); break
+    for pg in (A,B): pg.click('[data-act=sd-auto]')
+    A.wait_for_selector('.game',timeout=20000); B.wait_for_selector('.game',timeout=20000)
     print('A game:', A.query_selector('.game') is not None, 'B game:', B.query_selector('.game') is not None)
     n=0
     while n<1500 and not (A.query_selector('.final') and B.query_selector('.final')):
