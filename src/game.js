@@ -91,7 +91,7 @@ function genericKey(tm, seed, n) {
 // the sprite key for a drafted slot (used on cards, strip, rosters)
 function slotKey(slotIdx, id) {
   const e = E.entity(slotIdx, id), k = E.SLOTS[slotIdx].kind;
-  if (k === 'OL' || k === 'DEF') return genericKey(e.tm, k, 0);
+  if (k === 'OL' || k === 'DEF' || k === 'ST') return genericKey(e.tm, k, 0);
   return keyFor(e, e.tm);
 }
 // on the field every sprite wears its drafted side's colors
@@ -380,7 +380,7 @@ function buildLobby() {
     '<button class="btn" data-act="cpu" id="b-cpu">Practice vs CPU</button>' +
     '<p class="hint" id="access"></p></div>' +
     '<div class="panel how"><h2>How a game works</h2><ol>' +
-    '<li><b>Snake draft 7 slots.</b> Quarterback, running back, two receivers, tight end, an entire offensive line, and an entire defense. You and your opponent take turns from one shared pool (1-2-2-1…), and every player can only be on one team.</li>' +
+    '<li><b>Snake draft 11 slots.</b> Quarterback, running back, two receivers, tight end, an entire offensive line, an entire defense, a kicker, a punt returner, a kick returner, and the rest of special teams (punter, long snapper, coverage). You and your opponent take turns from one shared pool (1-2-2-1…), and every player can only be on one team.</li>' +
     '<li><b>Optional salary cap.</b> Every player and unit has a salary based on rating and position. QBs and pass rushers cost the most, running backs and safeties the least. Stay under the cap or the pick is blocked.</li>' +
     '<li><b>Call plays.</b> Offense and defense pick in secret at the same time. Pro-game ratings decide who wins the matchup.</li></ol>' +
     '<p class="hint">Ratings are Madden NFL 27 overalls for current starters. Unofficial fan project, no logos.</p></div>' +
@@ -394,7 +394,7 @@ function updateLobbyHints() {
   create.disabled = !S.api; join.disabled = !S.api;
   hint.textContent = !S.ready ? 'Connecting…' : S.api ? 'Create a room and send the code to a friend.' : 'Online rooms are unavailable right now. Practice vs CPU still works.';
 }
-const CAP_OPTS = [['0', 'No cap'], ['tight', 'Tight · $270M'], ['standard', 'Standard · $300M'], ['loose', 'Loose · $335M']];
+const CAP_OPTS = [['0', 'No cap'], ['tight', 'Tight · $295M'], ['standard', 'Standard · $325M'], ['loose', 'Loose · $360M']];
 function readCap() {
   const el = $('#cap'), v = el ? el.value : (lsGet('gd_cap') || '0');
   lsSet('gd_cap', v); return DR.CAPS[v] || 0;
@@ -493,8 +493,8 @@ function leave() {
 
 /* ---------- snake draft ---------- */
 const money = x => '$' + (Math.round(x * 10) / 10) + 'M';
-const KLAB = { QB: 'QB', HB: 'HB', WR: 'WR', TE: 'TE', OL: 'O-Line', DEF: 'Defense' };
-const SLOT_ORDER = ['QB', 'HB', 'WR', 'WR', 'TE', 'OL', 'DEF'];
+const KLAB = { QB: 'QB', HB: 'HB', WR: 'WR', TE: 'TE', OL: 'O-Line', DEF: 'Defense', K: 'Kicker', PR: 'Punt Ret', KR: 'Kick Ret', ST: 'Spec Teams' };
+const SLOT_ORDER = ['QB', 'HB', 'WR', 'WR', 'TE', 'OL', 'DEF', 'K', 'PR', 'KR', 'ST'];
 // o: {label, d, me, names[], cpu[] (local CPU teams), localCpu, post(cid)->draft, poll()->draft, onDone(roster, draft)}
 function sdStart(o) {
   sdStop();
@@ -518,6 +518,7 @@ function sdSet(nd) {
 function sdSub(c) {
   const D = E.DATA, last = n => String(n).split(' ').slice(-1)[0];
   if (c.k === 'OL') return D.OLU[c.n].players.map(p => last(p[0]) + ' ' + p[1]).join(' · ');
+  if (c.k === 'ST') return D.STU[c.n].players.map(p => last(p[1]) + ' ' + p[2]).slice(0, 3).join(' · ') + ' …';
   if (c.k === 'DEF') return D.DFU[c.n].players.slice().sort((x, y) => y[3] - x[3]).slice(0, 4).map(p => last(p[2]) + ' ' + p[3]).join(' · ');
   return '';
 }
@@ -651,6 +652,11 @@ function squadListHTML(team) {
   const gk = n => fieldKey(genericKey({ abbr: q.ol.tm, c1: '#222222', c2: '#222222' }, 'OL', n), side);
   q.ol.p.forEach((p, n) => { h += row('OL', gk(n), p[0], p[1], ''); });
   q.df.p.forEach((p, n) => { h += row(p[0], fieldKey(genericKey({ abbr: q.df.tm, c1: '#222222', c2: '#222222' }, 'DEF', n), side), p[2], p[3], ''); });
+  if (q.k) {
+    [['K', q.k], ['PR', q.pr], ['KR', q.kr]].forEach(r => { h += row(r[0], sk(r[1]), r[1].n, r[1].o, r[1].tm); });
+    const stN = q.st.p.slice().sort((x, y) => y[2] - x[2]).slice(0, 2).map(p => p[1]).join(', ');
+    h += row('ST', fieldKey(genericKey({ abbr: q.st.tm, c1: '#222222', c2: '#222222' }, 'DEF', 9), side), (q.st.tm || '') + ' special teams', E.teamUnits({ squad: q }).stOvr, stN);
+  }
   return '<ul class="roster">' + h + '</ul>';
 }
 function rosterListHTML(team) {
@@ -658,7 +664,7 @@ function rosterListHTML(team) {
   let rows = '';
   E.SLOTS.forEach((s, i) => {
     const e = E.entity(i, team.roster[i]), g = E.grade(e.ovr);
-    const nm = s.kind === 'OL' ? E.unitName(e, 'OL') : s.kind === 'DEF' ? E.unitName(e, 'DEF') : e.name;
+    const nm = s.kind === 'OL' ? E.unitName(e, 'OL') : s.kind === 'DEF' ? E.unitName(e, 'DEF') : s.kind === 'ST' ? e.tm.nick + ' Special Teams' : e.name;
     rows += '<li><span class="r-pos">' + s.short + '</span>' + spCanvas(slotKey(i, team.roster[i]), 2) + '<span class="r-name">' + esc(nm) + '</span><span class="r-type" style="--tc:' + brite(e.tm) + '">' + esc(e.tm.nick) + '</span><span class="r-fit">' + e.ovr + '</span><span class="grade g-' + g + '">' + g + '</span></li>';
   });
   return '<ul class="roster">' + rows + '</ul>';

@@ -85,7 +85,7 @@ with sync_playwright() as p:
     A.screenshot(path='shots/tn_end.png',full_page=True)
     # draft-mode tournament with a salary cap
     A.click('[data-h=home]'); A.click('[data-h=tourneys]'); A.wait_for_timeout(300)
-    A.click('[data-h=tn-new]'); A.click('[data-h=seg][data-k=teamMode][data-v=draft]'); A.click('[data-h=seg][data-k=cap][data-v="300"]'); A.click('[data-h=seg][data-k=max][data-v="8"]'); A.fill('#nt-name','Draft Cup')
+    A.click('[data-h=tn-new]'); A.click('[data-h=seg][data-k=teamMode][data-v=draft]'); A.click('[data-h=seg][data-k=cap][data-v="325"]'); A.click('[data-h=seg][data-k=max][data-v="8"]'); A.fill('#nt-name','Draft Cup')
     A.click('[data-h=tn-create]'); A.wait_for_timeout(600)
     A.click('[data-h=tn-join]'); A.wait_for_timeout(400); A.click('[data-h=tn-cpu][data-n="3"]'); A.wait_for_timeout(400)
     A.screenshot(path='shots/tn_dsetup.png',full_page=True)
