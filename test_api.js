@@ -1,0 +1,105 @@
+// In-process API test: accounts, league (human vs CPU & human vs human), tournament.
+const E=require('./lib/engine.js'), LG=require('./lib/league.js');
+const H={auth:require('./api/auth.js'),league:require('./api/league.js'),tourney:require('./api/tourney.js'),room:require('./api/room.js'),save:require('./api/save.js')};
+async function call(name,body,tok){return new Promise(r=>{const req={method:'POST',body,headers:tok?{'x-token':tok}:{}};const res={status(c){this.c=c;return this},json(o){r(Object.assign({_c:this.c},o))},setHeader(){}};H[name](req,res)})}
+const ok=(c,m)=>{if(!c){console.log('FAIL',m);process.exitCode=1}else console.log('ok  ',m)};
+// play a human side locally: returns moves for that side
+function playSide(info){
+  const T=info.T,U={a:E.teamUnits(T.a),b:E.teamUnits(T.b)}; let st=E.initState(info.seed); const mine=info.side, moves={}; let g=0;
+  while(!st.over&&g++<200){const n=st.playNo,off=st.poss,def=off==='a'?'b':'a';
+    const pick=(side,role)=>E.cpuMove(st,U,side,info.seed,role);
+    let om,dm; if(off===mine){om={pick:pick(mine,'off')};moves[n+'-'+off]=om}else om={pick:pick(off,'off')};
+    const kick=E.OFF&&0;
+    const k=require('./lib/engine.js');
+    // defense
+    const isKick=false;
+    if(def===mine){dm={pick:pick(mine,'def')};moves[n+'-'+def]=dm}else dm={pick:pick(def,'def')};
+    const res=E.stepGame(st,T,U,info.seed,om.pick,dm.pick);st=res.state;}
+  return moves;
+}
+(async()=>{
+  const a=await call('auth',{op:'register',name:'alice',password:'secret1'}),bb=await call('auth',{op:'register',name:'bob',password:'secret2'});
+  ok(a.token&&bb.token,'register'); const ta=a.token,tb=bb.token;
+  ok((await call('auth',{op:'register',name:'alice',password:'x12345'})).error==='name_taken','dup name');
+  ok((await call('league',{op:'mine'})).error==='auth','league needs account');
+  let r=await call('league',{op:'create',cfg:{name:'Test',entry:'nfl',divisions:true,games:5,playoffs:4}},ta); ok(r.code,'create league '+r.code); const code=r.code;
+  ok((await call('league',{op:'join',code},tb)).ok,'bob joins');
+  ok((await call('league',{op:'claim',code,abbr:'SF'},ta)).tid===0,'alice claims SF');
+  ok((await call('league',{op:'claim',code,abbr:'KC'},tb)).tid===1,'bob claims KC');
+  ok((await call('league',{op:'claim',code,abbr:'KC'},tb)).tid===1,'reclaim ok');
+  r=await call('league',{op:'addcpu',code,n:4},ta); ok(r.made===4,'4 cpus');
+  ok((await call('league',{op:'start',code},tb)).error==='manager_only','non-mgr cant start');
+  r=await call('league',{op:'start',code},ta); ok(r.ok,'start '+JSON.stringify(r));
+  let g=await call('league',{op:'get',code},ta); let L=g.L; ok(L.phase==='regular'&&L.sched.length>0,'regular, games '+L.sched.length);
+  const same=await call('league',{op:'get',code,ver:g.ver},ta); ok(same.same,'ver poll');
+  // find a week-1 game for alice
+  for(let season=0;season<1;season++){
+    let guard=0;
+    while(guard++<30){
+      g=await call('league',{op:'get',code},ta);L=g.L;
+      if(L.phase==='offseason')break;
+      const tidA=L.teams.findIndex(t=>t.owner==='alice'),tidB=L.teams.findIndex(t=>t.owner==='bob');
+      const gm=L.sched.filter(x=>x.w===L.week&&!x.done);
+      if(!gm.length){console.log('no games?',L.phase,L.week);break}
+      for(const x of gm){
+        const who=[x.h,x.a].filter(t=>t===tidA||t===tidB);
+        if(!who.length)continue;
+        const hv=L.teams[x.h].owner&&L.teams[x.a].owner;
+        if(hv){
+          const pa=await call('league',{op:'play',code,gid:x.id},L.teams[x.h].owner==='alice'?ta:tb);
+          const pb=await call('league',{op:'play',code,gid:x.id},L.teams[x.h].owner==='alice'?tb:ta);
+          ok(pa.room&&pa.room===pb.room,'h-v-h room '+pa.room);
+          // simulate both humans via room.move
+          const sh=L.teams[x.h].owner,sa=L.teams[x.a].owner; const tok=n=>n==='alice'?ta:tb;
+          const mh=playSide(pa), ma=playSide(Object.assign({},pa,{side:'b'}));
+          for(const k in mh){const [n]=k.split('-');await call('room',{op:'move',code:pa.room,seat:'a',n:+n,pick:mh[k].pick},tok(sh))}
+          for(const k in ma){const [n]=k.split('-');await call('room',{op:'move',code:pa.room,seat:'b',n:+n,pick:ma[k].pick},tok(sa))}
+          const rp=await call('league',{op:'report',code,gid:x.id},ta); ok(rp.ok,'h-v-h verified '+rp.sh+'-'+rp.sa+' '+(rp.error||''));
+        } else {
+          const owner=L.teams[who[0]].owner, tok=owner==='alice'?ta:tb;
+          const p=await call('league',{op:'play',code,gid:x.id},tok);
+          const mv=playSide(p);
+          const rp=await call('league',{op:'report',code,gid:x.id,moves:mv},tok); ok(rp.ok,'vs cpu verified '+rp.sh+'-'+rp.sa+' '+(rp.error||''));
+          // tampered replay should fail
+        }
+      }
+    }
+    g=await call('league',{op:'get',code},ta);console.log('phase',g.L.phase,'season',g.L.season,'champ',g.L.hist[0]&&g.L.teams[g.L.hist[0].champ].name);
+  }
+  const me=await call('auth',{op:'me'},ta); ok(me.hist.length>=1&&me.hist[0].kind==='league','alice hist: '+JSON.stringify(me.hist[0]).slice(0,200));
+  r=await call('league',{op:'offseason',code},ta); ok(r.ok,'offseason '+(r.error||'')); g=await call('league',{op:'get',code},ta);console.log('phase after offseason',g.L.phase);
+  if(g.L.phase==='draft'){ for(let i=0;i<40&&(await call('league',{op:'get',code},ta)).L.phase==='draft';i++){const gg=(await call('league',{op:'get',code},ta)).L,tid=LG.onClock(gg),o=gg.teams[tid].owner;if(!o){await call('league',{op:'draftskip',code},ta);continue}const pid=LG.cpuPickFor(gg,tid,gg.draft.pool);await call('league',{op:'draft',code,pid},o==='alice'?ta:tb)} }
+  g=await call('league',{op:'get',code},ta);ok(g.L.phase==='preseason','draft done -> '+g.L.phase);
+  r=await call('league',{op:'season',code},ta);g=await call('league',{op:'get',code},ta);ok(g.L.season===2027&&g.L.phase==='regular','season 2027 '+(r.error||''));
+  // trade with CPU
+  const L2=g.L,tid=L2.teams.findIndex(t=>t.owner==='alice');
+  const off=await call('league',{op:'cpuoffers',code},ta);console.log('cpu offers',off.offers&&off.offers.length);
+  // tournament
+  r=await call('tourney',{op:'create',cfg:{name:'Cup',teamMode:'nfl',semi:3,final:5}},ta);ok(r.code,'tourney '+r.code);const tc=r.code;
+  await call('tourney',{op:'join',code:tc},ta);await call('tourney',{op:'join',code:tc},tb);
+  ok((await call('tourney',{op:'pick',code:tc,abbr:'DAL'},ta)).ok,'pick');ok((await call('tourney',{op:'pick',code:tc,abbr:'DAL'},tb)).error,'dup pick blocked');await call('tourney',{op:'pick',code:tc,abbr:'GB'},tb);
+  ok((await call('tourney',{op:'addcpu',code:tc,n:2},ta)).ok,'cpus');
+  let tg=(await call('tourney',{op:'get',code:tc},ta)).T;
+  const ord=[tg.ent[3].id,tg.ent[1].id,tg.ent[2].id,tg.ent[0].id];
+  ok((await call('tourney',{op:'seeds',code:tc,order:ord},ta)).ok,'custom seeds');
+  r=await call('tourney',{op:'start',code:tc},ta);ok(r.ok,'start '+(r.error||''));
+  for(let g2=0;g2<12;g2++){
+    tg=(await call('tourney',{op:'get',code:tc},ta)).T; if(tg.phase==='done')break;
+    const live=tg.br.matches.filter(m=>m.a!=null&&m.b!=null&&m.win==null);
+    for(const m of live){const A=tg.ent.find(e=>e.id===tg.seeds[m.a]),B=tg.ent.find(e=>e.id===tg.seeds[m.b]);
+      const hs=[A,B].filter(e=>e.kind==='human');
+      if(hs.length===2){const pa=await call('tourney',{op:'play',code:tc,mid:m.id},ta);const pb=await call('tourney',{op:'play',code:tc,mid:m.id},tb);ok(pa.room&&pa.room===pb.room,'t h-v-h room');
+        const seatOf={a:pa.side==='a'?ta:tb,b:pa.side==='a'?tb:ta};const mh=playSide(pa),ma=playSide(Object.assign({},pa,{side:pa.side==='a'?'b':'a'}));
+        for(const k in mh){await call('room',{op:'move',code:pa.room,seat:pa.side,n:+k.split('-')[0],pick:mh[k].pick},ta)}
+        const os=pa.side==='a'?'b':'a';for(const k in ma){await call('room',{op:'move',code:pa.room,seat:os,n:+k.split('-')[0],pick:ma[k].pick},tb)}
+        const rp=await call('tourney',{op:'report',code:tc,mid:m.id},ta);ok(rp.ok,'t report hvh '+(rp.error||''))}
+      else if(hs.length===1){const tk=hs[0].owner==='alice'?ta:tb;const p=await call('tourney',{op:'play',code:tc,mid:m.id},tk);const rp=await call('tourney',{op:'report',code:tc,mid:m.id,moves:playSide(p)},tk);ok(rp.ok,'t report vs cpu '+(rp.error||''))}
+    }
+  }
+  tg=(await call('tourney',{op:'get',code:tc},ta)).T;ok(tg.phase==='done','tourney done champ '+(tg.ent.find(e=>e.id===tg.champ)||{}).name);
+  const me2=await call('auth',{op:'me'},tb);console.log('bob hist',me2.hist.map(h=>h.kind+':'+(h.place||h.lname)));
+  // draft-mode tourney
+  r=await call('tourney',{op:'create',cfg:{teamMode:'draft'}},ta);const c3=r.code;
+  await call('tourney',{op:'join',code:c3},ta);const rost=E.autoDraft(E.mulberry32(5));ok((await call('tourney',{op:'team',code:c3,roster:rost},ta)).ok,'draft team');
+  await call('tourney',{op:'join',code:c3},tb);ok((await call('tourney',{op:'start',code:c3},ta)).error,'start blocked until bob has team');
+})();

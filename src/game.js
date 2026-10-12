@@ -1,0 +1,833 @@
+(function () {
+'use strict';
+const E = window.E;
+const $ = (s, r) => (r || document).querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+const TEAM_COL = { a: '#ff6b4a', b: '#4aa8ff' };
+const other = t => t === 'a' ? 'b' : 'a';
+const ord = n => ['', '1st', '2nd', '3rd', '4th'][n] || n + 'th';
+
+/* ---------- tiny storage helpers (all optional) ---------- */
+function ssGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+function ssSet(k, v) { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch (e) {} }
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+const PID = (() => {
+  let v = ssGet('gd_pid');
+  if (!v) { v = Math.random().toString(36).slice(2, 10) + Date.now().toString(36); ssSet('gd_pid', v); }
+  return v;
+})();
+
+
+/* ---------- state ---------- */
+const S = {
+  mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
+  draft: null, myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
+  poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, drawRnd: null, draftCb: null
+};
+
+/* ---------- sprites ---------- */
+// One football-player body for everyone. Only skin and hair color change per player; jersey and helmet
+// take the team colors. H helmet, M facemask, F skin, R hair, J jersey, W white, P pants, S cleats.
+const BODY = [
+  "....HHHH....",
+  "...HHWWHH...",
+  "..RHHHHHHM..",
+  "..RRHHFFFM..",
+  "...R.HFFF...",
+  "...JJJFJJ...",
+  "..FJJJJJJF..",
+  "..FJJWWJJF..",
+  "..FJJWWJJF..",
+  "...PPPPPP...",
+  "...PP..PP...",
+  "...SS..SS..."
+];
+const SPR = 14;   // 14x14 canvas: 12x12 template plus a 1-cell outline margin
+const D = E.DATA;
+function hex2rgb(h) { h = h.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+function shade(h, f) {
+  const c = hex2rgb(h), k = f < 0 ? 0 : 255, t = Math.abs(f);
+  return 'rgb(' + c.map(v => Math.round(v + (k - v) * t)).join(',') + ')';
+}
+function lum(h) { const c = hex2rgb(h); return (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) / 255; }
+const spriteCache = new Map();
+// key: "skin:hair:jersey:helmet"  (skin 1-5, hair K/N/B/R/G/X, colors as hex without #)
+function buildSprite(key) {
+  const [sk, hr, jc, hc] = key.split(':');
+  const skin = D.SKIN[+sk - 1], hair = hr === 'X' ? skin : D.HAIR[hr];
+  const jersey = '#' + jc, helmet = '#' + hc;
+  const G = Array.from({ length: SPR }, () => new Array(SPR).fill('.'));
+  for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) G[y + 1][x + 1] = BODY[y][x];
+  const O = G.map(r => r.slice());
+  for (let y = 0; y < SPR; y++) for (let x = 0; x < SPR; x++) {
+    if (G[y][x] !== '.') continue;
+    if ((y > 0 && G[y - 1][x] !== '.') || (y < SPR - 1 && G[y + 1][x] !== '.') || (x > 0 && G[y][x - 1] !== '.') || (x < SPR - 1 && G[y][x + 1] !== '.')) O[y][x] = 'O';
+  }
+  const col = { H: helmet, M: '#c9ccd4', F: skin, R: hair, J: jersey, W: '#f4f1e6', P: '#e6e3d6', S: '#171a24', O: '#0a0d18' };
+  const cv = document.createElement('canvas'); cv.width = cv.height = SPR;
+  const cx = cv.getContext('2d');
+  for (let y = 0; y < SPR; y++) for (let x = 0; x < SPR; x++) {
+    const ch = O[y][x]; if (ch === '.') continue;
+    cx.fillStyle = col[ch]; cx.fillRect(x, y, 1, 1);
+  }
+  return cv;
+}
+function getSprite(key) {
+  let s = spriteCache.get(key);
+  if (!s) { s = buildSprite(key); spriteCache.set(key, s); }
+  return s;
+}
+const hexNo = h => h.replace('#', '');
+function jerseyOf(tm) { return lum(tm.c1) < 0.14 ? tm.c2 : tm.c1; }
+function keyFor(p, tm) { return p.skin + ':' + p.hair + ':' + hexNo(jerseyOf(tm)) + ':' + hexNo(lum(tm.c1) < 0.14 ? tm.c1 : tm.c2); }
+// line / defense packages are not individual likenesses: generic mix of skin and hair
+const SKIN_MIX = [1, 2, 3, 4, 4, 5, 5, 3, 1, 4, 5];
+const HAIR_MIX = ['K', 'N', 'K', 'X', 'K', 'B', 'K', 'N', 'X', 'K', 'R'];
+function genericKey(tm, seed, n) {
+  const h = E.hashStr(tm.abbr + ':' + seed + ':' + n);
+  return SKIN_MIX[h % SKIN_MIX.length] + ':' + HAIR_MIX[(h >>> 5) % HAIR_MIX.length] + ':' + hexNo(jerseyOf(tm)) + ':' + hexNo(lum(tm.c1) < 0.14 ? tm.c1 : tm.c2);
+}
+// the sprite key for a drafted slot (used on cards, strip, rosters)
+function slotKey(slotIdx, id) {
+  const e = E.entity(slotIdx, id), k = E.SLOTS[slotIdx].kind;
+  if (k === 'OL' || k === 'DEF') return genericKey(e.tm, k, 0);
+  return keyFor(e, e.tm);
+}
+// on the field every sprite wears its drafted side's colors
+const SIDE_J = { a: 'ff6b4a', b: '4aa8ff' }, SIDE_H = { a: 'b83c22', b: '2a6fb8' };
+function fieldKey(base, side) { const p = base.split(':'); return p[0] + ':' + p[1] + ':' + SIDE_J[side] + ':' + SIDE_H[side]; }
+function paintCanvases(root) {
+  root.querySelectorAll('canvas[data-sp]').forEach(cv => {
+    const sc = +cv.dataset.s || 4;
+    cv.width = cv.height = SPR * sc;
+    const x = cv.getContext('2d'); x.imageSmoothingEnabled = false;
+    x.drawImage(getSprite(cv.dataset.sp), 0, 0, SPR * sc, SPR * sc);
+  });
+}
+window.GD = { getSprite, slotKey, genericKey };
+
+/* ---------- small view helpers ---------- */
+function meter(f) {
+  const n = Math.max(0, Math.min(10, Math.round(f / 10)));
+  let h = '<span class="meter">';
+  for (let i = 0; i < 10; i++) h += '<i class="' + (i < n ? 'on' : '') + '"></i>';
+  return h + '</span>';
+}
+function statRow(k, v) {
+  return '<div class="st"><span>' + k + '</span><span class="bar"><i class="' + (v >= 88 ? 'hi' : v >= 76 ? 'mid' : 'lo') + '" style="width:' + Math.max(8, Math.min(100, (v - 40) / 0.6)) + '%"></i></span><b>' + v + '</b></div>';
+}
+const spCanvas = (key, s) => '<canvas class="spr" data-sp="' + key + '" data-s="' + s + '"></canvas>';
+const brite = tm => { const c = lum(tm.c1) < 0.2 ? tm.c2 : tm.c1; return lum(c) < 0.4 ? shade(c, 0.45) : c; };
+const teamChip = tm => '<span class="chip tm" style="--tc:' + brite(tm) + '">' + esc(tm.city + ' ' + tm.nick) + '</span>';
+function cardHTML(id, i, slotIdx) {
+  const slot = E.SLOTS[slotIdx], e = E.entity(slotIdx, id), g = E.grade(e.ovr);
+  let art, name, chips, body;
+  if (slot.kind === 'OL') {
+    art = '<div class="pc-art units">' + [0, 1, 2, 3, 4].map(n => spCanvas(genericKey(e.tm, 'OL', n), 3)).join('') + '<span class="grade">' + g + '</span></div>';
+    name = E.unitName(e, 'OL'); chips = teamChip(e.tm);
+    body = '<div class="plist">' + e.players.map(p => '<div><span>' + esc(p[0]) + '</span><b>' + p[1] + '</b></div>').join('') + '</div>';
+  } else if (slot.kind === 'DEF') {
+    art = '<div class="pc-art units">' + [0, 1, 2, 3].map(n => spCanvas(genericKey(e.tm, 'DEF', n), 3)).join('') + '<span class="grade">' + g + '</span></div>';
+    name = E.unitName(e, 'DEF'); chips = teamChip(e.tm) + '<span class="chip">' + (e.scheme === '34' ? '3-4' : '4-3') + '</span>';
+    const top = e.players.slice().sort((a, b) => b[3] - a[3]).slice(0, 3).map(p => p[2] + ' ' + p[3]).join(' · ');
+    body = '<div class="stats">' + E.GROUPS.map(k => statRow(k, Math.round(e.g[k]))).join('') + '</div><div class="trait">' + esc(top) + '</div>';
+  } else {
+    art = '<div class="pc-art">' + spCanvas(keyFor(e, e.tm), 7) + '<span class="grade">' + g + '</span></div>';
+    name = e.name; chips = teamChip(e.tm);
+    body = '<div class="stats">' + statRow('SPD', e.spd) + statRow('STR', e.str) + statRow('AGI', e.agi) + statRow('AWR', e.awr) + '</div>' + (e.est ? '<div class="trait">rating estimated from comparable players</div>' : '');
+  }
+  return '<button class="pcard g-' + g + '" data-act="pick" data-i="' + i + '" aria-label="Draft ' + esc(name) + '">' + art +
+    '<div class="pc-main"><div class="pc-top"><span class="key">' + (i + 1) + '</span><span class="pc-name">' + esc(name) + '</span><span class="dex">' + e.ovr + '</span></div>' +
+    '<div class="chips">' + chips + '</div>' + body + '</div></button>';
+}
+
+const abbr = n => (String(n).replace(/[^A-Za-z0-9 ]/g, '').trim().split(/\s+/)[0] || 'TM').slice(0, 3).toUpperCase();
+function spotLabel(st, teams) {
+  if (st.ballOn === 50) return '50';
+  if (st.ballOn < 50) return abbr(teams[st.poss].name) + ' ' + st.ballOn;
+  return abbr(teams[other(st.poss)].name) + ' ' + (100 - st.ballOn);
+}
+function ddLabel(st) { return ord(st.down) + ' & ' + (st.toGo >= 100 - st.ballOn ? 'Goal' : st.toGo); }
+
+let toastTimer = 0;
+function toast(msg) {
+  const t = $('#toast'); if (!t) return;
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 4200);
+}
+
+/* ---------- derived game ---------- */
+function validSeat(d) { return !!(d && d.status === 'ready' && (d.squad || E.validRoster(d.roster))); }
+function bothReady() { return validSeat(S.seats.a) && validSeat(S.seats.b); }
+function teamOf(seat) {
+  const d = S.seats[seat];
+  const name = String(d.name || 'Team ' + seat.toUpperCase()).slice(0, 18);
+  return d.squad ? { name, squad: d.squad } : { name, roster: d.roster, squad: E.squadFromRoster(d.roster) };
+}
+function allMoves() {
+  const mv = Object.assign({}, S.moves);
+  if (S.me) for (const n in S.mine) mv[n + '-' + S.me] = { pick: S.mine[n] };
+  return mv;
+}
+function derive() {
+  if (!bothReady()) return null;
+  const teams = { a: teamOf('a'), b: teamOf('b') };
+  const rp = E.replay(S.seed, teams, allMoves(), S.cpuSides);
+  return { teams, state: rp.state, log: rp.log, U: rp.U };
+}
+
+/* ---------- field renderer ---------- */
+const Field = {
+  W: 680, H: 372, YPP: 20, TOP: 42,
+  cv: null, ctx: null, scene: null, cam: 50, ballX: null, ballLift: 0, flash: null,
+  queue: [], busy: false,
+  init() {
+    if (this.cv) return;
+    const cv = document.createElement('canvas');
+    cv.width = this.W; cv.height = this.H; cv.className = 'field';
+    cv.setAttribute('role', 'img'); cv.setAttribute('aria-label', 'Football field');
+    this.cv = cv; this.ctx = cv.getContext('2d');
+  },
+  losX(sc) { return sc.poss === 'a' ? sc.ballOn : 100 - sc.ballOn; },
+  clampCam(x) { const half = this.W / this.YPP / 2; return Math.max(-10 + half, Math.min(110 - half, x)); },
+  set(sc) { this.scene = sc; this.cam = this.clampCam(this.losX(sc)); this.ballX = null; this.ballLift = 0; this.flash = null; this.draw(); },
+  formation(sc) {
+    const o = sc.poss, d = other(o), dir = o === 'a' ? 1 : -1, los = this.losX(sc);
+    const midY = this.TOP + (this.H - this.TOP) / 2, ROW = 24;
+    const out = [], OS = sc.teams[o].squad, DS = sc.teams[d].squad;
+    const put = (team, wx, sy, base) => out.push({ wx, sy, key: fieldKey(base, team), team });
+    const sk = p => p.sk + ':' + p.hr + ':000000:000000';
+    const OFFP = [[OS.qb, 3, 0], [OS.hb, 7, 0], [OS.wr[0], 0.7, -5.2], [OS.wr[1], 0.7, 5.2], [OS.te, 0.7, 3]];
+    OFFP.forEach(q => put(o, los - dir * q[1], midY + q[2] * dir * ROW, sk(q[0])));
+    const gt = ab => ({ abbr: ab, c1: '#222222', c2: '#222222' });
+    [-2, -1, 0, 1, 2].forEach((yy, n) => put(o, los - dir * 0.7, midY + yy * dir * ROW, genericKey(gt(OS.ol.tm), 'OL', n)));
+    const T43 = { LDE: [-0.9, -2.9], LDT: [-0.9, -1], RDT: [-0.9, 1], RDE: [-0.9, 2.9], WLB: [-3, -3.6], MLB: [-3.8, 0], SLB: [-3, 3.6] };
+    const T34 = { LDE: [-0.9, -2.2], NT: [-0.9, 0], RDE: [-0.9, 2.2], WLB: [-2.6, -3.8], LILB: [-3.6, -1.1], RILB: [-3.6, 1.1], SLB: [-2.6, 3.8] };
+    const TD = Object.assign({}, DS.df.sch === '43' ? T43 : T34, { LCB: [-2.2, -6], RCB: [-2.2, 6], SS: [-9, 2.2], FS: [-9, -2.2] });
+    DS.df.p.forEach((p, n) => {
+      const q = TD[p[0]]; if (!q) return;
+      put(d, los - dir * q[0], midY + q[1] * dir * ROW, genericKey(gt(DS.df.tm), 'DEF', n));
+    });
+    out.sort((a, b) => a.sy - b.sy);
+    return out;
+  },
+
+  draw() {
+    const x = this.ctx, W = this.W, H = this.H, YPP = this.YPP, TOP = this.TOP, sc = this.scene;
+    if (!x) return;
+    x.imageSmoothingEnabled = false;
+    x.clearRect(0, 0, W, H);
+    x.fillStyle = '#0e1528'; x.fillRect(0, 0, W, H);
+    if (!sc) return;
+    const left = this.cam - W / YPP / 2, sx = wx => (wx - left) * YPP;
+    for (let yd = -10; yd < 110; yd += 5) {
+      const a = sx(yd), b = sx(yd + 5);
+      if (b < 0 || a > W) continue;
+      x.fillStyle = yd < 0 ? '#6b2a1e' : yd >= 100 ? '#1b4a80' : (((yd / 5) | 0) % 2 === 0 ? '#1f5233' : '#245c3a');
+      x.fillRect(a, TOP, b - a + 1, H - TOP);
+    }
+    // yard lines + numbers
+    x.textAlign = 'center'; x.font = '14px Silkscreen, monospace';
+    for (let yd = 0; yd <= 100; yd += 5) {
+      const px = Math.round(sx(yd)); if (px < -20 || px > W + 20) continue;
+      x.fillStyle = 'rgba(239,233,214,' + (yd === 0 || yd === 100 ? 0.95 : 0.4) + ')';
+      x.fillRect(px - (yd === 0 || yd === 100 ? 1 : 0), TOP, yd === 0 || yd === 100 ? 3 : 2, H - TOP);
+      if (yd % 10 === 0 && yd > 0 && yd < 100) {
+        x.fillStyle = 'rgba(239,233,214,.55)';
+        x.fillText(String(Math.min(yd, 100 - yd)), px, TOP + 20);
+        x.fillText(String(Math.min(yd, 100 - yd)), px, H - 8);
+      }
+    }
+    // end zone names
+    [['a', -5], ['b', 105]].forEach(([t, wx]) => {
+      const px = sx(wx); if (px < -40 || px > W + 40) return;
+      x.save(); x.translate(px, TOP + (H - TOP) / 2); x.rotate(t === 'a' ? -Math.PI / 2 : Math.PI / 2);
+      x.fillStyle = 'rgba(239,233,214,.5)'; x.font = '22px Silkscreen, monospace';
+      x.fillText(abbr(sc.teams[t].name), 0, 8); x.restore();
+    });
+    // scrimmage + first down lines
+    const los = this.losX(sc), dir = sc.poss === 'a' ? 1 : -1;
+    const fd = Math.max(-0.01, Math.min(100.01, los + dir * sc.toGo));
+    x.fillStyle = '#5aa9ff'; x.fillRect(Math.round(sx(los)) - 1, TOP, 3, H - TOP);
+    x.fillStyle = '#ffcf3f'; x.fillRect(Math.round(sx(fd)) - 1, TOP, 3, H - TOP);
+    // players
+    this.formation(sc).forEach(p => {
+      const px = Math.round(sx(p.wx)); if (px < -20 || px > W + 20) return;
+      x.fillStyle = TEAM_COL[p.team]; x.globalAlpha = 0.55;
+      x.beginPath(); x.ellipse(px, p.sy + 9, 11, 4, 0, 0, Math.PI * 2); x.fill(); x.globalAlpha = 1;
+      const face = p.team === sc.poss ? dir : -dir, spx = Math.round(p.sy) - 21;
+      if (face < 0) { x.save(); x.translate(px, 0); x.scale(-1, 1); x.drawImage(getSprite(p.key), -14, spx, 28, 28); x.restore(); }
+      else x.drawImage(getSprite(p.key), px - 14, spx, 28, 28);
+    });
+    // ball
+    const bx = this.ballX == null ? los - dir * 0.2 : this.ballX;
+    const by = TOP + (H - TOP) / 2 - this.ballLift;
+    x.fillStyle = 'rgba(0,0,0,.35)'; x.beginPath(); x.ellipse(sx(bx), TOP + (H - TOP) / 2 + 8, 6, 2.5, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#8a4b22'; x.beginPath(); x.ellipse(sx(bx), by, 6, 3.6, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#efe9d6'; x.fillRect(Math.round(sx(bx)) - 2, Math.round(by) - 1, 4, 1);
+    // mini map
+    const mx = 14, mw = W - 28, my = 11, mh = 12, mp = wx => mx + (Math.max(0, Math.min(100, wx)) / 100) * mw;
+    x.fillStyle = '#17213d'; x.fillRect(mx, my, mw, mh);
+    x.fillStyle = 'rgba(255,107,74,.55)'; x.fillRect(mx, my, mw * 0.06, mh);
+    x.fillStyle = 'rgba(74,168,255,.55)'; x.fillRect(mx + mw * 0.94, my, mw * 0.06, mh);
+    x.fillStyle = 'rgba(239,233,214,.3)';
+    for (let i = 1; i < 10; i++) x.fillRect(Math.round(mp(i * 10)), my, 1, mh);
+    x.strokeStyle = 'rgba(239,233,214,.8)'; x.lineWidth = 1;
+    const vl = mp(left), vr = mp(left + W / YPP);
+    x.strokeRect(vl + 0.5, my - 2.5, Math.max(4, vr - vl), mh + 5);
+    x.fillStyle = TEAM_COL[sc.poss]; x.fillRect(Math.round(mp(los)) - 2, my - 1, 5, mh + 2);
+    x.fillStyle = '#ffcf3f'; x.fillRect(Math.round(mp(fd)) - 1, my - 1, 2, mh + 2);
+    x.font = '10px Silkscreen, monospace'; x.textAlign = 'left';
+    x.fillStyle = '#93a0c4'; x.fillText(abbr(sc.teams.a.name), mx, my + mh + 12);
+    x.textAlign = 'right'; x.fillText(abbr(sc.teams.b.name), mx + mw, my + mh + 12);
+    // flash text
+    if (this.flash) {
+      x.textAlign = 'center'; x.font = '34px Silkscreen, monospace';
+      x.lineWidth = 6; x.strokeStyle = '#0b1020'; x.strokeText(this.flash.text, W / 2, H / 2 - 8);
+      x.fillStyle = this.flash.color; x.fillText(this.flash.text, W / 2, H / 2 - 8);
+    }
+  },
+  enqueue(entry, teams) { this.queue.push({ entry, teams }); if (!this.busy) this.next(); },
+  next() {
+    const job = this.queue.shift();
+    if (!job) { this.busy = false; return; }
+    this.busy = true;
+    this.play(job.entry, job.teams, () => this.next());
+  },
+  play(entry, teams, done) {
+    const b = entry.before, dir = b.poss === 'a' ? 1 : -1, los = b.poss === 'a' ? b.ballOn : 100 - b.ballOn;
+    this.scene = { poss: b.poss, ballOn: b.ballOn, down: b.down, toGo: b.toGo, teams };
+    const kind = entry.anim;
+    let endX = los + dir * entry.travel;
+    if (kind === 'fg') endX = dir === 1 ? 104 : -4;
+    endX = Math.max(-9, Math.min(109, endX));
+    const lift = kind === 'punt' ? 80 : kind === 'fg' ? 70 : (kind === 'pass' || kind === 'int' || kind === 'inc') ? 46 : 0;
+    const dur = kind === 'punt' || kind === 'fg' ? 1200 : (kind === 'pass' || kind === 'int' || kind === 'inc') ? 900 : 760;
+    const startX = los - dir * (kind === 'punt' || kind === 'fg' ? 7 : 3);
+    const FL = {
+      td: ['TOUCHDOWN', entry.ptsTeam], fg: ['FIELD GOAL', entry.ptsTeam], fgmiss: ['NO GOOD', null],
+      int: ['INTERCEPTED', other(b.poss)], sack: ['SACK', other(b.poss)], fumble: ['FUMBLE', other(b.poss)],
+      downs: ['TURNOVER ON DOWNS', other(b.poss)], safety: ['SAFETY', entry.ptsTeam]
+    };
+    const fl = FL[entry.ev] || (entry.firstDown ? ['FIRST DOWN', b.poss] : null);
+    const after = { poss: entry.after.poss, ballOn: entry.after.ballOn, down: entry.after.down, toGo: entry.after.toGo, teams };
+    const t0 = performance.now(), hold = fl ? 750 : 220, settle = 320;
+    let finished = false;
+    const finish = () => { if (finished) return; finished = true; this.flash = null; this.set(after); done(); };
+    const camStart = this.cam;
+    const step = t => {
+      if (finished) return;
+      const el = t - t0;
+      if (el < dur) {
+        const p = el / dur, e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+        this.ballX = startX + (endX - startX) * e;
+        this.ballLift = lift ? Math.sin(Math.PI * e) * lift : 0;
+        this.cam = this.clampCam(los + (endX - los) * e * 0.8);
+      } else if (el < dur + hold) {
+        this.ballX = endX; this.ballLift = 0;
+        if (fl && !this.flash) this.flash = { text: fl[0], color: fl[1] ? TEAM_COL[fl[1]] : '#efe9d6' };
+      } else if (el < dur + hold + settle) {
+        if (this.scene !== after) { this.scene = after; this.ballX = null; this.flash = null; this.cam0 = this.cam; }
+        const p = (el - dur - hold) / settle, target = this.clampCam(this.losX(after));
+        this.cam = this.cam0 + (target - this.cam0) * p;
+      } else { finish(); return; }
+      this.draw();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+    setTimeout(finish, dur + hold + settle + 1800);
+  }
+};
+
+/* ---------- header ---------- */
+function renderHeader() {
+  const el = $('#hdr-right'); if (!el) return;
+  if (S.mode === 'lobby') { if (window.HUB) window.HUB.renderHeader(); else el.innerHTML = ''; return; }
+  const label = S.ctx ? S.ctx.label : S.mode === 'local' ? 'Practice' : S.mode === 'draftonly' ? 'Draft' : 'Room ' + S.code;
+  el.innerHTML = '<span class="chip room">' + esc(label) + '</span><button class="btn small" data-act="leave">Leave</button>';
+}
+
+
+/* ---------- lobby ---------- */
+function screenName() {
+  if (S.mode === 'lobby') return 'lobby';
+  if (S.mode === 'draftonly') return 'draft';
+  if (S.ctx) return bothReady() ? 'game' : 'wait';
+  if (S.me && !validSeat(S.seats[S.me])) return 'draft';
+  if (!bothReady()) return 'wait';
+  return 'game';
+}
+function buildLobby() {
+  const seedN = Date.now() % 997;
+  const picks = [0, 1, 2, 3, 4, 5, 6].map(i => {
+    const p = E.PLAYERS[(seedN * 7 + i * 23) % E.PLAYERS.length];
+    return keyFor(p, p.tm);
+  });
+  $('#main').innerHTML =
+    '<section class="lobby">' +
+    '<div class="hero"><div class="lineup" aria-hidden="true">' + picks.map(k => spCanvas(k, 5)).join('') + '</div>' +
+    '<p class="lede">Draft a real NFL offense and defense. Call the plays. Beat your friends.</p></div>' +
+    '<div class="panel join-panel">' +
+    '<label class="fld" for="team">Team name</label>' +
+    '<input id="team" type="text" maxlength="18" autocomplete="off" placeholder="Your team name" value="' + esc(S.myName) + '">' +
+    '<div class="row"><button class="btn primary" data-act="create" id="b-create" disabled>Create room</button></div>' +
+    '<div class="row joinrow"><input id="code" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="ROOM CODE" aria-label="Room code"><button class="btn" data-act="join" id="b-join" disabled>Join room</button></div>' +
+    '<div class="or"><span>or</span></div>' +
+    '<button class="btn" data-act="cpu" id="b-cpu">Practice vs CPU</button>' +
+    '<p class="hint" id="access"></p></div>' +
+    '<div class="panel how"><h2>How a game works</h2><ol>' +
+    '<li><b>Draft 7 slots.</b> Quarterback, running back, two receivers, tight end, an entire offensive line, and an entire defense. Each round deals three options from across the league. Pick one, or spend one of your two rerolls.</li>' +
+    '<li><b>Lock in.</b> Everyone drafts separately on their own device. When both rosters are locked, the game starts.</li>' +
+    '<li><b>Call plays.</b> Offense and defense pick in secret at the same time. Pro-game ratings decide who wins the matchup.</li></ol>' +
+    '<p class="hint">Ratings are Madden NFL 27 overalls for current starters. Unofficial fan project, no logos.</p></div>' +
+    '</section>';
+  paintCanvases($('#main'));
+  updateLobbyHints();
+}
+function updateLobbyHints() {
+  const create = $('#b-create'), join = $('#b-join'), hint = $('#access');
+  if (!create) return;
+  create.disabled = !S.api; join.disabled = !S.api;
+  hint.textContent = !S.ready ? 'Connecting…' : S.api ? 'Create a room and send the code to a friend.' : 'Online rooms are unavailable right now. Practice vs CPU still works.';
+}
+function readName() {
+  const v = ($('#team') && $('#team').value || '').trim().slice(0, 18);
+  S.myName = v || S.myName || 'Team'; lsSet('gd_name', S.myName);
+  return S.myName;
+}
+
+/* ---------- server api (Vercel function + Redis) ---------- */
+async function api(body, ep) {
+  const h = { 'content-type': 'application/json' };
+  const tk = window.HUB && window.HUB.token; if (tk) h['x-token'] = tk;
+  const r = await fetch('/api/' + (ep || 'room'), { method: 'POST', headers: h, body: JSON.stringify(body) });
+  let j = null; try { j = await r.json(); } catch (e) {}
+  if (!r.ok) { const err = new Error((j && j.error) || 'http ' + r.status); err.code = (j && j.error) || 'http'; err.status = r.status; throw err; }
+  return j;
+}
+
+/* ---------- starting modes ---------- */
+function resetForMode() {
+  stopPoll();
+  S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
+  S.cpuSides = []; S.ctx = null; S.drawRnd = null; S.draftCb = null; S.draft = newDraft(); S.screen = null; Field.queue = []; Field.busy = false; Field.scene = null;
+}
+function startLocal() {
+  readName();
+  resetForMode();
+  S.mode = 'local'; S.code = null; S.me = 'a'; S.cpuSides = ['b']; S.seed = Math.floor(Math.random() * 2147483647);
+  S.seats.b = { pid: 'cpu', name: 'CPU Squad', status: 'ready', roster: E.autoDraft() };
+  beginPicks();
+  render();
+}
+function setBusy(b) {
+  ['b-create', 'b-join', 'b-cpu'].forEach(id => { const el = $('#' + id); if (el) el.disabled = b || (id !== 'b-cpu' && !S.api); });
+}
+async function createRoom() {
+  if (S.busy) return;
+  const name = readName(); S.busy = true; setBusy(true);
+  try {
+    const r = await api({ op: 'create', pid: PID, name });
+    enterRoom(r.code, r.seed, 'a');
+  } catch (e) { handleErr(e); }
+  finally { S.busy = false; setBusy(false); }
+}
+async function joinRoom(code, quiet) {
+  if (S.busy) return;
+  code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length !== 5) { if (!quiet) toast('Room codes have 5 characters.'); return; }
+  const name = quiet ? (S.myName || 'Team') : readName();
+  S.busy = true; setBusy(true);
+  try {
+    const r = await api({ op: 'join', code, pid: PID, name });
+    if (!r.seat) toast('That room is full. You are watching.');
+    enterRoom(code, r.seed, r.seat);
+  } catch (e) {
+    if (e.code === 'no_room') { if (!quiet) toast('No room with that code.'); ssSet('gd_room', null); }
+    else if (!quiet) handleErr(e);
+  }
+  finally { S.busy = false; setBusy(false); }
+}
+function enterRoom(code, seed, seat) {
+  resetForMode();
+  S.mode = 'online'; S.code = code; S.seed = seed; S.me = seat;
+  ssSet('gd_room', code);
+  if (seat) beginPicks();
+  startPoll();
+  render();
+}
+let lastPoll = '';
+function startPoll() {
+  stopPoll(); lastPoll = '';
+  const tick = async () => {
+    if (S.mode !== 'online') return;
+    try {
+      const r = await api({ op: 'state', code: S.code });
+      const sig = JSON.stringify(r);
+      if (sig !== lastPoll) {
+        lastPoll = sig;
+        S.seats = r.seats || {};
+        const o = {};
+        ['a', 'b'].forEach(s => { const m = (r.moves && r.moves[s]) || {}; for (const n in m) o[n + '-' + s] = { pick: m[n] }; });
+        S.moves = o; render();
+      }
+    } catch (e) { /* transient: keep polling */ }
+    if (S.mode === 'online') S.poll = setTimeout(tick, S.screen === 'game' ? 700 : 1200);
+  };
+  tick();
+}
+function stopPoll() { if (S.poll) { clearTimeout(S.poll); S.poll = null; } }
+function leave() {
+  stopPoll(); ssSet('gd_room', null);
+  S.mode = 'lobby'; S.code = null; S.me = null; resetForMode(); S.draft = null;
+  render();
+}
+
+/* ---------- draft ---------- */
+function newDraft() { return { phase: 'pick', idx: 0, picks: [], rerolls: 2, opts: [] }; }
+function beginPicks() {
+  const D2 = S.draft = newDraft();
+  D2.opts = E.drawOptions([], 0, S.drawRnd);
+  S.screen = null;
+}
+function avgOvr(D2) {
+  if (!D2.picks.length) return null;
+  let t = 0; D2.picks.forEach((id, i) => { t += E.ovrOf(i, id); });
+  return Math.round(t / D2.picks.length);
+}
+function oppChipHTML() {
+  const o = S.seats[other(S.me || 'a')];
+  if (S.mode !== 'online') return '';
+  if (!o) return '<span class="chip">Waiting for a friend to join</span>';
+  return '<span class="chip ' + (o.status === 'ready' ? 'ok' : '') + '">' + esc(o.name || 'Opponent') + (o.status === 'ready' ? ' is ready' : ' is drafting') + '</span>';
+}
+function updateDraftChip() { const el = $('#oppchip'); if (el) el.innerHTML = oppChipHTML(); }
+function drawDraft() {
+  const D2 = S.draft, m = $('#main');
+  if (!D2) return;
+  if (D2.phase === 'pick') {
+    const slot = E.SLOTS[D2.idx], f = avgOvr(D2);
+    let strip = '';
+    E.SLOTS.forEach((s, i) => {
+      const done = i < D2.picks.length;
+      strip += '<div class="slot' + (i === D2.idx ? ' cur' : '') + (done ? ' done' : '') + '" title="' + esc(s.label) + '"><span class="s-lbl">' + s.short + '</span>' +
+        (done ? spCanvas(slotKey(i, D2.picks[i]), 2) : '<span class="empty"></span>') + '</div>';
+    });
+    m.innerHTML = '<section class="draft">' +
+      '<div class="dr-head"><div class="dr-round"><span class="eyebrow">Round</span><b>' + (D2.idx + 1) + '</b><span class="of">/ ' + E.SLOTS.length + '</span></div>' +
+      '<div class="dr-title"><span class="pos-tag">' + slot.short + '</span><h2>' + slot.label + '</h2></div>' +
+      '<div class="dr-ovr"><span class="eyebrow">Avg OVR</span><b>' + (f == null ? '--' : f) + '</b></div></div>' +
+      '<div class="cards">' + D2.opts.map((id, i) => cardHTML(id, i, D2.idx)).join('') + '</div>' +
+      '<div class="dr-actions"><button class="btn" data-act="reroll"' + (D2.rerolls < 1 ? ' disabled' : '') + '>Reroll · ' + D2.rerolls + '</button>' +
+      '<span class="keys">1 2 3 pick · R reroll</span><button class="btn ghost" data-act="auto">Auto-pick the rest</button><span id="oppchip">' + oppChipHTML() + '</span></div>' +
+      '<div class="strip">' + strip + '</div></section>';
+    paintCanvases(m);
+    return;
+  }
+  const teamObj = { name: S.myName || 'My team', roster: D2.picks, squad: E.squadFromRoster(D2.picks) };
+  const U = E.teamUnits(teamObj);
+  m.innerHTML = '<section class="panel review"><h2>Your lineup is set</h2>' +
+    '<div class="ratings"><div><span class="eyebrow">Offense</span><b>' + U.offR + '</b></div><div><span class="eyebrow">Defense</span><b>' + U.defR + '</b></div><div><span class="eyebrow">Overall</span><b>' + U.ovrR + '</b></div></div>' +
+    rosterListHTML(teamObj) +
+    '<div class="row"><button class="btn primary" data-act="lock">' + (S.mode === 'local' ? 'Kick off' : S.mode === 'draftonly' ? 'Use this team' : 'Lock roster') + '</button></div></section>';
+  paintCanvases(m);
+}
+function pickOpt(i) {
+  const D2 = S.draft; if (!D2 || D2.phase !== 'pick') return;
+  if (D2.opts[i] == null) return;
+  D2.picks.push(D2.opts[i]); D2.idx++;
+  if (D2.idx >= E.SLOTS.length) D2.phase = 'review';
+  else D2.opts = E.drawOptions(D2.picks, D2.idx, S.drawRnd);
+  drawDraft();
+}
+function rerollOpts() {
+  const D2 = S.draft; if (!D2 || D2.phase !== 'pick' || D2.rerolls < 1) return;
+  D2.rerolls--; D2.opts = E.drawOptions(D2.picks, D2.idx, S.drawRnd); drawDraft();
+}
+function autoRest() {
+  const D2 = S.draft; if (!D2 || D2.phase !== 'pick') return;
+  while (D2.idx < E.SLOTS.length) {
+    const opts = E.drawOptions(D2.picks, D2.idx, S.drawRnd);
+    opts.sort((a, b) => E.ovrOf(D2.idx, b) - E.ovrOf(D2.idx, a));
+    D2.picks.push(opts[0]); D2.idx++;
+  }
+  D2.phase = 'review'; drawDraft();
+}
+async function lockRoster() {
+  const D2 = S.draft; if (!D2 || D2.phase !== 'review') return;
+  if (S.mode === 'draftonly') { const cb = S.draftCb; if (cb) cb(D2.picks.slice()); return; }
+  const doc = { pid: PID, name: readName(), status: 'ready', roster: D2.picks.slice() };
+  S.seats[S.me] = doc;
+  if (S.mode === 'online') {
+    try { await api({ op: 'seat', code: S.code, seat: S.me, pid: PID, doc }); }
+    catch (e) { delete S.seats[S.me]; handleErr(e); }
+  }
+  render();
+}
+
+/* ---------- roster list + modals ---------- */
+function squadListHTML(team) {
+  const q = team.squad, side = team === (S.G && S.G.teams.b) ? 'b' : 'a';
+  const sk = p => fieldKey(p.sk + ':' + p.hr + ':000000:000000', side);
+  const row = (pos, key, name, ovr, tag) => '<li><span class="r-pos">' + pos + '</span>' + spCanvas(key, 2) + '<span class="r-name">' + esc(name) + '</span><span class="r-type">' + esc(tag || '') + '</span><span class="r-fit">' + ovr + '</span><span class="grade g-' + E.grade(ovr) + '">' + E.grade(ovr) + '</span></li>';
+  let h = '';
+  [['QB', q.qb], ['HB', q.hb], ['WR', q.wr[0]], ['WR', q.wr[1]], ['TE', q.te]].forEach(r => { h += row(r[0], sk(r[1]), r[1].n, r[1].o, r[1].tm); });
+  const gk = n => fieldKey(genericKey({ abbr: q.ol.tm, c1: '#222222', c2: '#222222' }, 'OL', n), side);
+  q.ol.p.forEach((p, n) => { h += row('OL', gk(n), p[0], p[1], ''); });
+  q.df.p.forEach((p, n) => { h += row(p[0], fieldKey(genericKey({ abbr: q.df.tm, c1: '#222222', c2: '#222222' }, 'DEF', n), side), p[2], p[3], ''); });
+  return '<ul class="roster">' + h + '</ul>';
+}
+function rosterListHTML(team) {
+  if (!team.roster) return squadListHTML(team);
+  let rows = '';
+  E.SLOTS.forEach((s, i) => {
+    const e = E.entity(i, team.roster[i]), g = E.grade(e.ovr);
+    const nm = s.kind === 'OL' ? E.unitName(e, 'OL') : s.kind === 'DEF' ? E.unitName(e, 'DEF') : e.name;
+    rows += '<li><span class="r-pos">' + s.short + '</span>' + spCanvas(slotKey(i, team.roster[i]), 2) + '<span class="r-name">' + esc(nm) + '</span><span class="r-type" style="--tc:' + brite(e.tm) + '">' + esc(e.tm.nick) + '</span><span class="r-fit">' + e.ovr + '</span><span class="grade g-' + g + '">' + g + '</span></li>';
+  });
+  return '<ul class="roster">' + rows + '</ul>';
+}
+function handleErr(e) {
+  const code = e && e.code;
+  if (code === 'full') toast('That room is full.');
+  else if (code === 'bad_request') toast('The server rejected that request. Reload and try again.');
+  else toast('Connection problem. Check your network and try again.');
+}
+
+function openModal(html) {
+  const m = $('#modal'); if (!m) return;
+  m.innerHTML = '<div class="m-back" data-act="close-modal"></div><div class="m-card" role="dialog" aria-modal="true">' + html + '<div class="row"><button class="btn" data-act="close-modal">Close</button></div></div>';
+  m.hidden = false; paintCanvases(m);
+}
+function closeModal() { const m = $('#modal'); if (m) { m.hidden = true; m.innerHTML = ''; } }
+function showRosters() {
+  const G = S.G; if (!G) return;
+  const col = t => '<div class="rcol ' + t + '"><h3>' + esc(G.teams[t].name) + '</h3><div class="ratings small"><div><span class="eyebrow">OFF</span><b>' + G.U[t].offR + '</b></div><div><span class="eyebrow">DEF</span><b>' + G.U[t].defR + '</b></div></div>' + rosterListHTML(G.teams[t]) + '</div>';
+  openModal('<div class="rcols">' + col('a') + col('b') + '</div>');
+}
+function showMatchups() {
+  const plays = ['RUN_IN', 'RUN_OUT', 'PASS_S', 'PASS_M', 'PASS_D', 'SCREEN'];
+  let h = '<h3>Matchups</h3><p class="sub">Green favors the defense, red favors the offense.</p><div class="tbl-wrap"><table class="mt"><thead><tr><th></th>' + plays.map(p => '<th>' + E.OFF[p].label + '</th>').join('') + '</tr></thead><tbody>';
+  Object.keys(E.DEF_CALLS).forEach(d => {
+    h += '<tr><th>' + E.DEF_CALLS[d].label + '</th>';
+    plays.forEach(p => {
+      const v = E.MATCH[d][p], cls = v >= 0.35 ? 'good2' : v > 0.05 ? 'good1' : v <= -0.35 ? 'bad2' : v < -0.05 ? 'bad1' : 'neu';
+      h += '<td class="' + cls + '">' + (v >= 0.35 ? '++' : v > 0.05 ? '+' : v <= -0.35 ? '−−' : v < -0.05 ? '−' : '·') + '</td>';
+    });
+    h += '</tr>';
+  });
+  h += '</tbody></table></div><p class="hint">Blitz adds sacks. Screens beat the blitz. Stats decide the rest.</p>';
+  openModal(h);
+}
+
+/* ---------- waiting room ---------- */
+function drawWait() {
+  const m = $('#main');
+  const mk = seat => {
+    const d = S.seats[seat];
+    return '<li class="' + (validSeat(d) ? 'ok' : '') + '"><span class="dot" style="background:' + TEAM_COL[seat] + '"></span><b>' + esc(d ? d.name || 'Team' : 'Open seat') + '</b><span>' + (!d ? 'Waiting for a friend' : validSeat(d) ? 'Roster locked' : 'Drafting') + '</span></li>';
+  };
+  m.innerHTML = '<section class="panel wait"><span class="eyebrow">Room code</span><div class="bigcode">' + esc(S.code) + '</div>' +
+    (S.ctx ? '<p class="sub">Waiting for the game to load…</p>' : '<p class="sub">Send this code to your friend. They open this page and press Join room.</p><div class="row"><button class="btn" data-act="copy">Copy code</button></div>') +
+    '<ul class="seats">' + mk('a') + mk('b') + '</ul>' +
+    '<p class="hint">' + (S.me ? 'Your roster is locked. The game starts when both teams are ready.' : 'You are watching this room.') + '</p></section>';
+}
+
+/* ---------- game screen ---------- */
+function buildGame() {
+  Field.init();
+  $('#main').innerHTML =
+    '<section class="game">' +
+    '<div class="sb"><div class="sb-team a"><div class="sb-name" id="sb-an"></div><div class="sb-score" id="sb-as">0</div></div>' +
+    '<div class="sb-mid"><div class="sb-q" id="sb-q"></div><div class="sb-dd" id="sb-dd"></div><div class="sb-ball" id="sb-ball"></div></div>' +
+    '<div class="sb-team b"><div class="sb-name" id="sb-bn"></div><div class="sb-score" id="sb-bs">0</div></div></div>' +
+    '<div class="fieldhost" id="fieldHost"></div>' +
+    '<div class="deck"><div class="callpanel panel" id="callpanel"></div>' +
+    '<div class="side"><div class="banner" id="banner"></div><ol class="log" id="log"></ol>' +
+    '<div class="row"><button class="btn small" data-act="rosters">Rosters</button><button class="btn small" data-act="matchups">Matchups</button></div></div></div></section>';
+  $('#fieldHost').appendChild(Field.cv);
+  S.shown = null; S.callSig = null;
+}
+function updateGame() {
+  const G = derive();
+  if (!G) { drawWait(); return; }
+  S.G = G;
+  const st = G.state, T = G.teams, ck = E.clockInfo(st);
+  const set = (id, v) => { const el = $(id); if (el && el.textContent !== String(v)) el.textContent = v; };
+  set('#sb-an', T.a.name + (S.me === 'a' ? ' (you)' : '')); set('#sb-bn', T.b.name + (S.me === 'b' ? ' (you)' : ''));
+  set('#sb-as', st.score.a); set('#sb-bs', st.score.b);
+  const aEl = $('.sb-team.a'), bEl = $('.sb-team.b');
+  if (aEl) aEl.classList.toggle('has', !st.over && st.poss === 'a');
+  if (bEl) bEl.classList.toggle('has', !st.over && st.poss === 'b');
+  set('#sb-q', st.over ? 'FINAL' : ck.q + ' · play ' + ck.inQ + '/' + ck.perQ);
+  set('#sb-dd', st.over ? '' : ddLabel(st));
+  set('#sb-ball', st.over ? '' : 'Ball on ' + spotLabel(st, T));
+  // log + animation
+  const L = G.log;
+  if (S.shown == null) {
+    S.shown = L.length;
+    Field.set({ poss: st.poss, ballOn: st.ballOn, down: st.down, toGo: st.toGo, teams: T });
+  } else {
+    while (S.shown < L.length) { Field.enqueue(L[S.shown], T); S.shown++; }
+    if (!Field.busy && !Field.queue.length && L.length === 0) Field.set({ poss: st.poss, ballOn: st.ballOn, down: st.down, toGo: st.toGo, teams: T });
+  }
+  renderBanner(G); renderLog(G); renderCall(G);
+  if (S.ctx && st.over) ctxFinish(G);
+}
+function renderBanner(G) {
+  const el = $('#banner'); if (!el) return;
+  const e = G.log[G.log.length - 1], T = G.teams;
+  if (!e) { el.innerHTML = '<div class="bn-meta">Kickoff</div><div class="bn-text">' + esc(T[G.state.poss].name) + ' take the opening possession.</div>'; el.style.setProperty('--bc', TEAM_COL[G.state.poss]); return; }
+  const o = E.OFF[e.offPick].label, d = e.defPick ? E.DEF_CALLS[e.defPick].label : null;
+  el.style.setProperty('--bc', TEAM_COL[e.ptsTeam || e.off]);
+  el.innerHTML = '<div class="bn-meta">Last play · ' + esc(o) + (d ? ' vs ' + esc(d) : '') + '</div><div class="bn-text">' + esc(e.text) + '</div>';
+}
+function renderLog(G) {
+  const el = $('#log'); if (!el) return;
+  const T = G.teams, rows = [];
+  for (let i = G.log.length - 1; i >= 0 && rows.length < 14; i--) {
+    const e = G.log[i], q = e.n < 2 * E.PQ ? (e.n < E.PQ ? 'Q1' : 'Q2') : (e.n < 3 * E.PQ ? 'Q3' : e.n < 4 * E.PQ ? 'Q4' : 'OT');
+    rows.push('<li class="ev-' + e.ev + '"><span class="lg-n" style="color:' + TEAM_COL[e.off] + '">' + q + ' · ' + (e.n + 1) + '</span><span class="lg-t">' + esc(e.text) + '</span></li>');
+  }
+  const html = rows.join('');
+  if (el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; }
+}
+function renderCall(G) {
+  const p = $('#callpanel'); if (!p) return;
+  const st = G.state, T = G.teams;
+  if (st.over) {
+    const sig = 'over' + (S.ctx ? S.ctx.status : ''); if (S.callSig === sig) return; S.callSig = sig;
+    const w = st.winner;
+    const head = w === null ? 'Tie game' : (S.me ? (w === S.me ? 'You win' : 'You lose') : T[w].name + ' win');
+    const cx = S.ctx, cxRow = cx ? (cx.status === 'saving' ? '<p class="sub">Saving the result…</p>' : cx.status === 'err' ? '<p class="sub bad">Could not save the result' + (cx.err ? ': ' + esc(cx.err) : '') + '.</p><div class="row"><button class="btn primary" data-act="ctx-retry">Try again</button></div>' : '<div class="row"><button class="btn primary" data-act="ctx-done">Continue</button><button class="btn" data-act="rosters">Rosters</button></div>') : '';
+    p.innerHTML = '<div class="final"><span class="eyebrow">Final</span><h2>' + esc(head) + '</h2><div class="fscore"><span style="color:' + TEAM_COL.a + '">' + esc(T.a.name) + ' <b>' + st.score.a + '</b></span><span style="color:' + TEAM_COL.b + '">' + esc(T.b.name) + ' <b>' + st.score.b + '</b></span></div>' +
+      (cx ? cxRow : '<div class="row"><button class="btn primary" data-act="leave">Back to menu</button><button class="btn" data-act="rosters">Rosters</button></div>') + '</div>';
+    return;
+  }
+  if (!S.me) {
+    if (S.callSig === 'spec') return; S.callSig = 'spec';
+    p.innerHTML = '<p class="sub">You are watching this game.</p>'; return;
+  }
+  const n = st.playNo, role = S.me === st.poss ? 'off' : 'def';
+  const locked = S.mine[n] != null ? S.mine[n] : null;
+  const sig = n + '|' + role + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn;
+  if (S.callSig === sig) return; S.callSig = sig;
+  const sit = ddLabel(st) + ' at ' + spotLabel(st, T);
+  if (locked) {
+    const lbl = role === 'off' ? E.OFF[locked].label : E.DEF_CALLS[locked].label;
+    p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'Offense' : 'Defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
+      '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + '</b><p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
+    return;
+  }
+  let opts;
+  if (role === 'off') opts = E.offOptions(st).filter(o => st.down === 4 || (o.id !== 'PUNT' && o.id !== 'FG')).map(o => ({ id: o.id, label: o.label, desc: o.desc, disabled: o.disabled, note: o.note }));
+  else opts = Object.keys(E.DEF_CALLS).map(id => ({ id, label: E.DEF_CALLS[id].label, desc: E.DEF_CALLS[id].desc, disabled: false, note: '' }));
+  let k = 0;
+  p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
+    '<div class="calls">' + opts.map(o => { const key = o.disabled ? '' : ++k; return '<button class="call" data-act="call" data-id="' + o.id + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
+}
+function submitCall(pick) {
+  const G = S.G; if (!G || G.state.over || !S.me) return;
+  const st = G.state, n = st.playNo, role = S.me === st.poss ? 'off' : 'def';
+  if (S.mine[n] != null) return;
+  if (role === 'off') { if (!E.offOptions(st).some(o => o.id === pick && !o.disabled)) return; }
+  else if (!E.DEF_CALLS[pick]) return;
+  S.mine[n] = pick; S.callSig = null;
+  if (S.mode === 'online') {
+    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick }).catch(e => { delete S.mine[n]; S.callSig = null; handleErr(e); updateGame(); });
+  }
+  updateGame();
+}
+
+
+/* ---------- hub-driven games (campaign, leagues, tournaments) ---------- */
+function ctxMoves() { const o = {}; for (const n in S.mine) o[n + '-' + S.me] = { pick: S.mine[n] }; return o; }
+function ctxFinish(G) {
+  const c = S.ctx; if (!c || c.sent) return;
+  c.sent = true; c.status = 'saving'; S.callSig = null;
+  const done = ok => { c.status = ok ? 'ok' : 'err'; S.callSig = null; if (S.ctx === c) renderCall(S.G); };
+  Promise.resolve(c.report(c.kind === 'cpu' ? ctxMoves() : null, G.state)).then(() => done(true), e => { c.err = (e && e.message) || ''; done(false); });
+}
+function startCtxCpu(info, ctx) {   // info: {T, seed, side, cpuSide}
+  resetForMode();
+  S.mode = 'local'; S.code = null; S.me = info.side; S.cpuSides = info.cpuSide ? [info.cpuSide] : []; S.seed = info.seed;
+  S.seats.a = { status: 'ready', name: info.T.a.name, squad: info.T.a.squad }; S.seats.b = { status: 'ready', name: info.T.b.name, squad: info.T.b.squad };
+  S.ctx = Object.assign({ kind: 'cpu', label: 'Game', sent: false, status: '' }, ctx);
+  S.draft = null; render();
+}
+function startCtxRoom(info, ctx) {  // info: {room, seed, side}
+  resetForMode();
+  S.mode = 'online'; S.code = info.room; S.seed = info.seed; S.me = info.side;
+  S.ctx = Object.assign({ kind: 'room', label: 'Live game', sent: false, status: '' }, ctx);
+  S.draft = null; startPoll(); render();
+}
+function startDraftOnly(opts) {   // opts: {rnd, onDone(roster), label}
+  resetForMode();
+  S.mode = 'draftonly'; S.me = 'a'; S.drawRnd = opts.rnd || null; S.draftCb = opts.onDone;
+  beginPicks(); render();
+}
+function exitToHub() { leave(); }
+window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startDraftOnly, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S };
+
+/* ---------- router ---------- */
+function render() {
+  const sc = screenName(), changed = sc !== S.screen;
+  S.screen = sc;
+  renderHeader();
+  if (sc === 'lobby') { if (changed) { if (window.HUB) window.HUB.show(); else buildLobby(); } }
+  else if (sc === 'draft') { if (changed) drawDraft(); else updateDraftChip(); }
+  else if (sc === 'wait') drawWait();
+  else { if (changed) buildGame(); updateGame(); }
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click', ev => {
+  const t = ev.target.closest('[data-act]'); if (!t) return;
+  const a = t.dataset.act;
+  if (a === 'create') createRoom();
+  else if (a === 'join') joinRoom($('#code').value);
+  else if (a === 'cpu') startLocal();
+  else if (a === 'leave') leave();
+  else if (a === 'ctx-done') { const c = S.ctx; leave(); if (c && c.onDone) c.onDone(); }
+  else if (a === 'ctx-retry') { const c = S.ctx; if (c) { c.sent = false; ctxFinish(S.G); renderCall(S.G); } }
+  else if (a === 'pick') pickOpt(+t.dataset.i);
+  else if (a === 'reroll') rerollOpts();
+  else if (a === 'auto') autoRest();
+  else if (a === 'lock') lockRoster();
+  else if (a === 'copy') { const done = () => toast('Room code copied.'); try { navigator.clipboard.writeText(S.code).then(done, () => toast('Copy failed. Select the code and copy it.')); } catch (e) { toast('Copy failed. Select the code and copy it.'); } }
+  else if (a === 'call') submitCall(t.dataset.id);
+  else if (a === 'rosters') showRosters();
+  else if (a === 'matchups') showMatchups();
+  else if (a === 'close-modal') closeModal();
+});
+document.addEventListener('keydown', ev => {
+  const tag = ev.target && ev.target.tagName;
+  if (ev.key === 'Enter' && ev.target && ev.target.id === 'code') { joinRoom(ev.target.value); return; }
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (ev.key === 'Escape') { closeModal(); return; }
+  const m = $('#modal'); if (m && !m.hidden) return;
+  if (S.screen === 'draft' && S.draft && S.draft.phase === 'pick') {
+    if (ev.key >= '1' && ev.key <= '3') pickOpt(+ev.key - 1);
+    else if (ev.key === 'r' || ev.key === 'R') rerollOpts();
+  } else if (S.screen === 'game' && /^[1-9]$/.test(ev.key)) {
+    const btns = document.querySelectorAll('#callpanel .call:not([disabled])');
+    const b = btns[+ev.key - 1]; if (b) submitCall(b.dataset.id);
+  }
+});
+document.addEventListener('input', ev => {
+  if (ev.target && ev.target.id === 'code') ev.target.value = ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+});
+
+/* ---------- boot ---------- */
+async function init() {
+  Field.init();
+  if (window.HUB) await window.HUB.boot();
+  render();
+  try { await api({ op: 'ping' }); S.api = true; } catch (e) { S.api = false; }
+  S.ready = true; updateLobbyHints();
+  if (window.HUB) window.HUB.ready();
+}
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (Field.scene) Field.draw(); });
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
