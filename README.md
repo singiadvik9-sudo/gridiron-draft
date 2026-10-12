@@ -13,6 +13,8 @@ A pixel-football game with real NFL starters (Madden-style ratings). Static page
 2. Add **Upstash Redis** from the Vercel Marketplace (it sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, or `UPSTASH_REDIS_REST_URL` / `_TOKEN`). Without it the functions use per-instance memory, which only works for local testing.
 3. Redeploy.
 
+**Cloudflare instead of Upstash:** create a D1 database (Cloudflare dashboard → Storage & Databases → D1), then add three Vercel environment variables: `CF_ACCOUNT_ID`, `CF_D1_DATABASE_ID`, and `CF_API_TOKEN` (an API token with *D1: Edit*). The table is created automatically. If these are set, they're used instead of Upstash. Note Cloudflare's REST API allows about 1,200 requests per 5 minutes per token, which caps how many people can have a league or tournament page open at once (each polls every 5 s); Upstash has no such cap.
+
 Accounts are name + password (scrypt) with a 30-day session token. Nothing else is stored about people.
 
 ## How results stay honest
