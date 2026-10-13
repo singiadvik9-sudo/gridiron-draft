@@ -9,7 +9,9 @@ def reg(pg,name):
     pg.click('[data-h=auth]'); pg.click('[data-h=auth-sw]'); pg.fill('#au-n',name); pg.fill('#au-p','secret12'); pg.click('[data-h=auth-go]'); pg.wait_for_timeout(500)
 def step(pg):
     btns=pg.query_selector_all('#callpanel .call:not([disabled])')
-    if btns: random.choice(btns).click()
+    if btns:
+        try: random.choice(btns).click(timeout=1500)
+        except Exception: pass
 with sync_playwright() as p:
     b=p.chromium.launch()
     A=b.new_context(viewport={'width':1100,'height':900}).new_page(); B=b.new_context(viewport={'width':1100,'height':900}).new_page()

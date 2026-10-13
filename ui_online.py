@@ -26,7 +26,9 @@ with sync_playwright() as p:
     while n<1500 and not (A.query_selector('.final') and B.query_selector('.final')):
         for pg in (A,B):
             btns=pg.query_selector_all('#callpanel .call:not([disabled])')
-            if btns: random.choice(btns).click()
+            if btns:
+                try: random.choice(btns).click(timeout=1500)
+                except Exception: pass
         A.wait_for_timeout(60); n+=1
     A.wait_for_timeout(500)
     sa=(A.inner_text('#sb-as'),A.inner_text('#sb-bs')); sb=(B.inner_text('#sb-as'),B.inner_text('#sb-bs'))

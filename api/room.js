@@ -105,7 +105,8 @@ module.exports = async function handler(req, res) {
       if (!Number.isInteger(n) || n < 0 || n > 400 || !pick) return fail(res, 400, 'bad_request');
       const mk = rkey(code, 'm' + seat);
       const moves = parse(await cmd(['GET', mk])) || {};
-      if (moves[n] === undefined) moves[n] = b.ctl ? { p: pick, c: 1 } : pick;   // c: this player also runs the players on the field
+      // c: this player also runs the players on the field, t: he calls a timeout before the snap
+      if (moves[n] === undefined) moves[n] = b.ctl || b.to ? Object.assign({ p: pick }, b.ctl ? { c: 1 } : {}, b.to ? { t: 1 } : {}) : pick;
       await setJ(mk, moves, TTL);
       return send(res, 200, { ok: true });
     }

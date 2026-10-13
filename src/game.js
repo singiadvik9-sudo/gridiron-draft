@@ -24,7 +24,7 @@ const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
   myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
   poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null,
-  ctlOn: lsGet('gd_ctl') === '1', ctlN: {}, lv: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
+  ctlOn: lsGet('gd_ctl') === '1', toN: {}, toSel: null, ctlN: {}, lv: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
 };
 
 /* ---------- sprites ---------- */
@@ -166,8 +166,8 @@ function teamOf(seat) {
   const name = String(d.name || 'Team ' + seat.toUpperCase()).slice(0, 18);
   return d.squad ? { name, squad: d.squad } : { name, roster: d.roster, squad: E.squadFromRoster(d.roster) };
 }
-const moveOf = v => v && typeof v === 'object' ? (v.c ? { pick: v.p, ctl: 1 } : { pick: v.p }) : { pick: v };
-const myMove = n => S.ctlN[n] ? { pick: S.mine[n], ctl: 1 } : { pick: S.mine[n] };
+const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}) : { pick: v };
+const myMove = n => Object.assign({ pick: S.mine[n] }, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {});
 function allMoves() {
   const mv = Object.assign({}, S.moves);
   if (S.me) for (const n in S.mine) mv[n + '-' + S.me] = myMove(n);
@@ -401,6 +401,7 @@ function buildLobby() {
     '<li><b>Snake draft 11 slots.</b> Quarterback, running back, two receivers, tight end, an entire offensive line, an entire defense, a kicker, a punt returner, a kick returner, and the rest of special teams (punter, long snapper, coverage). You and your opponent take turns from one shared pool (1-2-2-1…), and every player can only be on one team.</li>' +
     '<li><b>Optional salary cap.</b> Every player and unit has a salary based on rating and position. QBs and pass rushers cost the most, running backs and safeties the least. Stay under the cap or the pick is blocked.</li>' +
     '<li><b>Call plays.</b> Offense and defense pick in secret at the same time. Pro-game ratings decide who wins the matchup.</li>' +
+    '<li><b>Beat the clock.</b> Each quarter is 2:00 and the clock follows NFL rules (it stops on incompletions, out of bounds, scores and turnovers), with one change: no delay of game, a play can only run the clock 5 seconds. Each team has 3 timeouts a half, plus spikes and kneel-downs.</li>' +
     '<li><b>Or play it yourself.</b> Switch on <i>Control your players</i> when you call a play. You run the quarterback (then whoever has the ball) or a defender on the field, and everyone else moves on their own. Switch it off any time to only call plays.</li></ol>' +
     '<p class="hint">Ratings are Madden NFL 27 overalls for current starters. Unofficial fan project, no logos.</p></div>' +
     '</section>';
@@ -439,7 +440,7 @@ function resetForMode() {
   stopPoll();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
   S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; Field.scene = null;
-  S.ctlN = {}; S.lv = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
+  S.ctlN = {}; S.toN = {}; S.toSel = null; S.lv = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
 }
 function startLocal() {
   readName();
@@ -751,7 +752,7 @@ function buildGame() {
   $('#main').innerHTML =
     '<section class="game">' +
     '<div class="sb"><div class="sb-team a"><div class="sb-name" id="sb-an"></div><div class="sb-score" id="sb-as">0</div></div>' +
-    '<div class="sb-mid"><div class="sb-q" id="sb-q"></div><div class="sb-dd" id="sb-dd"></div><div class="sb-ball" id="sb-ball"></div></div>' +
+    '<div class="sb-mid"><div class="sb-q" id="sb-q"></div><div class="sb-dd" id="sb-dd"></div><div class="sb-ball" id="sb-ball"></div><div class="sb-to" id="sb-to"></div></div>' +
     '<div class="sb-team b"><div class="sb-name" id="sb-bn"></div><div class="sb-score" id="sb-bs">0</div></div></div>' +
     '<div class="fieldhost" id="fieldHost"></div>' +
     '<div class="deck"><div class="callpanel panel" id="callpanel"></div>' +
@@ -771,7 +772,8 @@ function updateGame() {
   const aEl = $('.sb-team.a'), bEl = $('.sb-team.b');
   if (aEl) aEl.classList.toggle('has', !st.over && st.poss === 'a');
   if (bEl) bEl.classList.toggle('has', !st.over && st.poss === 'b');
-  set('#sb-q', st.over ? 'FINAL' : ck.q + ' · play ' + ck.inQ + '/' + ck.perQ);
+  set('#sb-q', st.over ? 'FINAL' : ck.q + ' · ' + ck.text + (ck.running ? ' ▶' : ''));
+  set('#sb-to', st.over ? '' : 'Timeouts ' + st.to.a + ' · ' + st.to.b);
   set('#sb-dd', st.over ? '' : ddLabel(st));
   set('#sb-ball', st.over ? '' : 'Ball on ' + spotLabel(st, T));
   // log + animation
@@ -806,8 +808,8 @@ function renderLog(G) {
   const el = $('#log'); if (!el) return;
   const T = G.teams, rows = [];
   for (let i = G.log.length - 1; i >= 0 && rows.length < 14; i--) {
-    const e = G.log[i], q = e.n < 2 * E.PQ ? (e.n < E.PQ ? 'Q1' : 'Q2') : (e.n < 3 * E.PQ ? 'Q3' : e.n < 4 * E.PQ ? 'Q4' : 'OT');
-    rows.push('<li class="ev-' + e.ev + '"><span class="lg-n" style="color:' + TEAM_COL[e.off] + '">' + q + ' · ' + (e.n + 1) + '</span><span class="lg-t">' + esc(e.text) + '</span></li>');
+    const e = G.log[i], c = Math.max(0, e.clk), q = e.q + ' ' + Math.floor(c / 60) + ':' + ('0' + (c % 60)).slice(-2);
+    rows.push('<li class="ev-' + e.ev + '"><span class="lg-n" style="color:' + TEAM_COL[e.off] + '">' + q + '</span><span class="lg-t">' + esc(e.text) + '</span></li>');
   }
   const html = rows.join('');
   if (el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; }
@@ -830,22 +832,31 @@ function renderCall(G) {
   }
   const n = st.playNo, role = S.me === st.poss ? 'off' : 'def';
   const locked = S.mine[n] != null ? S.mine[n] : null;
-  const sig = n + '|' + role + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0);
+  const sig = n + '|' + role + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0) + '|' + (toSel(n) ? 1 : 0) + '|' + (S.toN[n] ? 1 : 0) + '|' + st.clock + '|' + st.ro;
   if (S.callSig === sig) return; S.callSig = sig;
   const sit = ddLabel(st) + ' at ' + spotLabel(st, T);
   if (locked) {
     const lbl = role === 'off' ? E.OFF[locked].label : E.DEF_CALLS[locked].label;
     p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'Offense' : 'Defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
-      '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + '</b>' + (S.ctlN[n] ? '<p class="sub ctlnote">You will run the players on the field.</p>' : '') + '<p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
+      '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + '</b>' + (S.ctlN[n] ? '<p class="sub ctlnote">You will run the players on the field.</p>' : '') + (S.toN[n] ? '<p class="sub ctlnote">Timeout called.</p>' : '') + '<p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
     return;
   }
   let opts;
-  if (role === 'off') opts = E.offOptions(st).filter(o => st.down === 4 || (o.id !== 'PUNT' && o.id !== 'FG')).map(o => ({ id: o.id, label: o.label, desc: o.desc, disabled: o.disabled, note: o.note }));
+  if (role === 'off') opts = E.offOptions(st).filter(o => st.down === 4 ? o.id !== 'SPIKE' && o.id !== 'KNEEL' : (o.id !== 'PUNT' && o.id !== 'FG')).map(o => ({ id: o.id, label: o.label, desc: o.desc, disabled: o.disabled, note: o.note }));
   else opts = Object.keys(E.DEF_CALLS).map(id => ({ id, label: E.DEF_CALLS[id].label, desc: E.DEF_CALLS[id].desc, disabled: false, note: '' }));
   let k = 0;
   p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
-    ctlRowHTML(role) +
+    ctlRowHTML(role) + toRowHTML(st) +
     '<div class="calls">' + opts.map(o => { const key = o.disabled ? '' : ++k; return '<button class="call" data-act="call" data-id="' + o.id + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
+}
+const toSel = n => !!(S.toSel && S.toSel.n === n && S.toSel.on);
+// a timeout stops the clock before the snap and gives back whatever ran off since the last play
+function toRowHTML(st) {
+  const left = st.to[S.me];
+  if (!(st.ro > 0)) return '<div class="ctlrow"><span class="hint">Clock stopped. Timeouts left: ' + left + '.</span></div>';
+  if (left <= 0) return '<div class="ctlrow"><span class="hint">Clock running, no timeouts left.</span></div>';
+  const on = toSel(st.playNo);
+  return '<div class="ctlrow"><button class="btn small ctl' + (on ? ' on' : '') + '" data-act="to-toggle" aria-pressed="' + on + '">Timeout (' + left + ' left): ' + (on ? 'YES' : 'no') + '</button><span class="hint">Clock is running. A timeout stops it and gives back the ' + st.ro + ' second' + (st.ro === 1 ? '' : 's') + ' that just ran off. Press T.</span></div>';
 }
 function ctlRowHTML(role) {
   const on = S.ctlOn;
@@ -859,10 +870,12 @@ function submitCall(pick) {
   if (role === 'off') { if (!E.offOptions(st).some(o => o.id === pick && !o.disabled)) return; }
   else if (!E.DEF_CALLS[pick]) return;
   S.mine[n] = pick; S.callSig = null;
-  const ctl = S.ctlOn && !(role === 'off' && E.OFF[pick].kind === 'kick') ? 1 : 0;
+  const ctl = S.ctlOn && !(role === 'off' && E.noDef(pick)) ? 1 : 0;
+  const to = toSel(n) && st.ro > 0 && st.to[S.me] > 0 ? 1 : 0;
+  if (to) S.toN[n] = 1; else delete S.toN[n];
   if (ctl) S.ctlN[n] = 1; else delete S.ctlN[n];
   if (S.mode === 'online') {
-    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; S.callSig = null; handleErr(e); updateGame(); });
+    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; S.callSig = null; handleErr(e); updateGame(); });
   }
   updateGame();
 }
@@ -927,6 +940,7 @@ document.addEventListener('click', ev => {
   else if (a === 'copy') { const done = () => toast('Room code copied.'); try { navigator.clipboard.writeText(S.code).then(done, () => toast('Copy failed. Select the code and copy it.')); } catch (e) { toast('Copy failed. Select the code and copy it.'); } }
   else if (a === 'call') submitCall(t.dataset.id);
   else if (a === 'ctl-toggle') { S.ctlOn = !S.ctlOn; lsSet('gd_ctl', S.ctlOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
+  else if (a === 'to-toggle') { const n = S.G.state.playNo; S.toSel = { n, on: !toSel(n) }; S.callSig = null; renderCall(S.G); }
   else if (a === 'live-hand') LV.hand();
   else if (a === 'live-force') LV.force();
   else if (a === 'rosters') showRosters();
@@ -941,6 +955,7 @@ document.addEventListener('keydown', ev => {
   const m = $('#modal'); if (m && !m.hidden) return;
   if (LV.on) { if (LV.key(ev, true)) return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
+  if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && /^[1-9]$/.test(ev.key)) {
     const btns = document.querySelectorAll('#callpanel .call:not([disabled])');
     const b = btns[+ev.key - 1]; if (b) submitCall(b.dataset.id);

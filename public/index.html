@@ -201,7 +201,7 @@ canvas.field { width: 100%; height: auto; display: block; image-rendering: pixel
 .bn-meta { font-family: var(--display); font-size: 10px; letter-spacing: .06em; color: var(--mute); text-transform: uppercase; }
 .bn-text { font-size: 21px; line-height: 1.2; }
 .log { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 260px; overflow-y: auto; }
-.log li { display: grid; grid-template-columns: 62px 1fr; gap: 8px; padding: 5px 8px; background: var(--panel); font-size: 16px; line-height: 1.2; }
+.log li { display: grid; grid-template-columns: 74px 1fr; gap: 8px; padding: 5px 8px; background: var(--panel); font-size: 16px; line-height: 1.2; }
 .log li.ev-td, .log li.ev-fg, .log li.ev-safety { background: var(--panel2); }
 .lg-n { font-family: var(--display); font-size: 10px; padding-top: 3px; }
 .final { display: grid; gap: 14px; text-align: center; justify-items: center; padding-block: 10px; }
@@ -424,6 +424,7 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .ab { min-width: 52px; min-height: 52px; padding: 0 12px; background: var(--flag); color: #1a1405; border: 2px solid #1a1405; border-bottom-width: 5px; font-family: var(--display); font-size: 14px; touch-action: none; }
 .ab.wide { min-width: 96px; }
 .ab:active { border-bottom-width: 2px; transform: translateY(2px); }
+.sb-to { font-family: var(--display); font-size: 10px; color: var(--mute); }
 
 </style>
 <div class="wrap">
@@ -443,8 +444,10 @@ window.DATA = {"SCHED":[[1,"NE","SEA"],[1,"SF","LA"],[1,"CHI","CAR"],[1,"TB","CI
 'use strict';
 
 /* ================= constants ================= */
-const PQ = 16;          // plays per quarter
-const OT_MAX = 8;       // overtime play cap (sudden death)
+const QLEN = 120;       // seconds per quarter (and per overtime)
+const CAP = 5;          // most clock a single play may run, snap to snap (there is no delay of game)
+const TO_HALF = 3, TO_OT = 2;   // timeouts per team per half / in overtime
+const oth = t => t === 'a' ? 'b' : 'a';
 
 function mulberry32(a) {
   return function () {
@@ -640,6 +643,8 @@ const OFF = {
   PASS_M:  { label: 'Medium Pass', kind: 'pass', depth: 13, base: 0.67, avg: 12, desc: 'Intermediate routes. Moves the chains.' },
   PASS_D:  { label: 'Deep Shot',   kind: 'pass', depth: 28, base: 0.45, avg: 28, desc: 'Go for the big play. Risk of a pick.' },
   SCREEN:  { label: 'Screen Pass', kind: 'pass', depth: 2,  base: 0.86, avg: 5,  desc: 'Let the rush come, then dump it off.' },
+  SPIKE:   { label: 'Spike',       kind: 'clock', desc: 'Throw it into the turf. Stops the clock, costs a down.' },
+  KNEEL:   { label: 'Kneel',       kind: 'clock', desc: 'Take a knee and run the clock. Loses a yard.' },
   PUNT:    { label: 'Punt',        kind: 'kick', desc: 'Flip the field. 4th down only.' },
   FG:      { label: 'Field Goal',  kind: 'kick', desc: 'Kick for three. 4th down, inside 45.' }
 };
@@ -659,8 +664,11 @@ const MATCH = {
 };
 
 function fgDist(st) { return 100 - st.ballOn + 17; }
+// plays where the defense does not need to call anything
+const noDef = pick => OFF[pick].kind !== 'run' && OFF[pick].kind !== 'pass';
 function legalOff(st, pick) {
   if (!OFF[pick]) return 'RUN_IN';
+  if ((pick === 'SPIKE' || pick === 'KNEEL') && st.down === 4) return 'RUN_IN';
   if ((pick === 'PUNT' || pick === 'FG') && st.down < 4) return 'RUN_IN';
   if (pick === 'FG' && fgDist(st) > 62) return 'PUNT';
   return pick;
@@ -670,6 +678,8 @@ function offOptions(st) {
     let disabled = false, note = '';
     if ((id === 'PUNT' || id === 'FG') && st.down < 4) { disabled = true; note = '4th down'; }
     if (id === 'FG' && fgDist(st) > 62) { disabled = true; note = 'Out of range'; }
+    if ((id === 'SPIKE' || id === 'KNEEL') && st.down === 4) { disabled = true; note = '1st-3rd down'; }
+    if (id === 'SPIKE' && !disabled && !(st.ro > 0)) { disabled = true; note = 'Clock is stopped'; }
     if (id === 'FG' && !disabled) note = fgDist(st) + ' yds';
     return { id, label: OFF[id].label, desc: OFF[id].desc, disabled, note };
   });
@@ -679,29 +689,34 @@ function offOptions(st) {
 function initState(seed) {
   const firstRecv = (seed % 2 === 0) ? 'a' : 'b';
   return { poss: firstRecv, firstRecv, ballOn: 25, down: 1, toGo: 10, score: { a: 0, b: 0 },
-           playNo: 0, over: false, winner: null, ot: false };
+           playNo: 0, over: false, winner: null, ot: false, q: 1, clock: QLEN, ro: 0, to: { a: TO_HALF, b: TO_HALF } };
 }
+// ro: seconds that ran off after the last snap while the clock was still going (a timeout before the next snap takes them back)
 function clockInfo(st) {
-  if (st.ot) return { q: 'OT', inQ: st.playNo - 4 * PQ + 1, perQ: OT_MAX };
-  const q = Math.min(4, Math.floor(st.playNo / PQ) + 1);
-  return { q: 'Q' + q, inQ: (st.playNo % PQ) + 1, perQ: PQ };
+  const c = Math.max(0, st.clock), t = Math.floor(c / 60) + ':' + ('0' + (c % 60)).slice(-2);
+  return { q: st.ot ? 'OT' : 'Q' + st.q, clock: c, text: t, running: st.ro > 0 };
 }
 
-function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live) {
+function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags) {
   const R = mulberry32(hashStr(seed + ':' + st.playNo));
   const gauss = () => (R() + R() + R() + R() - 2) * 1.7320508;
   const o = st.poss, d = o === 'a' ? 'b' : 'a';
   const OU = U[o], DU = U[d];
   const offPick = legalOff(st, offPickRaw);
-  const isKick = OFF[offPick].kind === 'kick';
+  const isKick = noDef(offPick);
   const defPick = DEF_CALLS[defPickRaw] ? defPickRaw : 'ZONE';
-  const s = Object.assign({}, st, { score: { a: st.score.a, b: st.score.b } });
+  const s = Object.assign({}, st, { score: { a: st.score.a, b: st.score.b }, to: { a: st.to.a, b: st.to.b } });
   const nm = (t, id) => nameOf(teams[t], id);
   const entry = {
     n: st.playNo, off: o, offPick, defPick: isKick ? null : defPick, ev: 'play', text: '',
     yards: 0, travel: 0, anim: 'run', pts: 0, ptsTeam: null,
-    before: { poss: o, ballOn: st.ballOn, down: st.down, toGo: st.toGo }
+    before: { poss: o, ballOn: st.ballOn, down: st.down, toGo: st.toGo }, q: st.ot ? 'OT' : 'Q' + st.q, clk: st.clock
   };
+  // timeouts called before the snap stop the clock: whatever ran off since the last play is given back
+  const tos = [];
+  if (flags) [['o', o], ['d', d]].forEach(([k, t]) => { if (flags[k] && st.ro > 0 && s.to[t] > 0) { s.to[t]--; tos.push(t); } });
+  if (tos.length) { s.clock = st.clock + st.ro; s.ro = 0; entry.timeouts = tos; }
+  let pt = 4, stopFlag = false;   // seconds the play itself took; does the clock stop when it ends?
   const giveBall = (team, on) => {
     s.poss = team; s.ballOn = clamp(Math.round(on), 1, 99); s.down = 1; s.toGo = Math.min(10, 100 - s.ballOn);
   };
@@ -747,7 +762,16 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live) {
   };
   const yds = y => Math.abs(y) === 1 ? '1 yard' : Math.abs(y) + ' yards';
 
-  if (offPick === 'PUNT') {
+  if (offPick === 'SPIKE') {
+    s.down = st.down + 1; entry.anim = 'spike'; entry.ev = 'spike'; pt = 1; stopFlag = true;
+    entry.text = nm(o, 'QB') + ' spikes the ball to stop the clock.';
+    if (s.down > 4) { giveBall(d, 100 - st.ballOn); entry.ev = 'downs'; entry.text += ' Turnover on downs.'; }
+  } else if (offPick === 'KNEEL') {
+    const nb = Math.max(1, st.ballOn - 1), lost = st.ballOn - nb;
+    s.ballOn = nb; s.toGo = st.toGo + lost; s.down = st.down + 1; entry.anim = 'kneel'; entry.ev = 'kneel'; entry.travel = -lost; entry.yards = -lost; pt = 3;
+    entry.text = nm(o, 'QB') + ' takes a knee.';
+  } else if (offPick === 'PUNT') {
+    pt = 5;
     const dist = Math.round(clamp(38 + (OU.pu - 55) * 0.22 + gauss() * 5, 22, 62));
     const land = st.ballOn + dist;
     entry.ev = 'punt'; entry.anim = 'punt'; entry.travel = dist;
@@ -763,6 +787,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live) {
       entry.text = nm(o, 'P') + ' punts ' + dist + ' yards' + (ret > 2 ? ', ' + nm(d, 'PR') + ' returns it ' + ret : '') + '.';
     }
   } else if (offPick === 'FG') {
+    pt = 3;
     const dist = fgDist(st);
     const p = clamp(0.985 - Math.max(0, dist - 24) * 0.0175 + (OU.k - 60) * 0.004, 0.04, 0.99);
     entry.anim = 'fg'; entry.travel = 100 - st.ballOn;
@@ -777,6 +802,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live) {
   } else if (live) {
     // a snap the players actually played out on the field (lib/live.js): the outcome tells where the ball ended up
     const lv = live, qb = nm(o, 'QB');
+    pt = clamp(Math.ceil((lv.t || 20) / 20), 1, CAP); if (lv.k === 'inc' || lv.oob) stopFlag = true;
     entry.live = true; entry.liveT = lv.t || 0;
     const clampY = y => clamp(Math.round(y), -st.ballOn, 100 - st.ballOn);
     if (lv.k === 'sack') {
@@ -839,6 +865,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live) {
     const bigP = (inside ? 0.035 : 0.07) + Math.max(0, OU.hSpd - 55) / 700;
     if (R() < bigP * (1 - m * 0.25)) y += Math.round(8 + R() * 20);
     y = Math.max(y, -4);
+    if (R() < (inside ? 0.03 : 0.2)) stopFlag = true;   // ran out of bounds
     const useFB = inside && OU.hasFB && R() < 0.25;
     const runner = nm(o, useFB ? 'FB' : 'HB'); entry.runId = useFB ? 'FB' : 'HB';
     const fumP = 0.010 + Math.max(0, DU.dl - OU.ol) * 0.0003;
@@ -900,6 +927,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live) {
         if (s.down > 4) { giveBall(d, 100 - nb); entry.ev = 'downs'; entry.text += ' Turnover on downs.'; }
       }
     } else if (R() < compP) {
+      if (R() < { PASS_S: 0.3, PASS_M: 0.25, PASS_D: 0.2, SCREEN: 0.15 }[offPick]) stopFlag = true;   // caught out of bounds
       let y = Math.round(spec.avg * (0.55 + 0.9 * R()) + (O - cov * eff) * 0.10);
       const bigP = 0.05 + Math.max(0, tgt.spd - 60) / 500;
       if (R() < bigP) y += Math.round(6 + R() * 18);
@@ -922,7 +950,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live) {
         entry.text = qb + ' is picked off by ' + who + '.';
       }
     } else {
-      entry.anim = 'inc'; entry.travel = Math.max(2, spec.depth - 2); entry.ev = 'inc';
+      entry.anim = 'inc'; entry.travel = Math.max(2, spec.depth - 2); entry.ev = 'inc'; stopFlag = true; pt = 3;
       s.toGo = st.toGo; s.down = st.down + 1; s.ballOn = st.ballOn;
       entry.text = qb + "'s pass for " + rec + ' falls incomplete.';
       if (s.down > 4) { giveBall(d, 100 - st.ballOn); entry.ev = 'downs'; entry.text += ' Turnover on downs.'; }
@@ -932,14 +960,23 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live) {
   // clock + quarters
   s.playNo = st.playNo + 1;
   const changed = s.score.a !== st.score.a || s.score.b !== st.score.b;
-  if (st.ot) {
-    if (changed || s.playNo >= 4 * PQ + OT_MAX) s.over = true;
-  } else if (s.playNo === 2 * PQ) {
-    entry.half = true; entry.text += kickoff(st.firstRecv, other(st.firstRecv));
-  } else if (s.playNo === 4 * PQ) {
-    if (s.score.a === s.score.b) { s.ot = true; entry.otStart = true; entry.text += kickoff(other(st.firstRecv), st.firstRecv); }
+  const stops = stopFlag || changed || s.poss !== st.poss;
+  const left = s.clock - pt;
+  entry.pt = pt;
+  if (left > 0) {
+    // while the clock keeps running it burns up to CAP seconds per play (play time included), but a quarter never ends between snaps
+    const ro = stops ? 0 : Math.min(CAP - pt, left - 1);
+    s.clock = left - ro; s.ro = ro;
+    if (st.ot && changed) s.over = true;
+  } else {
+    s.clock = 0; s.ro = 0;
+    if (st.ot) s.over = true;
+    else if (st.q === 1 || st.q === 3) { s.q = st.q + 1; s.clock = QLEN; entry.qEnd = 'Q' + st.q; entry.text += ' End of the ' + ['', '1st', '2nd', '3rd'][st.q] + ' quarter.'; }
+    else if (st.q === 2) { s.q = 3; s.clock = QLEN; s.to = { a: TO_HALF, b: TO_HALF }; entry.half = true; entry.text += ' Halftime.' + kickoff(st.firstRecv, other(st.firstRecv)); }
+    else if (s.score.a === s.score.b) { s.ot = true; s.q = 5; s.clock = QLEN; s.to = { a: TO_OT, b: TO_OT }; entry.otStart = true; entry.text += ' Tied after four quarters: overtime.' + kickoff(other(st.firstRecv), st.firstRecv); }
     else s.over = true;
   }
+  if (tos.length) entry.text = tos.map(t => teams[t].name + ' call a timeout. ').join('') + entry.text;
   if (s.over) s.winner = s.score.a > s.score.b ? 'a' : s.score.b > s.score.a ? 'b' : null;
   entry.after = { poss: s.poss, ballOn: s.ballOn, down: s.down, toGo: s.toGo };
   entry.score = { a: s.score.a, b: s.score.b };
@@ -955,11 +992,11 @@ function replay(seed, teams, moves, cpuSides) {
   while (!st.over && guard++ < 200) {
     const n = st.playNo, off = st.poss, def = off === 'a' ? 'b' : 'a';
     let om = moves[n + '-' + off];
-    if (!om && cpuSides.indexOf(off) >= 0) om = { pick: cpuMove(st, U, off, seed, 'off') };
+    if (!om && cpuSides.indexOf(off) >= 0) om = { pick: cpuMove(st, U, off, seed, 'off'), to: cpuTO(st, off) ? 1 : 0 };
     if (!om) break;
-    const kick = OFF[legalOff(st, om.pick)].kind === 'kick';
+    const kick = noDef(legalOff(st, om.pick));
     let dm = moves[n + '-' + def];
-    if (!dm && !kick && cpuSides.indexOf(def) >= 0) dm = { pick: cpuMove(st, U, def, seed, 'def') };
+    if (!dm && !kick && cpuSides.indexOf(def) >= 0) dm = { pick: cpuMove(st, U, def, seed, 'def'), to: cpuTO(st, def) ? 1 : 0 };
     if (!kick && !dm) break;
     let lv = null;
     if (!kick && ((om.ctl ? 1 : 0) || (dm && dm.ctl ? 1 : 0))) {
@@ -968,7 +1005,7 @@ function replay(seed, teams, moves, cpuSides) {
       if (!lm || !E.LIVE) { wait = { n, off, def, om, dm }; break; }
       lv = liveOutcome(seed, n, st, legalOff(st, om.pick), DEF_CALLS[dm.pick] ? dm.pick : 'ZONE', teams[off], teams[def], om.ctl ? 1 : 0, dm.ctl ? 1 : 0, lm[off], lm[def]);
     }
-    const res = stepGame(st, teams, U, seed, om.pick, dm ? dm.pick : null, lv);
+    const res = stepGame(st, teams, U, seed, om.pick, dm ? dm.pick : null, lv, { o: !!om.to, d: !!(dm && dm.to) });
     if (lv) res.entry.ctl = { o: om.ctl ? 1 : 0, d: dm && dm.ctl ? 1 : 0 };
     st = res.state; log.push(res.entry);
   }
@@ -998,7 +1035,7 @@ function cleanMoves(raw, side) {
     const m = /^(\d{1,3})-(a|b|lv)$/.exec(k); const v = raw[k]; if (!m || !v || typeof v !== 'object') return;
     if (m[2] === 'lv') { const a = cleanTrace(v.a), b = cleanTrace(v.b); if (a && b) mv[k] = { a, b }; return; }
     if (side && m[2] !== side) return;
-    if (typeof v.pick === 'string' && v.pick.length <= 12) mv[k] = v.ctl ? { pick: v.pick, ctl: 1 } : { pick: v.pick };
+    if (typeof v.pick === 'string' && v.pick.length <= 12) { mv[k] = { pick: v.pick }; if (v.ctl) mv[k].ctl = 1; if (v.to) mv[k].to = 1; }
   });
   return mv;
 }
@@ -1009,9 +1046,21 @@ function cpuMove(st, U, side, seed, role) {
 }
 
 /* ================= CPU opponent ================= */
+// the computer calls a timeout when the clock matters and it is behind (or tied with the ball)
+function cpuTO(st, me) {
+  if (!(st.ro > 0) || !(st.to[me] > 0) || st.ot) return false;
+  const lead = st.score[me] - st.score[oth(me)];
+  if (st.q === 2) return st.clock <= 30 && (st.poss === me ? lead <= 7 : lead < 0);
+  if (st.q === 4) return st.poss === me ? lead <= 0 && st.clock <= 45 : lead < 0 && st.clock <= 70;
+  return false;
+}
 function cpuOffense(st, U, me, rnd) {
   rnd = rnd || Math.random;
   const OU = U[me];
+  const lead = st.score[me] - st.score[oth(me)];
+  if (st.q === 4 && !st.ot && lead > 0 && st.down <= 3 && st.clock <= CAP * (4 - st.down)) return 'KNEEL';
+  if (!st.ot && (st.q === 2 || (st.q === 4 && lead <= 0)) && st.ro > 0 && st.down <= 3 && st.clock <= 12 && fgDist(st) <= 50) return 'SPIKE';
+  if (!st.ot && (st.q === 2 || (st.q === 4 && lead < 0)) && st.clock <= 40 && st.down < 4 && fgDist(st) > 20) return ['PASS_S', 'PASS_M', 'PASS_M', 'PASS_D'][Math.floor(rnd() * 4)];
   if (st.down === 4) {
     const dist = fgDist(st);
     if (dist <= 48 && rnd() < 0.9) return 'FG';
@@ -1033,10 +1082,10 @@ function cpuDefense(st, rnd) {
 }
 
 const E = {
-  DATA: D, PQ, OT_MAX, TEAMS, PLAYERS, OLU, DFU, SLOTS, GROUPS, OFF, DEF_CALLS, MATCH,
+  DATA: D, QLEN, CAP, noDef, TEAMS, PLAYERS, OLU, DFU, SLOTS, GROUPS, OFF, DEF_CALLS, MATCH,
   KICK, KRS, PRS, STU, stSquad, stFrom, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
   drawOptions, autoDraft, fgDist, legalOff, offOptions, initState, clockInfo,
-  stepGame, replay, cpuOffense, cpuDefense, cleanMoves, cleanTrace
+  stepGame, replay, cpuOffense, cpuDefense, cleanMoves, cleanTrace, cpuTO
 };
 if (typeof module !== 'undefined' && module.exports) { module.exports = E; require('./live.js'); }
 else root.E = E;
@@ -2782,7 +2831,7 @@ const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
   myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
   poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null,
-  ctlOn: lsGet('gd_ctl') === '1', ctlN: {}, lv: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
+  ctlOn: lsGet('gd_ctl') === '1', toN: {}, toSel: null, ctlN: {}, lv: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
 };
 
 /* ---------- sprites ---------- */
@@ -2924,8 +2973,8 @@ function teamOf(seat) {
   const name = String(d.name || 'Team ' + seat.toUpperCase()).slice(0, 18);
   return d.squad ? { name, squad: d.squad } : { name, roster: d.roster, squad: E.squadFromRoster(d.roster) };
 }
-const moveOf = v => v && typeof v === 'object' ? (v.c ? { pick: v.p, ctl: 1 } : { pick: v.p }) : { pick: v };
-const myMove = n => S.ctlN[n] ? { pick: S.mine[n], ctl: 1 } : { pick: S.mine[n] };
+const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}) : { pick: v };
+const myMove = n => Object.assign({ pick: S.mine[n] }, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {});
 function allMoves() {
   const mv = Object.assign({}, S.moves);
   if (S.me) for (const n in S.mine) mv[n + '-' + S.me] = myMove(n);
@@ -3159,6 +3208,7 @@ function buildLobby() {
     '<li><b>Snake draft 11 slots.</b> Quarterback, running back, two receivers, tight end, an entire offensive line, an entire defense, a kicker, a punt returner, a kick returner, and the rest of special teams (punter, long snapper, coverage). You and your opponent take turns from one shared pool (1-2-2-1…), and every player can only be on one team.</li>' +
     '<li><b>Optional salary cap.</b> Every player and unit has a salary based on rating and position. QBs and pass rushers cost the most, running backs and safeties the least. Stay under the cap or the pick is blocked.</li>' +
     '<li><b>Call plays.</b> Offense and defense pick in secret at the same time. Pro-game ratings decide who wins the matchup.</li>' +
+    '<li><b>Beat the clock.</b> Each quarter is 2:00 and the clock follows NFL rules (it stops on incompletions, out of bounds, scores and turnovers), with one change: no delay of game, a play can only run the clock 5 seconds. Each team has 3 timeouts a half, plus spikes and kneel-downs.</li>' +
     '<li><b>Or play it yourself.</b> Switch on <i>Control your players</i> when you call a play. You run the quarterback (then whoever has the ball) or a defender on the field, and everyone else moves on their own. Switch it off any time to only call plays.</li></ol>' +
     '<p class="hint">Ratings are Madden NFL 27 overalls for current starters. Unofficial fan project, no logos.</p></div>' +
     '</section>';
@@ -3197,7 +3247,7 @@ function resetForMode() {
   stopPoll();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
   S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; Field.scene = null;
-  S.ctlN = {}; S.lv = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
+  S.ctlN = {}; S.toN = {}; S.toSel = null; S.lv = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
 }
 function startLocal() {
   readName();
@@ -3509,7 +3559,7 @@ function buildGame() {
   $('#main').innerHTML =
     '<section class="game">' +
     '<div class="sb"><div class="sb-team a"><div class="sb-name" id="sb-an"></div><div class="sb-score" id="sb-as">0</div></div>' +
-    '<div class="sb-mid"><div class="sb-q" id="sb-q"></div><div class="sb-dd" id="sb-dd"></div><div class="sb-ball" id="sb-ball"></div></div>' +
+    '<div class="sb-mid"><div class="sb-q" id="sb-q"></div><div class="sb-dd" id="sb-dd"></div><div class="sb-ball" id="sb-ball"></div><div class="sb-to" id="sb-to"></div></div>' +
     '<div class="sb-team b"><div class="sb-name" id="sb-bn"></div><div class="sb-score" id="sb-bs">0</div></div></div>' +
     '<div class="fieldhost" id="fieldHost"></div>' +
     '<div class="deck"><div class="callpanel panel" id="callpanel"></div>' +
@@ -3529,7 +3579,8 @@ function updateGame() {
   const aEl = $('.sb-team.a'), bEl = $('.sb-team.b');
   if (aEl) aEl.classList.toggle('has', !st.over && st.poss === 'a');
   if (bEl) bEl.classList.toggle('has', !st.over && st.poss === 'b');
-  set('#sb-q', st.over ? 'FINAL' : ck.q + ' · play ' + ck.inQ + '/' + ck.perQ);
+  set('#sb-q', st.over ? 'FINAL' : ck.q + ' · ' + ck.text + (ck.running ? ' ▶' : ''));
+  set('#sb-to', st.over ? '' : 'Timeouts ' + st.to.a + ' · ' + st.to.b);
   set('#sb-dd', st.over ? '' : ddLabel(st));
   set('#sb-ball', st.over ? '' : 'Ball on ' + spotLabel(st, T));
   // log + animation
@@ -3564,8 +3615,8 @@ function renderLog(G) {
   const el = $('#log'); if (!el) return;
   const T = G.teams, rows = [];
   for (let i = G.log.length - 1; i >= 0 && rows.length < 14; i--) {
-    const e = G.log[i], q = e.n < 2 * E.PQ ? (e.n < E.PQ ? 'Q1' : 'Q2') : (e.n < 3 * E.PQ ? 'Q3' : e.n < 4 * E.PQ ? 'Q4' : 'OT');
-    rows.push('<li class="ev-' + e.ev + '"><span class="lg-n" style="color:' + TEAM_COL[e.off] + '">' + q + ' · ' + (e.n + 1) + '</span><span class="lg-t">' + esc(e.text) + '</span></li>');
+    const e = G.log[i], c = Math.max(0, e.clk), q = e.q + ' ' + Math.floor(c / 60) + ':' + ('0' + (c % 60)).slice(-2);
+    rows.push('<li class="ev-' + e.ev + '"><span class="lg-n" style="color:' + TEAM_COL[e.off] + '">' + q + '</span><span class="lg-t">' + esc(e.text) + '</span></li>');
   }
   const html = rows.join('');
   if (el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; }
@@ -3588,22 +3639,31 @@ function renderCall(G) {
   }
   const n = st.playNo, role = S.me === st.poss ? 'off' : 'def';
   const locked = S.mine[n] != null ? S.mine[n] : null;
-  const sig = n + '|' + role + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0);
+  const sig = n + '|' + role + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0) + '|' + (toSel(n) ? 1 : 0) + '|' + (S.toN[n] ? 1 : 0) + '|' + st.clock + '|' + st.ro;
   if (S.callSig === sig) return; S.callSig = sig;
   const sit = ddLabel(st) + ' at ' + spotLabel(st, T);
   if (locked) {
     const lbl = role === 'off' ? E.OFF[locked].label : E.DEF_CALLS[locked].label;
     p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'Offense' : 'Defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
-      '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + '</b>' + (S.ctlN[n] ? '<p class="sub ctlnote">You will run the players on the field.</p>' : '') + '<p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
+      '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + '</b>' + (S.ctlN[n] ? '<p class="sub ctlnote">You will run the players on the field.</p>' : '') + (S.toN[n] ? '<p class="sub ctlnote">Timeout called.</p>' : '') + '<p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
     return;
   }
   let opts;
-  if (role === 'off') opts = E.offOptions(st).filter(o => st.down === 4 || (o.id !== 'PUNT' && o.id !== 'FG')).map(o => ({ id: o.id, label: o.label, desc: o.desc, disabled: o.disabled, note: o.note }));
+  if (role === 'off') opts = E.offOptions(st).filter(o => st.down === 4 ? o.id !== 'SPIKE' && o.id !== 'KNEEL' : (o.id !== 'PUNT' && o.id !== 'FG')).map(o => ({ id: o.id, label: o.label, desc: o.desc, disabled: o.disabled, note: o.note }));
   else opts = Object.keys(E.DEF_CALLS).map(id => ({ id, label: E.DEF_CALLS[id].label, desc: E.DEF_CALLS[id].desc, disabled: false, note: '' }));
   let k = 0;
   p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
-    ctlRowHTML(role) +
+    ctlRowHTML(role) + toRowHTML(st) +
     '<div class="calls">' + opts.map(o => { const key = o.disabled ? '' : ++k; return '<button class="call" data-act="call" data-id="' + o.id + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
+}
+const toSel = n => !!(S.toSel && S.toSel.n === n && S.toSel.on);
+// a timeout stops the clock before the snap and gives back whatever ran off since the last play
+function toRowHTML(st) {
+  const left = st.to[S.me];
+  if (!(st.ro > 0)) return '<div class="ctlrow"><span class="hint">Clock stopped. Timeouts left: ' + left + '.</span></div>';
+  if (left <= 0) return '<div class="ctlrow"><span class="hint">Clock running, no timeouts left.</span></div>';
+  const on = toSel(st.playNo);
+  return '<div class="ctlrow"><button class="btn small ctl' + (on ? ' on' : '') + '" data-act="to-toggle" aria-pressed="' + on + '">Timeout (' + left + ' left): ' + (on ? 'YES' : 'no') + '</button><span class="hint">Clock is running. A timeout stops it and gives back the ' + st.ro + ' second' + (st.ro === 1 ? '' : 's') + ' that just ran off. Press T.</span></div>';
 }
 function ctlRowHTML(role) {
   const on = S.ctlOn;
@@ -3617,10 +3677,12 @@ function submitCall(pick) {
   if (role === 'off') { if (!E.offOptions(st).some(o => o.id === pick && !o.disabled)) return; }
   else if (!E.DEF_CALLS[pick]) return;
   S.mine[n] = pick; S.callSig = null;
-  const ctl = S.ctlOn && !(role === 'off' && E.OFF[pick].kind === 'kick') ? 1 : 0;
+  const ctl = S.ctlOn && !(role === 'off' && E.noDef(pick)) ? 1 : 0;
+  const to = toSel(n) && st.ro > 0 && st.to[S.me] > 0 ? 1 : 0;
+  if (to) S.toN[n] = 1; else delete S.toN[n];
   if (ctl) S.ctlN[n] = 1; else delete S.ctlN[n];
   if (S.mode === 'online') {
-    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; S.callSig = null; handleErr(e); updateGame(); });
+    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; S.callSig = null; handleErr(e); updateGame(); });
   }
   updateGame();
 }
@@ -3959,6 +4021,7 @@ document.addEventListener('click', ev => {
   else if (a === 'copy') { const done = () => toast('Room code copied.'); try { navigator.clipboard.writeText(S.code).then(done, () => toast('Copy failed. Select the code and copy it.')); } catch (e) { toast('Copy failed. Select the code and copy it.'); } }
   else if (a === 'call') submitCall(t.dataset.id);
   else if (a === 'ctl-toggle') { S.ctlOn = !S.ctlOn; lsSet('gd_ctl', S.ctlOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
+  else if (a === 'to-toggle') { const n = S.G.state.playNo; S.toSel = { n, on: !toSel(n) }; S.callSig = null; renderCall(S.G); }
   else if (a === 'live-hand') LV.hand();
   else if (a === 'live-force') LV.force();
   else if (a === 'rosters') showRosters();
@@ -3973,6 +4036,7 @@ document.addEventListener('keydown', ev => {
   const m = $('#modal'); if (m && !m.hidden) return;
   if (LV.on) { if (LV.key(ev, true)) return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
+  if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && /^[1-9]$/.test(ev.key)) {
     const btns = document.querySelectorAll('#callpanel .call:not([disabled])');
     const b = btns[+ev.key - 1]; if (b) submitCall(b.dataset.id);

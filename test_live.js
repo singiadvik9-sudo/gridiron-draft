@@ -63,7 +63,7 @@ const mk = n => { const r = E.mulberry32(n); return [E.mkTeam('A', E.autoDraft(r
   while (!st.over && guard++ < 200) {
     const n = st.playNo, off = st.poss, def = off === 'a' ? 'b' : 'a';
     const op = E.cpuMove(st, U, off, seed, 'off'), dp = E.cpuMove(st, U, def, seed, 'def');
-    const kick = E.OFF[E.legalOff(st, op)].kind === 'kick';
+    const kick = E.noDef(E.legalOff(st, op));
     // alternate who plays: both, offense only, defense only, nobody
     const mode = n % 4, co = !kick && (mode === 0 || mode === 1) ? 1 : 0, cd = !kick && (mode === 0 || mode === 2) ? 1 : 0;
     moves[n + '-' + off] = co ? { pick: op, ctl: 1 } : { pick: op };

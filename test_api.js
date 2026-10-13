@@ -10,9 +10,10 @@ function playSide(info,live){
   while(!st.over&&g++<200){const n=st.playNo,off=st.poss,def=off==='a'?'b':'a';
     const role=off===mine?'off':'def';
     const pick=E.cpuMove(st,U,mine,info.seed,role);
-    const kick=role==='off'&&E.OFF[E.legalOff(st,pick)].kind==='kick';
+    const kick=role==='off'&&E.noDef(E.legalOff(st,pick));
     const ctl=live&&!kick&&n%3===0;
-    moves[n+'-'+mine]=ctl?{pick,ctl:1}:{pick};
+    const to=E.cpuTO(st,mine)?1:0;
+    moves[n+'-'+mine]=Object.assign({pick},ctl?{ctl:1}:{},to?{to:1}:{});
     if(ctl){const a=[];let t=2;for(let k=0;k<10;k++){t+=1+Math.floor(r()*9);a.push(E.LIVE.enc(t,Math.floor(r()*3)-1,Math.floor(r()*3)-1,r()<.25?1+Math.floor(r()*6):0))}
       moves[n+'-lv']=mine==='a'?{a,b:[]}:{a:[],b:a}}
     st=E.replay(info.seed,T,moves,[other]).state;}
@@ -53,8 +54,8 @@ function playSide(info,live){
           // simulate both humans via room.move
           const sh=L.teams[x.h].owner,sa=L.teams[x.a].owner; const tok=n=>n==='alice'?ta:tb;
           const mh=playSide(pa), ma=playSide(Object.assign({},pa,{side:'b'}));
-          for(const k in mh){const [n]=k.split('-');await call('room',{op:'move',code:pa.room,seat:'a',n:+n,pick:mh[k].pick},tok(sh))}
-          for(const k in ma){const [n]=k.split('-');await call('room',{op:'move',code:pa.room,seat:'b',n:+n,pick:ma[k].pick},tok(sa))}
+          for(const k in mh){const [n]=k.split('-');await call('room',{op:'move',code:pa.room,seat:'a',n:+n,pick:mh[k].pick,to:mh[k].to},tok(sh))}
+          for(const k in ma){const [n]=k.split('-');await call('room',{op:'move',code:pa.room,seat:'b',n:+n,pick:ma[k].pick,to:ma[k].to},tok(sa))}
           const rp=await call('league',{op:'report',code,gid:x.id},ta); ok(rp.ok,'h-v-h verified '+rp.sh+'-'+rp.sa+' '+(rp.error||''));
         } else {
           const owner=L.teams[who[0]].owner, tok=owner==='alice'?ta:tb;
@@ -91,8 +92,8 @@ function playSide(info,live){
       const hs=[A,B].filter(e=>e.kind==='human');
       if(hs.length===2){const pa=await call('tourney',{op:'play',code:tc,mid:m.id},ta);const pb=await call('tourney',{op:'play',code:tc,mid:m.id},tb);ok(pa.room&&pa.room===pb.room,'t h-v-h room');
         const seatOf={a:pa.side==='a'?ta:tb,b:pa.side==='a'?tb:ta};const mh=playSide(pa),ma=playSide(Object.assign({},pa,{side:pa.side==='a'?'b':'a'}));
-        for(const k in mh){await call('room',{op:'move',code:pa.room,seat:pa.side,n:+k.split('-')[0],pick:mh[k].pick},ta)}
-        const os=pa.side==='a'?'b':'a';for(const k in ma){await call('room',{op:'move',code:pa.room,seat:os,n:+k.split('-')[0],pick:ma[k].pick},tb)}
+        for(const k in mh){await call('room',{op:'move',code:pa.room,seat:pa.side,n:+k.split('-')[0],pick:mh[k].pick,to:mh[k].to},ta)}
+        const os=pa.side==='a'?'b':'a';for(const k in ma){await call('room',{op:'move',code:pa.room,seat:os,n:+k.split('-')[0],pick:ma[k].pick,to:ma[k].to},tb)}
         const rp=await call('tourney',{op:'report',code:tc,mid:m.id},ta);ok(rp.ok,'t report hvh '+(rp.error||''))}
       else if(hs.length===1){const tk=hs[0].owner==='alice'?ta:tb;const p=await call('tourney',{op:'play',code:tc,mid:m.id},tk);const rp=await call('tourney',{op:'report',code:tc,mid:m.id,moves:playSide(p,true)},tk);ok(rp.ok,'t report vs cpu '+(rp.error||''))}
     }

@@ -13,7 +13,7 @@ async function createRoom(seed, ctx, seats, extra) {
   return null;
 }
 // move records: "PICK" or { p: pick, c: 1 } (the player also controls the players on the field)
-function moveOf(v) { return v && typeof v === 'object' ? (v.c ? { pick: v.p, ctl: 1 } : { pick: v.p }) : { pick: v }; }
+function moveOf(v) { return v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}) : { pick: v }; }
 // finished live plays among the given move records: { n: { a: rec, b: rec } }
 async function liveAll(code, mv) {
   const ns = {};
