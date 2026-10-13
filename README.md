@@ -1,4 +1,4 @@
-# Fourth & Pixel
+# 4th and Pixels
 
 A pixel-football game with real NFL starters (Madden-style ratings). Static page + a few serverless functions, built for Vercel.
 
