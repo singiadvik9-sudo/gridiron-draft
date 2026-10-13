@@ -4103,6 +4103,8 @@ const RL = 21;   // pixels per sideways unit on the live field
 const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r', w: 'u', s: 'd', a: 'l', d: 'r', W: 'u', S: 'd', A: 'l', D: 'r' };
 const lastName = n => String(n || '').trim().split(/\s+/).slice(-1)[0] || '';
 const K = t => '<kbd>' + t + '</kbd>';
+// the right hand rests on the home row: J K L ; throw to the four numbered targets (1-4 still work)
+const THROWKEY = { j: 1, k: 2, l: 3, ';': 4 }, THROWLAB = ['J', 'K', 'L', ';'];
 const LVLAB = { QB: 'quarterback', HB: 'running back', WR1: 'receiver', WR2: 'receiver', TE: 'tight end' };
 
 function liveKeys(teams, off, def) {
@@ -4257,6 +4259,7 @@ const LV = {
     if (!down) return false;
     if (k === ' ' || k === 'Spacebar') { ev.preventDefault(); this.push(5); return true; }
     if (k === 'e' || k === 'E' || k === 'Tab') { ev.preventDefault(); this.push(6); return true; }
+    if (THROWKEY[k.toLowerCase()]) { ev.preventDefault(); this.push(THROWKEY[k.toLowerCase()]); return true; }
     if (/^[1-4]$/.test(k)) { this.push(+k); return true; }
     return false;
   },
@@ -4341,7 +4344,7 @@ const LV = {
     const lerp = (a, b) => a + (b - a) * alpha;
     const items = [];
     const hot = []; if (m.ctl[m.off] && sim.human.o) hot.push([m.off, sim.ctlId.o]); if (m.ctl[m.def] && sim.human.d) hot.push([m.def, sim.ctlId.d]);
-    const tags = (m.me === m.off && m.myCtl && sim.human.o && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass') ? { WR1: '1', WR2: '2', TE: '3', HB: '4' } : null;
+    const tags = (m.me === m.off && m.myCtl && sim.human.o && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass') ? { WR1: 'J', WR2: 'K', TE: 'L', HB: ';' } : null;
     sim.P.forEach((p, i) => {
       const a = pv.p[i] || cu.p[i], b = cu.p[i], x = lerp(a[0], b[0]), y = lerp(a[1], b[1]);
       const fx = p.vx * dir, face = Math.abs(fx) > 0.8 ? (fx > 0 ? 1 : -1) : (p.side === 'o' ? dir : -dir);
@@ -4362,7 +4365,7 @@ const LV = {
       const off = m.me === m.off, qbHas = off && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass';
       const mv = ['WASD / ARROWS', 'MOVE'];
       L.hud = m.ret ? [mv, ['SPACE', 'JUKE']].concat(m.ret.kind === 'pr' ? [['E', 'FAIR CATCH']] : [])
-        : qbHas ? [mv, ['1 2 3 4', 'THROW TO #'], ['SPACE', 'THROW AWAY']]
+        : qbHas ? [mv, ['J K L ;', 'THROW TO #'], ['SPACE', 'THROW AWAY']]
         : off ? (sim.kind === 'run' && sim.ball.car === 'QB' ? [mv] : [mv, ['SPACE', 'JUKE']])
         : [mv, ['SPACE', 'DIVE'], ['E', 'SWITCH PLAYER']];
     }
@@ -4395,8 +4398,8 @@ const LV = {
       } else if (role === 'off') {
         const qbHas = sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass';
         if (qbHas) {
-          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>, the quarterback. ' + K('WASD') + K('←↑↓→') + ' move. Throw to ' + K('1') + esc(lastName(sim.by.WR1.name)) + ' ' + K('2') + esc(lastName(sim.by.WR2.name)) + ' ' + K('3') + esc(lastName(sim.by.TE.name)) + ' ' + K('4') + esc(lastName(sim.by.HB.name)) + ' · ' + K('Space') + ' throws it away.';
-          acts = ['1', '2', '3', '4'].map(k => '<button class="ab" data-lvk="' + k + '">' + k + '</button>').join('') + '<button class="ab wide" data-lvk="5">Throw away</button>';
+          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>, the quarterback. ' + K('WASD') + K('←↑↓→') + ' move. Throw to ' + K('J') + esc(lastName(sim.by.WR1.name)) + ' ' + K('K') + esc(lastName(sim.by.WR2.name)) + ' ' + K('L') + esc(lastName(sim.by.TE.name)) + ' ' + K(';') + esc(lastName(sim.by.HB.name)) + ' · ' + K('Space') + ' throws it away.';
+          acts = ['1', '2', '3', '4'].map((k, i) => '<button class="ab" data-lvk="' + k + '">' + THROWLAB[i] + '</button>').join('') + '<button class="ab wide" data-lvk="5">Throw away</button>';
         } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. ' + K('WASD') + K('←↑↓→') + ' move.'; acts = ''; }
         else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="5">Juke</button>'; }
       } else {
