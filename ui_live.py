@@ -18,13 +18,20 @@ def set_ctl(pg, on):
     if cur != on: pg.click('[data-act=ctl-toggle]')
     pg.wait_for_timeout(50)
 
+def open_cat(pg, pid):
+    """open the call-panel section that holds this play"""
+    c = pg.evaluate("(window.E.OFF[%r] || window.E.DEF_CALLS[%r] || {}).cat" % (pid, pid))
+    if c and not pg.query_selector('#callpanel .call[data-id=%s]' % pid):
+        pg.click('#callpanel [data-act=cat][data-cat=%s]' % c); pg.wait_for_selector('#callpanel .call[data-id=%s]' % pid, timeout=3000)
+
 def pick(pg, off_id, def_id):
-    ids = pg.evaluate("Array.from(document.querySelectorAll('#callpanel .call:not([disabled])')).map(b=>b.dataset.id)")
-    if not ids: return None
-    if 'STACK' in ids or 'ZONE' in ids:
-        want = def_id if def_id in ids else ids[0]
+    on_def = pg.evaluate("!!Array.from(document.querySelectorAll('#callpanel .cat')).find(b=>/Zone|Man|Blitz|Prevent|Stack/i.test(b.textContent))")
+    if on_def:
+        want = def_id if def_id else 'ZONE'
+        open_cat(pg, want)
     else:
-        want = off_id if off_id in ids else [i for i in ids if i not in ('PUNT', 'FG')][0]
+        want = off_id if off_id else 'PASS_M'
+        open_cat(pg, want)
     pg.click('#callpanel .call[data-id=' + want + ']')
     return want
 
@@ -64,8 +71,8 @@ with sync_playwright() as p:
         offp, defp = (A, B) if 'ball' in ra.lower() else (B, A)
         offc, defc = (ca, cb) if 'ball' in ra.lower() else (cb, ca)
         # kick plays cannot be played live; the pick helper avoids them
-        o_id = random.choice(['PASS_S', 'PASS_M', 'PASS_D', 'RUN_IN', 'RUN_OUT', 'SCREEN', 'PASS_M', 'PASS_S'])
-        d_id = random.choice(['ZONE', 'MAN', 'STACK', 'BLITZ'])
+        o_id = random.choice(['HITCH', 'MESH', 'POST', 'DIVE', 'SWEEP', 'BUBBLE', 'FLOOD', 'PA_DEEP', 'DRAW', 'GO', 'COUNTER', 'PASS_D'])
+        d_id = random.choice(['COV3', 'COV4', 'TIGHT', 'ZBLITZ', 'MAN2', 'RUNBLITZ', 'SOFT', 'CBBLITZ'])
         po = pick(offp, o_id, None); pd = pick(defp, None, d_id)
         log('play', n, 'offense', po, '(controlled=%s)' % bool(offc), 'defense', pd, '(controlled=%s)' % bool(defc))
         live = bool(offc or defc)
@@ -104,7 +111,7 @@ with sync_playwright() as p:
     wait_call(A); wait_call(B)
     set_ctl(A, True); set_ctl(B, True)
     ra = role(A); offp, defp = (A, B) if 'ball' in ra.lower() else (B, A)
-    pick(offp, 'PASS_M', None); pick(defp, None, 'ZONE')
+    pick(offp, 'CURLS', None); pick(defp, None, 'COV3')
     A.wait_for_function('!!window.GD_LIVE', timeout=15000); B.wait_for_function('!!window.GD_LIVE', timeout=15000)
     A.wait_for_function('window.GD_LIVE && window.GD_LIVE.on && window.GD_LIVE.on.sim.t>12', timeout=15000)
     nlog = B.evaluate('document.querySelectorAll("#log li").length')
@@ -127,7 +134,7 @@ with sync_playwright() as p:
     wait_call(A); wait_call(B)
     set_ctl(A, True); set_ctl(B, True)
     ra = role(A); offp, defp = (A, B) if 'ball' in ra.lower() else (B, A)
-    pick(offp, 'PASS_S', None); pick(defp, None, 'MAN')
+    pick(offp, 'HITCH', None); pick(defp, None, 'MAN2')
     A.wait_for_function('!!window.GD_LIVE', timeout=15000); B.wait_for_function('window.GD_LIVE && window.GD_LIVE.on && window.GD_LIVE.on.sim.t>3', timeout=15000)
     B.context.close()
     A.wait_for_function('window.GD_LIVE && window.GD_LIVE.on && window.GD_LIVE.on.stallAt>0', timeout=20000)

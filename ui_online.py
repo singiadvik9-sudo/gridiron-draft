@@ -25,6 +25,10 @@ with sync_playwright() as p:
     n=0
     while n<1500 and not (A.query_selector('.final') and B.query_selector('.final')):
         for pg in (A,B):
+            cats=pg.query_selector_all('#callpanel .cat')
+            if cats and random.random()<0.6:
+                try: random.choice(cats).click(timeout=1000)
+                except Exception: pass
             btns=pg.query_selector_all('#callpanel .call:not([disabled])')
             if btns:
                 try: random.choice(btns).click(timeout=1500)

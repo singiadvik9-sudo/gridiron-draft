@@ -402,6 +402,7 @@ function buildLobby() {
     '<li><b>Optional salary cap.</b> Every player and unit has a salary based on rating and position. QBs and pass rushers cost the most, running backs and safeties the least. Stay under the cap or the pick is blocked.</li>' +
     '<li><b>Call plays.</b> Offense and defense pick in secret at the same time. Pro-game ratings decide who wins the matchup.</li>' +
     '<li><b>Beat the clock.</b> Each quarter is 2:00 and the clock follows NFL rules (it stops on incompletions, out of bounds, scores and turnovers), with one change: no delay of game, just a cap of 5 seconds on the clock that can run between plays. Each team has 3 timeouts a half, plus spikes and kneel-downs.</li>' +
+    '<li><b>Real play calls.</b> Pick a section (Inside Run, Quick Pass, Deep Shot, Cover 2, Blitz ...) then a play: Mesh beats man, Flood beats zone, a Draw punishes the blitz. Arrow keys switch sections, number keys pick the play.</li>' +
     '<li><b>Or play it yourself.</b> Switch on <i>Control your players</i> when you call a play. You run the quarterback (then whoever has the ball) or a defender on the field, and everyone else moves on their own. Switch it off any time to only call plays.</li></ol>' +
     '<p class="hint">Ratings are Madden NFL 27 overalls for current starters. Unofficial fan project, no logos.</p></div>' +
     '</section>';
@@ -719,17 +720,18 @@ function showRosters() {
   openModal('<div class="rcols">' + col('a') + col('b') + '</div>');
 }
 function showMatchups() {
-  const plays = ['RUN_IN', 'RUN_OUT', 'PASS_S', 'PASS_M', 'PASS_D', 'SCREEN'];
-  let h = '<h3>Matchups</h3><p class="sub">Green favors the defense, red favors the offense.</p><div class="tbl-wrap"><table class="mt"><thead><tr><th></th>' + plays.map(p => '<th>' + E.OFF[p].label + '</th>').join('') + '</tr></thead><tbody>';
-  Object.keys(E.DEF_CALLS).forEach(d => {
-    h += '<tr><th>' + E.DEF_CALLS[d].label + '</th>';
-    plays.forEach(p => {
-      const v = E.MATCH[d][p], cls = v >= 0.35 ? 'good2' : v > 0.05 ? 'good1' : v <= -0.35 ? 'bad2' : v < -0.05 ? 'bad1' : 'neu';
-      h += '<td class="' + cls + '">' + (v >= 0.35 ? '++' : v > 0.05 ? '+' : v <= -0.35 ? '−−' : v < -0.05 ? '−' : '·') + '</td>';
+  const plays = Object.keys(E.OFF).filter(id => E.OFF[id].cat !== 'SPEC');
+  const sym = v => v >= 0.35 ? ['good2', '++'] : v > 0.05 ? ['good1', '+'] : v <= -0.35 ? ['bad2', '−−'] : v < -0.05 ? ['bad1', '−'] : ['neu', '·'];
+  let h = '<h3>Matchups</h3><p class="sub">How each defensive call fares against each offensive play. Green favors the defense, red favors the offense.</p><div class="tbl-wrap"><table class="mt mt-wide"><thead><tr><th></th>' +
+    plays.map(p => '<th class="vt"><span>' + esc(E.OFF[p].label) + '</span></th>').join('') + '</tr></thead><tbody>';
+  E.DEF_CATS.forEach(c => {
+    Object.keys(E.DEF_CALLS).filter(d => E.DEF_CALLS[d].cat === c.id).forEach(d => {
+      h += '<tr><th>' + esc(E.DEF_CALLS[d].label) + '</th>';
+      plays.forEach(p => { const x = sym(E.matchup(d, p)); h += '<td class="' + x[0] + '">' + x[1] + '</td>'; });
+      h += '</tr>';
     });
-    h += '</tr>';
   });
-  h += '</tbody></table></div><p class="hint">Blitz adds sacks. Screens beat the blitz. Stats decide the rest.</p>';
+  h += '</tbody></table></div><p class="hint">Mesh beats man, flood beats zone, screens beat the blitz, a stacked box stops the run but bites on play-action. Ratings decide the rest.</p>';
   openModal(h);
 }
 
@@ -832,7 +834,7 @@ function renderCall(G) {
   }
   const n = st.playNo, role = S.me === st.poss ? 'off' : 'def';
   const locked = S.mine[n] != null ? S.mine[n] : null;
-  const sig = n + '|' + role + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0) + '|' + (toSel(n) ? 1 : 0) + '|' + (S.toN[n] ? 1 : 0) + '|' + st.clock + '|' + st.ro;
+  const sig = n + '|' + role + '|' + (callCat(role, st) || '') + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0) + '|' + (toSel(n) ? 1 : 0) + '|' + (S.toN[n] ? 1 : 0) + '|' + st.clock + '|' + st.ro;
   if (S.callSig === sig) return; S.callSig = sig;
   const sit = ddLabel(st) + ' at ' + spotLabel(st, T);
   if (locked) {
@@ -841,13 +843,41 @@ function renderCall(G) {
       '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + '</b>' + (S.ctlN[n] ? '<p class="sub ctlnote">You will run the players on the field.</p>' : '') + (S.toN[n] ? '<p class="sub ctlnote">Timeout called.</p>' : '') + '<p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
     return;
   }
-  let opts;
-  if (role === 'off') opts = E.offOptions(st).filter(o => st.down === 4 ? o.id !== 'SPIKE' && o.id !== 'KNEEL' : (o.id !== 'PUNT' && o.id !== 'FG')).map(o => ({ id: o.id, label: o.label, desc: o.desc, disabled: o.disabled, note: o.note }));
-  else opts = Object.keys(E.DEF_CALLS).map(id => ({ id, label: E.DEF_CALLS[id].label, desc: E.DEF_CALLS[id].desc, disabled: false, note: '' }));
+  const cats = callCats(role, st), cat = callCat(role, st), shown = callOpts(role, st).filter(o => o.cat === cat);
   let k = 0;
   p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
     ctlRowHTML(role) + toRowHTML(st) +
-    '<div class="calls">' + opts.map(o => { const key = o.disabled ? '' : ++k; return '<button class="call" data-act="call" data-id="' + o.id + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
+    '<div class="cats" role="tablist" aria-label="Play type">' + cats.map(c => '<button class="cat' + (c.id === cat ? ' on' : '') + '" role="tab" aria-selected="' + (c.id === cat) + '" data-act="cat" data-cat="' + c.id + '">' + esc(c.label) + '<i>' + c.n + '</i></button>').join('') + '</div>' +
+    '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k; return '<button class="call" data-act="call" data-id="' + o.id + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
+}
+// play calls come in sections (Inside Run, Quick Pass, Cover 2/3/4 ...): one section is open at a time
+function callOpts(role, st) {
+  return role === 'off' ? E.offOptions(st).filter(o => st.down === 4 ? o.id !== 'SPIKE' && o.id !== 'KNEEL' : (o.id !== 'PUNT' && o.id !== 'FG')) : E.defOptions();
+}
+function callCats(role, st) {
+  const opts = callOpts(role, st);
+  return (role === 'off' ? E.OFF_CATS : E.DEF_CATS).map(c => ({ id: c.id, label: c.label, n: opts.filter(o => o.cat === c.id).length })).filter(c => c.n);
+}
+function callCat(role, st) {
+  const cats = callCats(role, st), has = id => cats.some(c => c.id === id), n = st.playNo;
+  if (S.catSel && S.catSel.n === n && S.catSel.role === role && has(S.catSel.cat)) return S.catSel.cat;
+  if (role === 'off' && st.down === 4 && has('SPEC')) return 'SPEC';
+  const last = lsGet('gd_cat_' + role);
+  if (last && last !== 'SPEC' && has(last)) return last;
+  const dflt = role === 'off' ? 'PASS_M' : 'ZONE';
+  return has(dflt) ? dflt : (cats[0] && cats[0].id);
+}
+function openCat(id) {
+  const G = S.G; if (!G || !S.me) return;
+  const st = G.state, role = S.me === st.poss ? 'off' : 'def';
+  if (!callCats(role, st).some(c => c.id === id)) return;
+  S.catSel = { n: st.playNo, role, cat: id }; S.callSig = null; renderCall(G);
+}
+function stepCat(d) {
+  const G = S.G; if (!G || !S.me || S.mine[G.state.playNo] != null) return;
+  const st = G.state, role = S.me === st.poss ? 'off' : 'def', cats = callCats(role, st), cur = callCat(role, st);
+  const i = cats.findIndex(c => c.id === cur); if (i < 0) return;
+  openCat(cats[(i + d + cats.length) % cats.length].id);
 }
 const toSel = n => !!(S.toSel && S.toSel.n === n && S.toSel.on);
 // a timeout stops the clock before the snap and gives back whatever ran off since the last play
@@ -870,6 +900,7 @@ function submitCall(pick) {
   if (role === 'off') { if (!E.offOptions(st).some(o => o.id === pick && !o.disabled)) return; }
   else if (!E.DEF_CALLS[pick]) return;
   S.mine[n] = pick; S.callSig = null;
+  { const c = (role === 'off' ? E.OFF[pick] : E.DEF_CALLS[pick]).cat; if (c !== 'SPEC') lsSet('gd_cat_' + role, c); }
   const ctl = S.ctlOn && !(role === 'off' && E.noDef(pick)) ? 1 : 0;
   const to = toSel(n) && st.ro > 0 && st.to[S.me] > 0 ? 1 : 0;
   if (to) S.toN[n] = 1; else delete S.toN[n];
@@ -939,6 +970,7 @@ document.addEventListener('click', ev => {
   else if (a === 'sd-tab') { const sd = S.sd; if (sd) { sd.tab = t.dataset.k; sdUpdate(); } }
   else if (a === 'copy') { const done = () => toast('Room code copied.'); try { navigator.clipboard.writeText(S.code).then(done, () => toast('Copy failed. Select the code and copy it.')); } catch (e) { toast('Copy failed. Select the code and copy it.'); } }
   else if (a === 'call') submitCall(t.dataset.id);
+  else if (a === 'cat') openCat(t.dataset.cat);
   else if (a === 'ctl-toggle') { S.ctlOn = !S.ctlOn; lsSet('gd_ctl', S.ctlOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
   else if (a === 'to-toggle') { const n = S.G.state.playNo; S.toSel = { n, on: !toSel(n) }; S.callSig = null; renderCall(S.G); }
   else if (a === 'live-hand') LV.hand();
@@ -956,6 +988,7 @@ document.addEventListener('keydown', ev => {
   if (LV.on) { if (LV.key(ev, true)) return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
+  if (S.screen === 'game' && !LV.on && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && $('#callpanel .cats')) { ev.preventDefault(); stepCat(ev.key === 'ArrowRight' ? 1 : -1); return; }
   if (S.screen === 'game' && !LV.on && /^[1-9]$/.test(ev.key)) {
     const btns = document.querySelectorAll('#callpanel .call:not([disabled])');
     const b = btns[+ev.key - 1]; if (b) submitCall(b.dataset.id);

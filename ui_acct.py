@@ -8,6 +8,10 @@ def reg(pg,name):
     pg.goto('http://localhost:5055/'); pg.wait_for_timeout(400)
     pg.click('[data-h=auth]'); pg.click('[data-h=auth-sw]'); pg.fill('#au-n',name); pg.fill('#au-p','secret12'); pg.click('[data-h=auth-go]'); pg.wait_for_timeout(500)
 def step(pg):
+    cats=pg.query_selector_all('#callpanel .cat')
+    if cats and random.random()<0.6:
+        try: random.choice(cats).click(timeout=1000)
+        except Exception: pass
     btns=pg.query_selector_all('#callpanel .call:not([disabled])')
     if btns:
         try: random.choice(btns).click(timeout=1500)

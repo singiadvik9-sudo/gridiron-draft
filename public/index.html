@@ -426,6 +426,17 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .ab:active { border-bottom-width: 2px; transform: translateY(2px); }
 .sb-to { font-family: var(--display); font-size: 10px; color: var(--mute); }
 
+/* play call sections */
+.cats { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.cat { font-family: var(--display); font-size: 10px; text-transform: uppercase; letter-spacing: .03em; padding: 8px 10px; background: var(--panel2); border: 2px solid var(--line); border-bottom-width: 4px; border-radius: 2px; color: var(--mute); display: inline-flex; align-items: center; gap: 6px; }
+.cat i { font-style: normal; font-size: 9px; opacity: .7; border: 1px solid currentColor; border-radius: 8px; padding: 0 5px; }
+.cat:hover { border-color: var(--flag); color: var(--chalk); }
+.cat.on { color: var(--ink); background: var(--flag); border-color: var(--flag); }
+.mt-wide { min-width: 0; width: auto; }
+.mt-wide th, .mt-wide td { padding: 5px 6px; font-size: 13px; }
+.mt .vt { height: 118px; vertical-align: bottom; padding: 4px 2px; }
+.mt .vt span { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-size: 9px; }
+
 </style>
 <div class="wrap">
   <header class="mast">
@@ -636,24 +647,72 @@ function autoDraft(rnd) {
 }
 
 /* ================= play calling ================= */
+/* ---- play calls ----
+   Every call belongs to a category (the old six call types still decide the base numbers) and tweaks them:
+   run plays: ym = average yards added, sd = spread multiplier, bp = big-play chance added, fl = worst loss, oob = out-of-bounds chance,
+              fum = fumble chance added, sy = short-yardage help
+   pass plays: depth/base/avg = how far it goes, how often it is caught, how much it gains; tw = how often each receiver is the target,
+              hb = share of throws to the back, spd = deep routes favour fast receivers, sack/int/oob/big = adjustments
+   vs = how the play fares against a defensive category or one specific defensive call (negative favours the offense) */
+const OFF_CATS = [
+  { id: 'RUN_IN', label: 'Inside Run' }, { id: 'RUN_OUT', label: 'Outside Run' }, { id: 'PASS_S', label: 'Quick Pass' },
+  { id: 'PASS_M', label: 'Medium Pass' }, { id: 'PASS_D', label: 'Deep Shot' }, { id: 'SCREEN', label: 'Screen' }, { id: 'SPEC', label: 'Clock & Kicks' }
+];
 const OFF = {
-  RUN_IN:  { label: 'Inside Run',  kind: 'run',  desc: 'Between the tackles. Steady yards, low risk.' },
-  RUN_OUT: { label: 'Outside Run', kind: 'run',  desc: 'Bounce it wide. Bigger gains, bigger stuffs.' },
-  PASS_S:  { label: 'Quick Pass',  kind: 'pass', depth: 6,  base: 0.79, avg: 6,  desc: 'Short and safe. Beats the blitz.' },
-  PASS_M:  { label: 'Medium Pass', kind: 'pass', depth: 13, base: 0.67, avg: 12, desc: 'Intermediate routes. Moves the chains.' },
-  PASS_D:  { label: 'Deep Shot',   kind: 'pass', depth: 28, base: 0.45, avg: 28, desc: 'Go for the big play. Risk of a pick.' },
-  SCREEN:  { label: 'Screen Pass', kind: 'pass', depth: 2,  base: 0.86, avg: 5,  desc: 'Let the rush come, then dump it off.' },
-  SPIKE:   { label: 'Spike',       kind: 'clock', desc: 'Throw it into the turf. Stops the clock, costs a down.' },
-  KNEEL:   { label: 'Kneel',       kind: 'clock', desc: 'Take a knee and run the clock. Loses a yard.' },
-  PUNT:    { label: 'Punt',        kind: 'kick', desc: 'Flip the field. 4th down only.' },
-  FG:      { label: 'Field Goal',  kind: 'kick', desc: 'Kick for three. 4th down, inside 45.' }
+  // inside runs
+  RUN_IN:  { cat: 'RUN_IN', kind: 'run', label: 'Inside Zone', desc: 'Zone-blocked run between the tackles. Steady yards, low risk.' },
+  DIVE:    { cat: 'RUN_IN', kind: 'run', label: 'Dive', desc: 'Straight ahead behind the guards. Rarely loses yards, best on 3rd and 1.', ym: -0.8, sd: 0.7, bp: -0.02, fl: -1, sy: 1, vs: { STACK: 0.2 } },
+  POWER:   { cat: 'RUN_IN', kind: 'run', label: 'Power', desc: 'A guard pulls and leads the back through the hole. Gets going against loaded boxes.', ym: 0.5, sd: 1.1, bp: 0.01, vs: { STACK: -0.25, BLITZ: -0.2 } },
+  DRAW:    { cat: 'RUN_IN', kind: 'run', label: 'Draw', desc: 'Looks like a pass, then hands it off. Punishes the blitz and the prevent. Stuffed by a stacked box.', ym: 0.2, bp: 0.03, vs: { BLITZ: -0.8, PREVENT: -0.5, STACK: 0.25 } },
+  // outside runs
+  RUN_OUT: { cat: 'RUN_OUT', kind: 'run', label: 'Outside Zone', desc: 'Stretch it to the edge and cut upfield. Bigger gains, bigger stuffs.' },
+  SWEEP:   { cat: 'RUN_OUT', kind: 'run', label: 'Toss Sweep', desc: 'Pitch to the back and race to the corner. Home-run swings, big losses too.', ym: 0.3, sd: 1.3, bp: 0.05, fl: -6, oob: 0.2, fum: 0.005, vs: { STACK: 0.3, BLITZ: 0.3, PREVENT: -0.3 } },
+  COUNTER: { cat: 'RUN_OUT', kind: 'run', label: 'Counter', desc: 'Misdirection: the line flows one way, the back cuts the other. Burns aggressive defenses.', ym: 0.4, sd: 1.1, bp: 0.03, vs: { STACK: -0.5, BLITZ: -0.5, ZONE: 0.2 } },
+  // quick passes
+  PASS_S:  { cat: 'PASS_S', kind: 'pass', label: 'Slants', depth: 6, base: 0.79, avg: 6, oob: 0.3, sack: -0.025, fbq: true, tw: { TE: 1.2 }, desc: 'Both receivers cut inside fast. Short, safe, beats the blitz.' },
+  HITCH:   { cat: 'PASS_S', kind: 'pass', label: 'Hitches', depth: 5, base: 0.83, avg: 5, oob: 0.2, sack: -0.03, fbq: true, desc: 'Run five, turn around, catch it. Very reliable against soft coverage, jammed up by press.', vs: { ZONE: -0.3, PREVENT: -0.5, MAN: 0.2 } },
+  MESH:    { cat: 'PASS_S', kind: 'pass', label: 'Mesh', depth: 7, base: 0.77, avg: 7, oob: 0.15, sack: -0.02, fbq: true, tw: { TE: 0.6 }, desc: 'Two receivers cross underneath and rub off defenders. The answer to man coverage.', vs: { MAN: -0.8, BLITZ: -0.2, ZONE: 0.3 } },
+  STICK:   { cat: 'PASS_S', kind: 'pass', label: 'Stick', depth: 5, base: 0.81, avg: 5.5, oob: 0.2, sack: -0.025, fbq: true, tw: { TE: 2.4, WR1: 0.8, WR2: 0.8 }, desc: 'The tight end sits in the soft spot. Lets your TE eat.', vs: { ZONE: -0.2, BLITZ: -0.3, MAN: 0.1 } },
+  // medium passes
+  PASS_M:  { cat: 'PASS_M', kind: 'pass', label: 'Dig', depth: 13, base: 0.67, avg: 12, oob: 0.25, desc: 'Receivers break across the middle at 12 yards. Moves the chains.' },
+  CURLS:   { cat: 'PASS_M', kind: 'pass', label: 'Curl-Flat', depth: 10, base: 0.72, avg: 9, oob: 0.2, tw: { TE: 1.1 }, desc: 'Curls at 10 with a flat route underneath. High percentage, medium gain.', vs: { ZONE: 0.2, MAN: -0.1, BLITZ: -0.2 } },
+  FLOOD:   { cat: 'PASS_M', kind: 'pass', label: 'Flood', depth: 14, base: 0.66, avg: 13, oob: 0.4, hb: 0.1, desc: 'Three routes at different depths to one side. Overloads zones, loses to tight man.', vs: { ZONE: -0.6, MAN: 0.2, BLITZ: 0.1 } },
+  YCROSS:  { cat: 'PASS_M', kind: 'pass', label: 'Y-Cross', depth: 15, base: 0.64, avg: 14, oob: 0.1, tw: { TE: 2.0, WR1: 0.8, WR2: 0.8 }, desc: 'The tight end runs a deep crosser while the outside men clear out. Beats man.', vs: { MAN: -0.5, ZONE: 0.2 } },
+  // deep shots
+  PASS_D:  { cat: 'PASS_D', kind: 'pass', label: 'Four Verticals', depth: 28, base: 0.45, avg: 28, oob: 0.2, int: 0.025, spd: 1, desc: 'Everybody runs deep. Stretches the field, risk of a pick.' },
+  POST:    { cat: 'PASS_D', kind: 'pass', label: 'Post-Corner', depth: 25, base: 0.5, avg: 25, oob: 0.15, int: 0.02, spd: 1, tw: { WR1: 1.3, WR2: 1.3, TE: 0.5 }, desc: 'Post and corner routes attack the safeties. Better odds than a go route.', vs: { ZONE: 0.3, MAN: -0.2, PREVENT: 0.2 } },
+  GO:      { cat: 'PASS_D', kind: 'pass', label: 'Streak', depth: 35, base: 0.38, avg: 37, oob: 0.25, int: 0.03, spd: 2, big: 0.04, tw: { WR1: 1.2, WR2: 1.2, TE: 0.1 }, sack: -0.01, desc: 'Two fast receivers go long while everyone else stays in to block. Rarely hits, but when it does.', vs: { MAN: -0.3, ZONE: 0.2, PREVENT: 0.3 } },
+  PA_DEEP: { cat: 'PASS_D', kind: 'pass', label: 'Play-Action Bomb', depth: 30, base: 0.44, avg: 30, oob: 0.2, int: 0.02, spd: 1, desc: 'Fake the handoff, then throw deep. Linebackers bite. Needs the run to be a threat.', vs: { STACK: -0.4, BLITZ: 0.3, ZONE: -0.1, PREVENT: 0.2 } },
+  // screens
+  SCREEN:  { cat: 'SCREEN', kind: 'pass', label: 'HB Screen', depth: 2, base: 0.86, avg: 5, oob: 0.15, sack: -0.03, int: -0.02, hb: 0.7, fbq: true, desc: 'Let the rush come, then dump it to the back behind his blockers.' },
+  BUBBLE:  { cat: 'SCREEN', kind: 'pass', label: 'Bubble Screen', depth: 1, base: 0.88, avg: 4.5, oob: 0.35, sack: -0.035, int: -0.02, hb: 0, big: 0.05, fbq: true, tw: { WR1: 0.4, WR2: 1.6, TE: 0 }, desc: 'Quick toss to the wideout, who has blockers in front of him. Shuts down the blitz.', vs: { BLITZ: -0.6, STACK: -0.5, MAN: 0.3 } },
+  TUNNEL:  { cat: 'SCREEN', kind: 'pass', label: 'Tunnel Screen', depth: 2, base: 0.84, avg: 6, oob: 0.2, sack: -0.03, int: -0.02, hb: 0, big: 0.03, fbq: true, tw: { WR1: 1.6, WR2: 0.4, TE: 0 }, desc: 'Wideout catches behind the line and follows his linemen. More yardage than the bubble.', vs: { BLITZ: -0.5, ZONE: 0.2 } },
+  // clock and kicks
+  SPIKE:   { cat: 'SPEC', label: 'Spike',       kind: 'clock', desc: 'Throw it into the turf. Stops the clock, costs a down.' },
+  KNEEL:   { cat: 'SPEC', label: 'Kneel',       kind: 'clock', desc: 'Take a knee and run the clock. Loses a yard.' },
+  PUNT:    { cat: 'SPEC', label: 'Punt',        kind: 'kick', desc: 'Flip the field. 4th down only.' },
+  FG:      { cat: 'SPEC', label: 'Field Goal',  kind: 'kick', desc: 'Kick for three. 4th down, inside 45.' }
 };
+/* defense: cat decides the base matchup numbers; adj shifts them per offensive category or play (positive favors the defense)
+   rush/sack/press/loss: pass-rush strength, extra sack chance, extra pressure on completions, extra yards lost on a sack */
+const DEF_CATS = [
+  { id: 'STACK', label: 'Stack the Box' }, { id: 'ZONE', label: 'Zone' }, { id: 'MAN', label: 'Man' }, { id: 'BLITZ', label: 'Blitz' }, { id: 'PREVENT', label: 'Prevent' }
+];
 const DEF_CALLS = {
-  STACK:   { label: 'Stack the Box', desc: 'Load up against the run.' },
-  ZONE:    { label: 'Zone Shell',    desc: 'Drop into zones. Guards the middle and deep.' },
-  MAN:     { label: 'Press Man',     desc: 'Cover tight. Shuts quick and medium routes.' },
-  BLITZ:   { label: 'All-Out Blitz', desc: 'Send the house. Sacks, but burns you deep.' },
-  PREVENT: { label: 'Prevent',       desc: 'Everyone deep. Gives up short yardage.' }
+  STACK:    { cat: 'STACK', label: '4-4 Stack', desc: 'Eight in the box. Shuts down the run, thin behind it.' },
+  GOALLINE: { cat: 'STACK', label: 'Goal Line', desc: 'Nine up front and nobody deep. Brick wall against runs, wide open against passes.', rush: 1, adj: { RUN_IN: 0.5, RUN_OUT: 0.3, DIVE: 0.2, PASS_S: -0.3, PASS_M: -0.5, PASS_D: -0.8, SCREEN: -0.3 } },
+  RUNBLITZ: { cat: 'STACK', label: 'Run Blitz', desc: 'Linebackers fire the gaps. Big stops on runs, but draws and counters hurt.', rush: 3, sack: 0.015, adj: { RUN_IN: 0.35, RUN_OUT: 0.2, DRAW: -0.5, COUNTER: -0.4, PASS_D: -0.3, SCREEN: -0.3 } },
+  ZONE:     { cat: 'ZONE', label: 'Cover 2', desc: 'Corners guard the flats, two safeties split the deep field. Soft in the deep middle.', adj: { HITCH: 0.3, FLOOD: -0.4, POST: -0.3, PASS_D: -0.2 } },
+  COV3:     { cat: 'ZONE', label: 'Cover 3', desc: 'Three deep, four underneath. Sound against the deep ball, leaves the flats open.', adj: { PASS_D: 0.3, POST: 0.1, PASS_S: -0.2, HITCH: -0.2, CURLS: -0.2, RUN_IN: 0.1 } },
+  COV4:     { cat: 'ZONE', label: 'Cover 4', desc: 'Four defenders split the deep field. Takes away the bomb and the post, gives up quick throws.', adj: { PASS_D: 0.5, POST: 0.2, PASS_M: 0.2, PASS_S: -0.3, HITCH: -0.4, SCREEN: -0.2, RUN_OUT: 0.1 } },
+  MAN:      { cat: 'MAN', label: 'Cover 1', desc: 'Man on every receiver with one safety over the top. Shuts quick and medium routes.' },
+  MAN2:     { cat: 'MAN', label: '2-Man', desc: 'Man underneath with two safeties deep. Takes away the deep ball, gives up the run.', adj: { PASS_D: 0.3, POST: 0.2, PASS_M: 0.1, RUN_IN: -0.2, RUN_OUT: -0.2 } },
+  TIGHT:    { cat: 'MAN', label: 'Press Man', desc: 'Jam everyone at the line with no help over the top. Blankets short routes. One miss is a touchdown.', adj: { PASS_S: 0.3, PASS_M: 0.2, PASS_D: -0.8, RUN_IN: -0.3, SCREEN: -0.2 } },
+  BLITZ:    { cat: 'BLITZ', label: 'All-Out Blitz', desc: 'Send the house. Sacks, but burns you deep.', rush: 7, sack: 0.05, press: 0.04, loss: 1.5 },
+  ZBLITZ:   { cat: 'BLITZ', label: 'Zone Blitz', desc: 'Send five, drop a lineman into coverage. Safer than the house, fewer sacks.', rush: 4, sack: 0.03, press: 0.02, loss: 1, adj: { PASS_D: 0.4, PASS_M: 0.1, SCREEN: -0.4 } },
+  CBBLITZ:  { cat: 'BLITZ', label: 'Corner Blitz', desc: 'A corner comes off the edge. Seals the outside run, leaves one receiver alone.', rush: 5, sack: 0.04, press: 0.03, loss: 1, adj: { RUN_OUT: 0.3, SWEEP: 0.2, PASS_S: -0.25, PASS_D: -0.2, BUBBLE: 0.3 } },
+  PREVENT:  { cat: 'PREVENT', label: 'Prevent', desc: 'Everyone deep. Gives up short yardage.', rush: -4, sack: -0.02 },
+  SOFT:     { cat: 'PREVENT', label: 'Soft Zone', desc: 'Bend but do not break: deep zones with the linebackers sitting in the hooks. Tighter than prevent underneath.', rush: -2, sack: -0.01, adj: { PASS_S: 0.3, PASS_M: 0.2, PASS_D: -0.3, RUN_IN: 0.2, RUN_OUT: 0.2 } }
 };
 const MATCH = {
   STACK:   { RUN_IN: 1.0, RUN_OUT: .5,  PASS_S: -.3, PASS_M: -.6, PASS_D: -.8, SCREEN: -.2 },
@@ -662,6 +721,13 @@ const MATCH = {
   BLITZ:   { RUN_IN: .4,  RUN_OUT: 0,   PASS_S: .5,  PASS_M: .2,  PASS_D: -.4, SCREEN: -.8 },
   PREVENT: { RUN_IN: -.8, RUN_OUT: -.6, PASS_S: -.4, PASS_M: .2,  PASS_D: .9,  SCREEN: -.4 }
 };
+// how good this defensive call is against this offensive play (positive: good for the defense)
+function matchup(defPick, offPick) {
+  const dc = DEF_CALLS[defPick] || DEF_CALLS.ZONE, oc = OFF[offPick];
+  if (!oc || !MATCH[dc.cat][oc.cat]) return 0;
+  const a = dc.adj || {}, v = oc.vs || {};
+  return clamp(MATCH[dc.cat][oc.cat] + (a[oc.cat] || 0) + (a[offPick] || 0) + (v[dc.cat] || 0) + (v[defPick] || 0), -1.4, 1.6);
+}
 
 function fgDist(st) { return 100 - st.ballOn + 17; }
 // plays where the defense does not need to call anything
@@ -681,9 +747,10 @@ function offOptions(st) {
     if ((id === 'SPIKE' || id === 'KNEEL') && st.down === 4) { disabled = true; note = '1st-3rd down'; }
     if (id === 'SPIKE' && !disabled && !(st.ro > 0)) { disabled = true; note = 'Clock is stopped'; }
     if (id === 'FG' && !disabled) note = fgDist(st) + ' yds';
-    return { id, label: OFF[id].label, desc: OFF[id].desc, disabled, note };
+    return { id, cat: OFF[id].cat, label: OFF[id].label, desc: OFF[id].desc, disabled, note };
   });
 }
+function defOptions() { return Object.keys(DEF_CALLS).map(id => ({ id, cat: DEF_CALLS[id].cat, label: DEF_CALLS[id].label, desc: DEF_CALLS[id].desc, disabled: false, note: '' })); }
 
 /* ================= game state ================= */
 function initState(seed) {
@@ -705,6 +772,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags) {
   const offPick = legalOff(st, offPickRaw);
   const isKick = noDef(offPick);
   const defPick = DEF_CALLS[defPickRaw] ? defPickRaw : 'ZONE';
+  const OC = OFF[offPick], DC = DEF_CALLS[defPick], ocat = OC.cat;
   const s = Object.assign({}, st, { score: { a: st.score.a, b: st.score.b }, to: { a: st.to.a, b: st.to.b } });
   const nm = (t, id) => nameOf(teams[t], id);
   const entry = {
@@ -854,21 +922,22 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags) {
       entry.text = advance(y, desc);
       if (entry.ev === 'play') entry.ev = passed ? 'pass' : 'run';
     }
-  } else if (OFF[offPick].kind === 'run') {
-    const inside = offPick === 'RUN_IN';
-    const m = MATCH[defPick][offPick], eff = 1 + 0.30 * m;
+  } else if (OC.kind === 'run') {
+    const inside = ocat === 'RUN_IN';
+    const m = matchup(defPick, offPick), eff = 1 + 0.30 * m;
     const Orun = (inside ? 0.42 * OU.h + 0.38 * OU.ol + 0.20 * OU.fbq
                          : 0.50 * OU.h + 0.30 * OU.ol + 0.20 * OU.wr) + (inside && OU.hasFB ? 2 : 0);
     const Drun = 0.38 * DU.dl + 0.36 * DU.lb + 0.14 * DU.s + 0.12 * DU.cb + (DU.scheme === '43' ? 3 : 0);
     const diff = Orun - Drun * eff;
-    let y = Math.round((inside ? 3.9 : 4.3) + diff * 0.10 + gauss() * (inside ? 2.8 : 3.8));
-    const bigP = (inside ? 0.035 : 0.07) + Math.max(0, OU.hSpd - 55) / 700;
+    let y = Math.round((inside ? 3.9 : 4.3) + (OC.ym || 0) + diff * 0.10 + gauss() * (inside ? 2.8 : 3.8) * (OC.sd || 1));
+    const bigP = (inside ? 0.035 : 0.07) + (OC.bp || 0) + Math.max(0, OU.hSpd - 55) / 700;
     if (R() < bigP * (1 - m * 0.25)) y += Math.round(8 + R() * 20);
-    y = Math.max(y, -4);
-    if (R() < (inside ? 0.03 : 0.2)) stopFlag = true;   // ran out of bounds
+    y = Math.max(y, OC.fl == null ? -4 : OC.fl);
+    if (OC.sy && st.toGo <= 2 && y < st.toGo && R() < 0.3) y = st.toGo;   // a dive picks up the hard yard
+    if (R() < (inside ? 0.03 : 0.2) + (OC.oob || 0)) stopFlag = true;   // ran out of bounds
     const useFB = inside && OU.hasFB && R() < 0.25;
     const runner = nm(o, useFB ? 'FB' : 'HB'); entry.runId = useFB ? 'FB' : 'HB';
-    const fumP = 0.010 + Math.max(0, DU.dl - OU.ol) * 0.0003;
+    const fumP = 0.010 + (OC.fum || 0) + Math.max(0, DU.dl - OU.ol) * 0.0003;
     const lost = R() < fumP && R() < 0.5;
     entry.anim = 'run';
     const spot = Math.max(0, st.ballOn + Math.max(0, y));
@@ -887,36 +956,34 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags) {
     }
   } else {
     // pass
-    const spec = OFF[offPick];
-    const m = MATCH[defPick][offPick], eff = 1 + 0.30 * m;
-    const blitz = defPick === 'BLITZ';
-    const rush = 0.6 * DU.dl + 0.4 * DU.lb + (blitz ? 7 : 0) + (defPick === 'PREVENT' ? -4 : 0) + (DU.scheme === '34' ? 2 : 0);
+    const spec = OC;
+    const m = matchup(defPick, offPick), eff = 1 + 0.30 * m;
+    const rush = 0.6 * DU.dl + 0.4 * DU.lb + (DC.rush || 0) + (DU.scheme === '34' ? 2 : 0);
     const prot = OU.ol;
-    const sackP = clamp(0.055 + (rush - prot) * 0.0035 + (blitz ? 0.05 : 0) + (defPick === 'PREVENT' ? -0.02 : 0)
-                        - (offPick === 'SCREEN' ? 0.03 : 0) - (offPick === 'PASS_S' ? 0.025 : 0), 0.01, 0.30);
-    const pressure = Math.max(0, rush - prot) * 0.0030 + (blitz ? 0.04 : 0);
+    const sackP = clamp(0.055 + (rush - prot) * 0.0035 + (DC.sack || 0) + (spec.sack || 0), 0.01, 0.30);
+    const pressure = Math.max(0, rush - prot) * 0.0030 + (DC.press || 0);
     const cov = 0.45 * DU.cb + 0.30 * DU.s + 0.25 * DU.lb;
     // target
     let tgt;
-    if (offPick === 'SCREEN' && R() < 0.7) tgt = { id: 'HB', fit: OU.h, spd: OU.hSpd };
+    if (spec.hb && R() < spec.hb) tgt = { id: 'HB', fit: OU.h, spd: OU.hSpd };
     else {
       let tot = 0;
       const ws = OU.recv.map(r => {
         let w = Math.pow(r.fit / 100, 2);
-        if (offPick === 'PASS_D') w *= r.spd / 60;
-        if (offPick === 'PASS_S' && r.id === 'TE') w *= 1.2;
+        if (spec.spd) w *= Math.pow(r.spd / 60, spec.spd);
+        w *= (spec.tw && spec.tw[r.id] != null) ? spec.tw[r.id] : 1;
         tot += w; return w;
       });
       let x = R() * tot; tgt = OU.recv[OU.recv.length - 1];
       for (let i = 0; i < ws.length; i++) { x -= ws[i]; if (x <= 0) { tgt = OU.recv[i]; break; } }
     }
     const qb = nm(o, 'QB'), rec = nm(o, tgt.id); entry.qbId = 'QB'; entry.recId = tgt.id;
-    const O = 0.38 * OU.q + 0.42 * tgt.fit + 0.20 * OU.ol + ((offPick === 'PASS_S' || offPick === 'SCREEN') && !OU.hasFB ? 2 : 0);
+    const O = 0.38 * OU.q + 0.42 * tgt.fit + 0.20 * OU.ol + (spec.fbq && !OU.hasFB ? 2 : 0);
     const compP = clamp(spec.base + (O - cov * eff) * 0.0070 - pressure, 0.08, 0.93);
-    const intP = clamp(0.028 + (cov * eff - OU.q) * 0.0012 + (offPick === 'PASS_D' ? 0.025 : 0) - (offPick === 'SCREEN' ? 0.02 : 0), 0.006, 0.12);
+    const intP = clamp(0.028 + (cov * eff - OU.q) * 0.0012 + (spec.int || 0), 0.006, 0.12);
     const r1 = R();
     if (r1 < sackP) {
-      const loss = Math.round(3 + R() * 5 + (blitz ? 1.5 : 0));
+      const loss = Math.round(3 + R() * 5 + (DC.loss || 0));
       const wid = DU.rushers[Math.floor(R() * DU.rushers.length)], who = nm(d, wid); entry.defId = wid;
       entry.anim = 'sack'; entry.travel = -loss; entry.yards = -loss; entry.ev = 'sack';
       const nb = st.ballOn - loss;
@@ -927,9 +994,9 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags) {
         if (s.down > 4) { giveBall(d, 100 - nb); entry.ev = 'downs'; entry.text += ' Turnover on downs.'; }
       }
     } else if (R() < compP) {
-      if (R() < { PASS_S: 0.3, PASS_M: 0.25, PASS_D: 0.2, SCREEN: 0.15 }[offPick]) stopFlag = true;   // caught out of bounds
+      if (R() < (spec.oob == null ? 0.25 : spec.oob)) stopFlag = true;   // caught out of bounds
       let y = Math.round(spec.avg * (0.55 + 0.9 * R()) + (O - cov * eff) * 0.10);
-      const bigP = 0.05 + Math.max(0, tgt.spd - 60) / 500;
+      const bigP = 0.05 + (spec.big || 0) + Math.max(0, tgt.spd - 60) / 500;
       if (R() < bigP) y += Math.round(6 + R() * 18);
       y = clamp(y, 0, 100 - st.ballOn);
       entry.anim = 'pass'; entry.travel = y;
@@ -1054,8 +1121,7 @@ function cpuTO(st, me) {
   if (st.q === 4) return st.poss === me ? lead <= 0 && st.clock <= 45 : lead < 0 && st.clock <= 70;
   return false;
 }
-function cpuOffense(st, U, me, rnd) {
-  rnd = rnd || Math.random;
+function cpuOffCat(st, U, me, rnd) {
   const OU = U[me];
   const lead = st.score[me] - st.score[oth(me)];
   if (st.q === 4 && !st.ot && lead > 0 && st.down <= 3 && st.clock <= (CAP + 3) * (4 - st.down)) return 'KNEEL';
@@ -1073,16 +1139,46 @@ function cpuOffense(st, U, me, rnd) {
   if (rnd() < passBias) { const x = rnd(); return x < 0.35 ? 'PASS_S' : x < 0.65 ? 'PASS_M' : x < 0.85 ? 'PASS_D' : 'SCREEN'; }
   return rnd() < 0.6 ? 'RUN_IN' : 'RUN_OUT';
 }
-function cpuDefense(st, rnd) {
-  rnd = rnd || Math.random;
+function cpuDefCat(st, rnd) {
   const x = rnd();
   if (st.toGo <= 3) return x < 0.45 ? 'STACK' : x < 0.7 ? 'BLITZ' : x < 0.85 ? 'MAN' : 'ZONE';
   if (st.toGo >= 9) return x < 0.35 ? 'ZONE' : x < 0.55 ? 'PREVENT' : x < 0.8 ? 'MAN' : 'BLITZ';
   return x < 0.3 ? 'ZONE' : x < 0.5 ? 'MAN' : x < 0.7 ? 'STACK' : x < 0.9 ? 'BLITZ' : 'PREVENT';
 }
 
+// pick one of the plays in a category, weighted by the situation and by what the team is good at
+function pickWeighted(ids, w, rnd) {
+  let tot = 0; const ws = ids.map(id => { const v = Math.max(0, w[id] == null ? 1 : w[id]); tot += v; return v; });
+  let x = rnd() * tot;
+  for (let i = 0; i < ids.length; i++) { x -= ws[i]; if (x <= 0) return ids[i]; }
+  return ids[ids.length - 1];
+}
+function cpuOffense(st, U, me, rnd) {
+  rnd = rnd || Math.random;
+  const c = cpuOffCat(st, U, me, rnd), OU = U[me];
+  if (OFF[c].cat === 'SPEC') return c;
+  const ids = Object.keys(OFF).filter(id => OFF[id].cat === c);
+  const short = st.toGo <= 2, long = st.toGo >= 7, late = st.q === 4 && st.clock <= 60 && st.score[me] < st.score[oth(me)];
+  const w = {
+    DIVE: short ? 4 : 0.15, DRAW: long ? 1.3 : 0.5, POWER: 1, SWEEP: short ? 0.2 : 0.8, COUNTER: 0.9,
+    HITCH: st.toGo <= 5 ? 1.5 : 0.8, MESH: 1.2, STICK: OU.recv[2].fit >= 78 ? 1.6 : 0.7,
+    CURLS: st.toGo <= 10 ? 1.2 : 0.8, FLOOD: 1, YCROSS: OU.recv[2].fit >= 78 ? 1.4 : 0.8,
+    POST: 1.2, GO: late ? 1.6 : 0.6, PA_DEEP: OU.h + OU.ol >= 150 ? 1.2 : 0.5,
+    BUBBLE: 1, TUNNEL: 1
+  };
+  return pickWeighted(ids, w, rnd);
+}
+function cpuDefense(st, rnd) {
+  rnd = rnd || Math.random;
+  const c = cpuDefCat(st, rnd), ids = Object.keys(DEF_CALLS).filter(id => DEF_CALLS[id].cat === c);
+  const goal = st.ballOn >= 93, longs = st.toGo >= 9, endgame = st.q === 4 && st.clock <= 45;
+  const w = { STACK: goal ? 0.6 : 1, GOALLINE: goal ? 4 : 0, RUNBLITZ: 0.8, ZONE: 1, COV3: 1, COV4: longs ? 1.6 : 0.8, MAN: 1, MAN2: 0.7, TIGHT: goal ? 1.5 : 0.5,
+              BLITZ: 0.6, ZBLITZ: 1, CBBLITZ: 0.7, PREVENT: endgame ? 3 : 0.6, SOFT: endgame ? 0.5 : 1 };
+  return pickWeighted(ids, w, rnd);
+}
+
 const E = {
-  DATA: D, QLEN, CAP, noDef, TEAMS, PLAYERS, OLU, DFU, SLOTS, GROUPS, OFF, DEF_CALLS, MATCH,
+  DATA: D, QLEN, CAP, noDef, TEAMS, PLAYERS, OLU, DFU, SLOTS, GROUPS, OFF, OFF_CATS, DEF_CALLS, DEF_CATS, MATCH, matchup, defOptions,
   KICK, KRS, PRS, STU, stSquad, stFrom, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
   drawOptions, autoDraft, fgDist, legalOff, offOptions, initState, clockInfo,
   stepGame, replay, cpuOffense, cpuDefense, cleanMoves, cleanTrace, cpuTO
@@ -1113,15 +1209,37 @@ const TDB = { LCB: [2.2, -6], RCB: [2.2, 6], SS: [9, 2.2], FS: [9, -2.2] };
 const OFFSET = [[-1, 0], [-0.9397, 0.342], [-0.9397, -0.342], [-0.766, 0.643], [-0.766, -0.643], [-0.5, 0.866], [-0.5, -0.866]];
 const DIRS = [[1, 0], [0.9397, 0.342], [0.9397, -0.342], [0.766, 0.643], [0.766, -0.643], [0.5, 0.866], [0.5, -0.866], [0.17, 0.985], [0.17, -0.985]];
 
-/* routes: [forward, sideways] waypoints, sideways is positive toward the sideline the receiver lines up on */
+/* routes: [forward, sideways] waypoints, sideways is positive toward the sideline the receiver lines up on.
+   Every call has its own entry; a call without one runs its category's. */
 const ROUTES = {
-  PASS_S: { WR1: [[4, 0], [7, -3.5], [13, -7]], WR2: [[7.5, 0]], TE: [[3, 0], [5, 3]], HB: [[-1, 3], [2, 6]] },
-  PASS_M: { WR1: [[11, 0], [12, -5], [12.5, -9]], WR2: [[10.5, 0], [11, 2.4]], TE: [[9, 0], [10, -1.5]], HB: [[-1, 3], [3, 6]] },
-  PASS_D: { WR1: [[42, 0]], WR2: [[11, 0], [30, -3.5]], TE: [[10, 0], [11, -4]], HB: [[-1, 3], [3, 6]] },
-  SCREEN: { WR1: [[7, 0]], WR2: [[7, 0]], TE: [[4, 2]], HB: [[-3, 5]] }
+  PASS_S: { WR1: [[2, 0], [6, -4], [10, -8]], WR2: [[2, 0], [6, -4], [10, -8]], TE: [[3, 0], [5, 3]], HB: [[-1, 3], [2, 6]] },                       // slants
+  HITCH:  { WR1: [[6, 0], [4.6, 0.4]], WR2: [[6, 0], [4.6, 0.4]], TE: [[5, 0], [4, 1]], HB: [[-1, 3], [1, 7]] },
+  MESH:   { WR1: [[2, 0], [2.6, -6], [4, -12]], WR2: [[3, 0], [3.6, -6], [5, -12]], TE: [[6, 0], [6.5, -3]], HB: [[-1, 3], [3, 6]] },
+  STICK:  { WR1: [[1.5, 0], [2.6, 3]], WR2: [[7, 0], [7.2, -2]], TE: [[5, 0], [5.4, -1]], HB: [[-1, 3], [2, 6]] },
+  PASS_M: { WR1: [[11, 0], [12, -5], [12.5, -9]], WR2: [[10.5, 0], [11, 2.4]], TE: [[9, 0], [10, -1.5]], HB: [[-1, 3], [3, 6]] },                      // dig
+  CURLS:  { WR1: [[11, 0], [9, 0.6]], WR2: [[11, 0], [9, -0.6]], TE: [[7, 0], [6, -2]], HB: [[-1, 3], [1, 7]] },
+  FLOOD:  { WR1: [[7, 0], [8, -9]], WR2: [[14, 0], [15.5, 3]], TE: [[8, 0], [8.6, 4]], HB: [[-1, 3], [2, 6]] },
+  YCROSS: { WR1: [[18, 0], [20, 0.5]], WR2: [[6, 0], [7, 2]], TE: [[12, 0], [13, -8]], HB: [[-1, 3], [3, 6]] },
+  PASS_D: { WR1: [[42, 0]], WR2: [[42, 0]], TE: [[34, -0.5]], HB: [[-1, 3], [3, 6]] },                                                               // four verticals
+  POST:   { WR1: [[12, 0], [22, -7], [38, -12]], WR2: [[12, 0], [24, 5], [34, 8]], TE: [[7, 0], [8, -3]], HB: [[-1, 3], [3, 6]] },
+  GO:     { WR1: [[46, 0]], WR2: [[46, 0]], TE: null, HB: null },
+  PA_DEEP: { WR1: [[42, 0]], WR2: [[12, 0], [32, -4]], TE: [[8, 0], [10, -3]], HB: [[-2, 0], [3, 2]] },
+  SCREEN: { WR1: [[7, 0]], WR2: [[7, 0]], TE: [[4, 2]], HB: [[-3, 5]] },
+  BUBBLE: { WR1: [[6, 0]], WR2: [[-0.5, -2.2]], TE: [[4, 2]], HB: [[-1, 3], [2, 6]] },
+  TUNNEL: { WR1: [[-0.5, -2], [0.5, -3]], WR2: [[6, 0]], TE: [[4, 2]], HB: [[-1, 3], [2, 6]] }
 };
 const DECIDE = { PASS_S: [12, 26], PASS_M: [24, 40], PASS_D: [34, 54], SCREEN: [22, 36] };
 const DROP = { PASS_S: -3.8, PASS_M: -5, PASS_D: -7, SCREEN: -5 };
+/* per call extras. pass: dec (earliest and latest throw tick), drop (QB drop depth), tgt (only ever throws to him), pa (play-action: fake handoff, linebackers bite)
+   run: hoT (earliest handoff tick), rb (blocking bias, positive favors the offense), wide (distance to the edge), flip (back cuts away from the tight end after a step the other way), read (extra defender read delay) */
+const PM = {
+  HITCH: { dec: [8, 20], drop: -3, safe: 0.35 }, MESH: { dec: [14, 28], drop: -3.6, safe: 0.25 }, STICK: { dec: [10, 22], drop: -3.4, safe: 0.5 },
+  CURLS: { dec: [20, 36], drop: -4.6, safe: 0.5 }, FLOOD: { dec: [26, 42] }, YCROSS: { dec: [28, 44] },
+  POST: { dec: [34, 54] }, GO: { dec: [38, 60], drop: -7 }, PA_DEEP: { dec: [34, 52], drop: -6.5, pa: 1 },
+  BUBBLE: { dec: [8, 16], drop: -2.5, tgt: 'WR2', blk: [['TE', 'RCB']] }, TUNNEL: { dec: [10, 18], drop: -2.8, tgt: 'WR1', blk: [['HB', 'LCB']] },
+  DIVE: { hoT: 4, rb: 0.004 }, POWER: { hoT: 7, rb: 0.006 }, DRAW: { hoT: 12, read: 4 },
+  SWEEP: { hoT: 5, rb: 0, wide: 7.5 }, COUNTER: { hoT: 9, flip: 1, rb: 0.002 }
+};
 
 function vmaxOf(grp, o, s) {
   switch (grp) {
@@ -1141,10 +1259,12 @@ const RUNMOD = { STACK: -0.010, BLITZ: -0.004, MAN: 0, ZONE: 0.004, PREVENT: 0.0
 
 /* ---------- construction ---------- */
 function create(ctx) {
-  const OS = ctx.OS, DS = ctx.DS, spec = ctx.offPick, call = ctx.defPick;
+  const OS = ctx.OS, DS = ctx.DS, play = E.OFF[ctx.offPick] ? ctx.offPick : 'RUN_IN', dplay = E.DEF_CALLS[ctx.defPick] ? ctx.defPick : 'ZONE';
+  const spec = E.OFF[play].cat, call = E.DEF_CALLS[dplay].cat, pm = PM[play] || {};
   const R = mulberry32(hashStr(ctx.seed + ':live:' + ctx.playNo));
   const sim = {
-    t: 0, P: [], by: {}, R, goalX: 100 - ctx.ballOn, backX: -ctx.ballOn, offPick: spec, defPick: call, toGo: ctx.toGo,
+    t: 0, P: [], by: {}, R, goalX: 100 - ctx.ballOn, backX: -ctx.ballOn, offPick: spec, defPick: call, play, dplay, pm, toGo: ctx.toGo,
+    dec: pm.dec || DECIDE[spec], drop: pm.drop != null ? pm.drop : DROP[spec], hoT: pm.hoT || 7, wideY: pm.wide || 6,
     ball: { x: -3.2, y: 0, z: 0, st: 'snap', car: null, air: null }, pairs: [], out: null, hist: {}, ctl: { o: { dx: 0, dy: 0 }, d: { dx: 0, dy: 0 } },
     ctlId: { o: 'QB', d: null }, human: { o: !!ctx.ctlO, d: !!ctx.ctlD }, kind: /^RUN/.test(spec) ? 'run' : 'pass', handoff: 0, thrown: 0, evt: [], ratO: null, ratD: null
   };
@@ -1168,8 +1288,9 @@ function create(ctx) {
   sim.D = sim.P.filter(p => p.side === 'd'); sim.O = sim.P.filter(p => p.side === 'o');
   sim.OL = sim.O.filter(p => p.grp === 'OL');
   const sgnOf = p => p.y < 0 ? -1 : 1;
-  const rt = ROUTES[spec];
+  const rt = ROUTES[play] || ROUTES[spec];
   if (rt) ['WR1', 'WR2', 'TE', 'HB'].forEach(id => {
+    if (!rt[id]) { sim.by[id].route = null; sim.stay = (sim.stay || []).concat(id); return; }   // stays in to block
     const p = sim.by[id], s = sgnOf(p);
     p.route = rt[id].map(w => [p.x + w[0], p.y + w[1] * s]); if (id === 'HB') p.route = rt[id].map(w => [w[0], w[1] * (p.y === 0 ? 1 : s)]);
     p.mode = 'route';
@@ -1184,24 +1305,47 @@ function create(ctx) {
   const hookY = [-3.6, 0, 3.6, -1.2, 1.2];
   const lbSorted = lbs.slice().sort((a, b) => a.y - b.y);
   const sk = sim.kind === 'run' ? 'run' : 'pass';
-  if (call === 'ZONE') {
-    zone(lcb, 8, -5.5, 4.5); zone(rcb, 8, 5.5, 4.5); zone(ss, 16, 3.5, 6); zone(fs, 16, -3.5, 6);
-    lbSorted.forEach((p, i) => zone(p, 6.5, lbSorted.length === 3 ? [-3.6, 0, 3.6][i] : [-4, -1.3, 1.3, 4][i], 3.6));
-  } else if (call === 'MAN') {
+  const hooks = (x, w) => lbSorted.forEach((p, i) => zone(p, x, lbSorted.length === 3 ? [-3.6, 0, 3.6][i] : [-4, -1.3, 1.3, 4][i], w || 3.6));
+  const midLB = lbSorted.slice().sort((a, b) => abs(a.y) - abs(b.y))[0];
+  if (dplay === 'COV3') {          // three deep, four under
+    zone(lcb, 19, -6, 6); zone(rcb, 19, 6, 6); zone(fs, 21, 0, 7); zone(ss, 7.5, 4.5, 4);
+    lbSorted.forEach((p, i) => zone(p, 6, lbSorted.length === 3 ? [-3.8, 0, 2.4][i] : [-4, -1.3, 1.3, 2.5][i], 3.4));
+  } else if (dplay === 'COV4') {   // quarters: four deep
+    zone(lcb, 14, -5.6, 5.4); zone(rcb, 14, 5.6, 5.4); zone(ss, 14, 2.2, 5.4); zone(fs, 14, -2.2, 5.4); hooks(6, 3.4);
+  } else if (call === 'ZONE') {    // cover 2
+    zone(lcb, 8, -5.5, 4.5); zone(rcb, 8, 5.5, 4.5); zone(ss, 16, 3.5, 6); zone(fs, 16, -3.5, 6); hooks(6.5);
+  } else if (dplay === 'MAN2') {   // man under, two deep
+    man(lcb, 'WR1'); man(rcb, 'WR2'); zone(ss, 19, 3.5, 7); zone(fs, 19, -3.5, 7);
+    lbSorted.forEach(p => { if (p === midLB) man(p, 'TE'); else zone(p, 6, p.y < 0 ? -3.4 : 3.4, 3.4); });
+  } else if (dplay === 'TIGHT') {  // press man, nobody deep
+    man(lcb, 'WR1'); man(rcb, 'WR2'); man(fs, 'TE'); man(ss, 'HB'); hooks(5.5, 3.2);
+  } else if (call === 'MAN') {     // cover 1
     man(lcb, 'WR1'); man(rcb, 'WR2'); man(ss, 'TE'); zone(fs, 19, 0, 8);
-    const mid = lbSorted.slice().sort((a, b) => abs(a.y) - abs(b.y))[0]; man(mid, 'HB');
-    lbSorted.forEach((p, i) => { if (p !== mid) zone(p, 6, lbSorted.length === 3 ? [-3.6, 0, 3.6][i] : [-4, -1.3, 1.3, 4][i], 3.4); });
-  } else if (call === 'STACK') {
+    man(midLB, 'HB');
+    lbSorted.forEach((p, i) => { if (p !== midLB) zone(p, 6, lbSorted.length === 3 ? [-3.6, 0, 3.6][i] : [-4, -1.3, 1.3, 4][i], 3.4); });
+  } else if (dplay === 'GOALLINE') {
+    man(lcb, 'WR1'); man(rcb, 'WR2'); zone(ss, 3.4, 2.6, 3); zone(fs, 5, 0, 4); hooks(3.2, 3);
+  } else if (dplay === 'RUNBLITZ') {
     man(lcb, 'WR1'); man(rcb, 'WR2'); zone(ss, 4.6, 2.6, 3.4); zone(fs, 17, 0, 8);
-    lbSorted.forEach((p, i) => zone(p, 4.2, lbSorted.length === 3 ? [-3.6, 0, 3.6][i] : [-4, -1.3, 1.3, 4][i], 3.2));
+    lbSorted.forEach((p, i) => { if (i % 2 === 0) rush(p); else zone(p, 4.2, p.y < 0 ? -2.6 : 2.6, 3.2); });
+  } else if (call === 'STACK') {
+    man(lcb, 'WR1'); man(rcb, 'WR2'); zone(ss, 4.6, 2.6, 3.4); zone(fs, 17, 0, 8); hooks(4.2, 3.2);
+  } else if (dplay === 'ZBLITZ') { // five rush, one lineman drops
+    man(lcb, 'WR1'); man(rcb, 'WR2'); zone(fs, 18, 0, 8); rush(ss);
+    lbSorted.forEach(p => { if (p === midLB) zone(p, 6, 0, 3.6); else rush(p); });
+    const dr = dls.slice().sort((a, b) => abs(a.y) - abs(b.y))[dls.length - 1]; if (dr) zone(dr, 5.5, dr.y < 0 ? -3.8 : 3.8, 3.2);
+  } else if (dplay === 'CBBLITZ') {
+    rush(rcb); man(lcb, 'WR1'); zone(fs, 18, 0, 8); zone(ss, 9, 4, 6);
+    lbSorted.forEach(p => { if (p === midLB) man(p, 'HB'); else rush(p); });
   } else if (call === 'BLITZ') {
     man(lcb, 'WR1'); man(rcb, 'WR2'); zone(fs, 18, 0, 8); rush(ss); lbs.forEach(rush);
+  } else if (dplay === 'SOFT') {
+    zone(lcb, 14, -5.5, 5.5); zone(rcb, 14, 5.5, 5.5); zone(ss, 20, 2.5, 7); zone(fs, 20, -2.5, 7); hooks(7.5, 4);
   } else { // PREVENT
-    zone(lcb, 23, -5, 7); zone(rcb, 23, 5, 7); zone(ss, 26, 2.5, 7); zone(fs, 26, -2.5, 7);
-    lbSorted.forEach((p, i) => zone(p, 11, lbSorted.length === 3 ? [-3.6, 0, 3.6][i] : [-4, -1.3, 1.3, 4][i], 4));
+    zone(lcb, 23, -5, 7); zone(rcb, 23, 5, 7); zone(ss, 26, 2.5, 7); zone(fs, 26, -2.5, 7); hooks(11, 4);
   }
   // read delay: how long the defense takes to recognize a run
-  sim.read = { STACK: 2, BLITZ: 3, MAN: 5, ZONE: 6, PREVENT: 9 }[call] || 6;
+  sim.read = ({ STACK: 2, BLITZ: 3, MAN: 5, ZONE: 6, PREVENT: 9 }[call] || 6) + (pm.read || 0) + (dplay === 'GOALLINE' ? -1 : dplay === 'COV4' || dplay === 'SOFT' ? 1 : 0);
   // line assignments
   setupBlocks(sim);
   // default human control targets
@@ -1229,6 +1373,18 @@ function setupBlocks(sim) {
     const hb = sim.by.HB; const r = extra.slice().sort((a, b) => abs(a.y - hb.y) - abs(b.y - hb.y))[0];
     hb.mode = 'block'; hb.route = null; sim.pairs.push({ b: 'HB', r: r.id, L: 0 }); r.tgtBlk = 'HB'; taken[r.id] = 1;
   }
+  // skill players asked to block a defender (screens)
+  (sim.pm.blk || []).forEach(([w, c]) => {
+    const cb = sim.D.find(p => p.pos === c), wr = sim.by[w];
+    if (cb && wr && wr.mode !== 'block') { wr.mode = 'block'; wr.route = null; wr.rat = wr.rat * 0.62; sim.pairs.push({ b: w, r: cb.id, L: 0 }); cb.tgtBlk = w; }
+  });
+  // receivers kept in to block (max protection): each takes the nearest rusher nobody has
+  (sim.stay || []).forEach(id => {
+    const b = sim.by[id]; if (!b || b.mode === 'block') return;
+    const r = free.filter(q => !taken[q.id]).sort((u, v) => abs(u.y - b.y) - abs(v.y - b.y))[0];
+    if (r) { b.mode = 'block'; b.route = null; sim.pairs.push({ b: id, r: r.id, L: 0 }); r.tgtBlk = id; taken[r.id] = 1; }
+    else { b.mode = 'pocket'; b.route = null; }
+  });
   if (sim.kind === 'run') {
     const te = sim.by.TE; const ex = free.filter(r => !taken[r.id]).sort((a, b) => abs(a.y - te.y) - abs(b.y - te.y))[0];
     if (ex) { te.mode = 'block'; te.route = null; sim.pairs.push({ b: 'TE', r: ex.id, L: 0 }); ex.tgtBlk = 'TE'; taken[ex.id] = 1; }
@@ -1347,7 +1503,7 @@ function thinkOff(sim, p, carrier, t) {
       if (pass) { qbPass(sim, p, t); return; }
       // handoff
       const hb = sim.by.HB;
-      if (!sim.handoff) { steer(p, -3.2, 0, 0.3); if (dist(p, hb) < 1.6 || t >= 12) { if (t >= 7) giveBall(sim, 'HB'); } }
+      if (!sim.handoff) { steer(p, -3.2, 0, 0.3); if (dist(p, hb) < 1.6 || t >= sim.hoT + 5) { if (t >= sim.hoT) giveBall(sim, 'HB'); } }
       else steer(p, p.x, p.y, 0);
     } else if (sim.handoff || sim.thrown) steer(p, p.x - 1, p.y, 0.15);
     return;
@@ -1355,7 +1511,8 @@ function thinkOff(sim, p, carrier, t) {
   if (p.id === 'HB') {
     if (sim.kind === 'run' && !sim.handoff) {
       const out = sim.offPick === 'RUN_OUT';
-      if (out) { steer(p, -3.2 + 0.2, 4.5 * (sim.runSide || (sim.runSide = (sim.by.TE.y > 0 ? 1 : -1))) * 0.8, 0.95); }
+      if (!sim.runSide) { const ts = sim.by.TE.y > 0 ? 1 : -1; sim.runSide = sim.pm.flip ? -ts : ts; }
+      if (out) { const fake = sim.pm.flip && sim.t < 6 ? -1 : 1; steer(p, -3.2 + 0.2, 4.5 * sim.runSide * fake * 0.8, 0.95); }
       else steer(p, -3.4, 0, 0.8);
       return;
     }
@@ -1393,16 +1550,17 @@ function runRoute(sim, p) {
 
 function qbPass(sim, q, t) {
   const spec = sim.offPick, human = sim.human.o && sim.ctlId.o === 'QB';
-  const dec = DECIDE[spec];
-  // drop back
-  const dx = DROP[spec];
+  const dec = sim.dec;
+  // drop back (a play-action fake keeps the quarterback close to the line for a moment)
+  const dx = sim.pm.pa && t < 8 ? -2.4 : sim.drop;
   steer(q, dx, q.y * 0.9, 0.7);
   if (sim.thrown) return;
   if (sim.throwAway) { throwAwayBall(sim); return; }
   const hold = human ? 160 : dec[1];
   // look
   let best = null, bs = -1e9;
-  if (spec === 'SCREEN') best = { id: 'HB', open: 3 };
+  const tgtId = sim.pm.tgt || (spec === 'SCREEN' ? 'HB' : null);
+  if (tgtId) best = { id: tgtId, open: 3 };
   else ['WR1', 'WR2', 'TE', 'HB'].forEach(id => {
     const r = sim.by[id]; if (!r || r.mode === 'block') return;
     const open = openness(sim, r);
@@ -1483,7 +1641,7 @@ function carrierAI(sim, p) {
   if (p.side === 'd') { dirSeek(sim, p, -1); return; }
   if (p.id === 'HB' && sim.kind === 'run' && p.x < 0.5 && sim.t - sim.handoff < 10) {
     const side = sim.runSide || 1;
-    if (out) steer(p, 2.5, side * 6, 1); else { let ty = laneY(sim); steer(p, 1.8, ty, 1); }
+    if (out) steer(p, 2.5, side * sim.wideY, 1); else { let ty = laneY(sim); steer(p, 1.8, ty, 1); }
     return;
   }
   dirSeek(sim, p, 1);
@@ -1554,6 +1712,7 @@ function thinkDef(sim, p, carrier, t) {
   if (p.mode === 'zone') {
     if (sim.thrown && B.air && !B.air.away) { const dl = dist(p, { x: B.air.ex, y: B.air.ey }); if (dl < p.zone.r + 5 && sim.t - sim.thrown >= p.lag - 1) { steer(p, B.air.ex, B.air.ey, 1, false); return; } }
     let tx = p.zone.x, ty = p.zone.y, bd = 1e9;
+    if (sim.pm.pa && sim.t < 10 && (p.grp === 'LB' || p.pos === 'SS') && !sim.thrown) { steer(p, p.zone.x - 3.2, p.zone.y, 0.7); return; }
     if (p.grp === 'S' || p.grp === 'CB') { // deep defenders play over the top of whoever runs through their lane
       let deep = null;
       sim.O.forEach(r => { if (r.mode !== 'route' || r.grp === 'HB') return; if (abs(r.y - p.zone.y) < p.zone.r + 1.5 && r.x > p.zone.x - p.zone.r * 0.6 && (!deep || r.x > deep.x)) deep = r; });
@@ -1594,7 +1753,7 @@ function resolvePairs(sim) {
     // locked in a block
     const bRat = b.rat * (b.grp === 'OL' ? 1 : 0.8), rRat = r.rat * (r.grp === 'DL' ? 1 : r.grp === 'LB' ? 0.92 : 0.8);
     let swim = 0; if (sim.human.d && sim.ctlId.d === r.id && r.dive > 0) swim = 0.012;
-    const bias = pass ? 0.002 : (sim.offPick === 'RUN_OUT' ? 0.011 : 0.02) + (RUNMOD[sim.defPick] || 0) * (sim.offPick === 'RUN_OUT' ? 0.5 : 1);
+    const bias = pass ? 0.002 : (sim.offPick === 'RUN_OUT' ? 0.011 : 0.02) + (sim.pm.rb || 0) + (RUNMOD[sim.defPick] || 0) * (sim.offPick === 'RUN_OUT' ? 0.5 : 1) + (sim.dplay === 'GOALLINE' ? -0.008 : sim.dplay === 'RUNBLITZ' ? -0.005 : 0);
     const delta = (bRat - rRat) * 0.0026 + gauss(R) * 0.045 - swim + bias;
     pr.L = clamp(pr.L * 0.975 + delta, -1, 1); r.pairL = pr.L;
     // drift
@@ -1697,7 +1856,7 @@ function landBall(sim) {
     return;
   }
   // defense won the ball
-  if (marg > 4 && R() < 0.36 + (w.p.rat - 60) * 0.004) {
+  if (marg > 4 && R() < (0.36 + (w.p.rat - 60) * 0.004) * (sim.pm.safe || 1)) {
     B.car = w.p.id; B.st = 'carried'; sim.intX = w.p.x; sim.intBy = w.p.id; sim.catchT = sim.t; sim.ctlId.d = w.p.id; sim.evt.push(['int', sim.t, w.p.id]);
     sim.D.forEach(p => { p.mode = 'ret'; });
     sim.pairs.length = 0; sim.O.forEach(o => { o.eng = null; if (o.hold) o.hold = 0; }); sim.D.forEach(d => { d.eng = null; });
@@ -3209,6 +3368,7 @@ function buildLobby() {
     '<li><b>Optional salary cap.</b> Every player and unit has a salary based on rating and position. QBs and pass rushers cost the most, running backs and safeties the least. Stay under the cap or the pick is blocked.</li>' +
     '<li><b>Call plays.</b> Offense and defense pick in secret at the same time. Pro-game ratings decide who wins the matchup.</li>' +
     '<li><b>Beat the clock.</b> Each quarter is 2:00 and the clock follows NFL rules (it stops on incompletions, out of bounds, scores and turnovers), with one change: no delay of game, just a cap of 5 seconds on the clock that can run between plays. Each team has 3 timeouts a half, plus spikes and kneel-downs.</li>' +
+    '<li><b>Real play calls.</b> Pick a section (Inside Run, Quick Pass, Deep Shot, Cover 2, Blitz ...) then a play: Mesh beats man, Flood beats zone, a Draw punishes the blitz. Arrow keys switch sections, number keys pick the play.</li>' +
     '<li><b>Or play it yourself.</b> Switch on <i>Control your players</i> when you call a play. You run the quarterback (then whoever has the ball) or a defender on the field, and everyone else moves on their own. Switch it off any time to only call plays.</li></ol>' +
     '<p class="hint">Ratings are Madden NFL 27 overalls for current starters. Unofficial fan project, no logos.</p></div>' +
     '</section>';
@@ -3526,17 +3686,18 @@ function showRosters() {
   openModal('<div class="rcols">' + col('a') + col('b') + '</div>');
 }
 function showMatchups() {
-  const plays = ['RUN_IN', 'RUN_OUT', 'PASS_S', 'PASS_M', 'PASS_D', 'SCREEN'];
-  let h = '<h3>Matchups</h3><p class="sub">Green favors the defense, red favors the offense.</p><div class="tbl-wrap"><table class="mt"><thead><tr><th></th>' + plays.map(p => '<th>' + E.OFF[p].label + '</th>').join('') + '</tr></thead><tbody>';
-  Object.keys(E.DEF_CALLS).forEach(d => {
-    h += '<tr><th>' + E.DEF_CALLS[d].label + '</th>';
-    plays.forEach(p => {
-      const v = E.MATCH[d][p], cls = v >= 0.35 ? 'good2' : v > 0.05 ? 'good1' : v <= -0.35 ? 'bad2' : v < -0.05 ? 'bad1' : 'neu';
-      h += '<td class="' + cls + '">' + (v >= 0.35 ? '++' : v > 0.05 ? '+' : v <= -0.35 ? '−−' : v < -0.05 ? '−' : '·') + '</td>';
+  const plays = Object.keys(E.OFF).filter(id => E.OFF[id].cat !== 'SPEC');
+  const sym = v => v >= 0.35 ? ['good2', '++'] : v > 0.05 ? ['good1', '+'] : v <= -0.35 ? ['bad2', '−−'] : v < -0.05 ? ['bad1', '−'] : ['neu', '·'];
+  let h = '<h3>Matchups</h3><p class="sub">How each defensive call fares against each offensive play. Green favors the defense, red favors the offense.</p><div class="tbl-wrap"><table class="mt mt-wide"><thead><tr><th></th>' +
+    plays.map(p => '<th class="vt"><span>' + esc(E.OFF[p].label) + '</span></th>').join('') + '</tr></thead><tbody>';
+  E.DEF_CATS.forEach(c => {
+    Object.keys(E.DEF_CALLS).filter(d => E.DEF_CALLS[d].cat === c.id).forEach(d => {
+      h += '<tr><th>' + esc(E.DEF_CALLS[d].label) + '</th>';
+      plays.forEach(p => { const x = sym(E.matchup(d, p)); h += '<td class="' + x[0] + '">' + x[1] + '</td>'; });
+      h += '</tr>';
     });
-    h += '</tr>';
   });
-  h += '</tbody></table></div><p class="hint">Blitz adds sacks. Screens beat the blitz. Stats decide the rest.</p>';
+  h += '</tbody></table></div><p class="hint">Mesh beats man, flood beats zone, screens beat the blitz, a stacked box stops the run but bites on play-action. Ratings decide the rest.</p>';
   openModal(h);
 }
 
@@ -3639,7 +3800,7 @@ function renderCall(G) {
   }
   const n = st.playNo, role = S.me === st.poss ? 'off' : 'def';
   const locked = S.mine[n] != null ? S.mine[n] : null;
-  const sig = n + '|' + role + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0) + '|' + (toSel(n) ? 1 : 0) + '|' + (S.toN[n] ? 1 : 0) + '|' + st.clock + '|' + st.ro;
+  const sig = n + '|' + role + '|' + (callCat(role, st) || '') + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0) + '|' + (toSel(n) ? 1 : 0) + '|' + (S.toN[n] ? 1 : 0) + '|' + st.clock + '|' + st.ro;
   if (S.callSig === sig) return; S.callSig = sig;
   const sit = ddLabel(st) + ' at ' + spotLabel(st, T);
   if (locked) {
@@ -3648,13 +3809,41 @@ function renderCall(G) {
       '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + '</b>' + (S.ctlN[n] ? '<p class="sub ctlnote">You will run the players on the field.</p>' : '') + (S.toN[n] ? '<p class="sub ctlnote">Timeout called.</p>' : '') + '<p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
     return;
   }
-  let opts;
-  if (role === 'off') opts = E.offOptions(st).filter(o => st.down === 4 ? o.id !== 'SPIKE' && o.id !== 'KNEEL' : (o.id !== 'PUNT' && o.id !== 'FG')).map(o => ({ id: o.id, label: o.label, desc: o.desc, disabled: o.disabled, note: o.note }));
-  else opts = Object.keys(E.DEF_CALLS).map(id => ({ id, label: E.DEF_CALLS[id].label, desc: E.DEF_CALLS[id].desc, disabled: false, note: '' }));
+  const cats = callCats(role, st), cat = callCat(role, st), shown = callOpts(role, st).filter(o => o.cat === cat);
   let k = 0;
   p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
     ctlRowHTML(role) + toRowHTML(st) +
-    '<div class="calls">' + opts.map(o => { const key = o.disabled ? '' : ++k; return '<button class="call" data-act="call" data-id="' + o.id + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
+    '<div class="cats" role="tablist" aria-label="Play type">' + cats.map(c => '<button class="cat' + (c.id === cat ? ' on' : '') + '" role="tab" aria-selected="' + (c.id === cat) + '" data-act="cat" data-cat="' + c.id + '">' + esc(c.label) + '<i>' + c.n + '</i></button>').join('') + '</div>' +
+    '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k; return '<button class="call" data-act="call" data-id="' + o.id + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
+}
+// play calls come in sections (Inside Run, Quick Pass, Cover 2/3/4 ...): one section is open at a time
+function callOpts(role, st) {
+  return role === 'off' ? E.offOptions(st).filter(o => st.down === 4 ? o.id !== 'SPIKE' && o.id !== 'KNEEL' : (o.id !== 'PUNT' && o.id !== 'FG')) : E.defOptions();
+}
+function callCats(role, st) {
+  const opts = callOpts(role, st);
+  return (role === 'off' ? E.OFF_CATS : E.DEF_CATS).map(c => ({ id: c.id, label: c.label, n: opts.filter(o => o.cat === c.id).length })).filter(c => c.n);
+}
+function callCat(role, st) {
+  const cats = callCats(role, st), has = id => cats.some(c => c.id === id), n = st.playNo;
+  if (S.catSel && S.catSel.n === n && S.catSel.role === role && has(S.catSel.cat)) return S.catSel.cat;
+  if (role === 'off' && st.down === 4 && has('SPEC')) return 'SPEC';
+  const last = lsGet('gd_cat_' + role);
+  if (last && last !== 'SPEC' && has(last)) return last;
+  const dflt = role === 'off' ? 'PASS_M' : 'ZONE';
+  return has(dflt) ? dflt : (cats[0] && cats[0].id);
+}
+function openCat(id) {
+  const G = S.G; if (!G || !S.me) return;
+  const st = G.state, role = S.me === st.poss ? 'off' : 'def';
+  if (!callCats(role, st).some(c => c.id === id)) return;
+  S.catSel = { n: st.playNo, role, cat: id }; S.callSig = null; renderCall(G);
+}
+function stepCat(d) {
+  const G = S.G; if (!G || !S.me || S.mine[G.state.playNo] != null) return;
+  const st = G.state, role = S.me === st.poss ? 'off' : 'def', cats = callCats(role, st), cur = callCat(role, st);
+  const i = cats.findIndex(c => c.id === cur); if (i < 0) return;
+  openCat(cats[(i + d + cats.length) % cats.length].id);
 }
 const toSel = n => !!(S.toSel && S.toSel.n === n && S.toSel.on);
 // a timeout stops the clock before the snap and gives back whatever ran off since the last play
@@ -3677,6 +3866,7 @@ function submitCall(pick) {
   if (role === 'off') { if (!E.offOptions(st).some(o => o.id === pick && !o.disabled)) return; }
   else if (!E.DEF_CALLS[pick]) return;
   S.mine[n] = pick; S.callSig = null;
+  { const c = (role === 'off' ? E.OFF[pick] : E.DEF_CALLS[pick]).cat; if (c !== 'SPEC') lsSet('gd_cat_' + role, c); }
   const ctl = S.ctlOn && !(role === 'off' && E.noDef(pick)) ? 1 : 0;
   const to = toSel(n) && st.ro > 0 && st.to[S.me] > 0 ? 1 : 0;
   if (to) S.toN[n] = 1; else delete S.toN[n];
@@ -4020,6 +4210,7 @@ document.addEventListener('click', ev => {
   else if (a === 'sd-tab') { const sd = S.sd; if (sd) { sd.tab = t.dataset.k; sdUpdate(); } }
   else if (a === 'copy') { const done = () => toast('Room code copied.'); try { navigator.clipboard.writeText(S.code).then(done, () => toast('Copy failed. Select the code and copy it.')); } catch (e) { toast('Copy failed. Select the code and copy it.'); } }
   else if (a === 'call') submitCall(t.dataset.id);
+  else if (a === 'cat') openCat(t.dataset.cat);
   else if (a === 'ctl-toggle') { S.ctlOn = !S.ctlOn; lsSet('gd_ctl', S.ctlOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
   else if (a === 'to-toggle') { const n = S.G.state.playNo; S.toSel = { n, on: !toSel(n) }; S.callSig = null; renderCall(S.G); }
   else if (a === 'live-hand') LV.hand();
@@ -4037,6 +4228,7 @@ document.addEventListener('keydown', ev => {
   if (LV.on) { if (LV.key(ev, true)) return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
+  if (S.screen === 'game' && !LV.on && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && $('#callpanel .cats')) { ev.preventDefault(); stepCat(ev.key === 'ArrowRight' ? 1 : -1); return; }
   if (S.screen === 'game' && !LV.on && /^[1-9]$/.test(ev.key)) {
     const btns = document.querySelectorAll('#callpanel .call:not([disabled])');
     const b = btns[+ev.key - 1]; if (b) submitCall(b.dataset.id);
