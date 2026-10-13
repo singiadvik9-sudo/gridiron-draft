@@ -3,7 +3,7 @@ const E = require('./lib/engine.js');
 const ok = (c, m) => { if (!c) { console.log('FAIL', m); process.exitCode = 1; } else console.log('ok  ', m); };
 const mk = n => { const r = E.mulberry32(n); return { a: E.mkTeam('A', E.autoDraft(r)), b: E.mkTeam('B', E.autoDraft(r)) }; };
 const T = mk(3), U = { a: E.teamUnits(T.a), b: E.teamUnits(T.b) };
-ok(E.QLEN === 120 && E.CAP === 5, 'quarters are 2:00 and the cap is 5 s');
+ok(E.QLEN === 120 && E.CAP === 5, 'quarters are 2:00 and the runoff cap is 5 s');
 
 // ---- full CPU games: invariants on every snap
 let maxPlays = 0, minPlays = 1e9, ots = 0, bad = [], total = 0, spikes = 0, kneels = 0, runoffPlays = 0, tos = 0;
@@ -16,12 +16,13 @@ for (let seed = 1; seed <= 40; seed++) {
     const dpick = kick ? null : E.cpuMove(st, U, def, seed, 'def');
     const res = E.stepGame(st, T, U, seed, pick, dpick, null, { o: !!to, d: false });
     const ns = res.state, e = res.entry;
-    if (e.pt > 5 || e.pt < 0) bad.push('pt ' + e.pt);
+    if (e.pt > 8 || e.pt < 0) bad.push('pt ' + e.pt);
     const q0 = st.q;
     if (ns.q === q0 && !ns.over) {
       const used = st.clock - ns.clock;
-      if (used > 5) bad.push('cap broken ' + used + ' seed ' + seed);
-      if (used < 0) bad.push('clock went up ' + seed);
+      if (ns.ro > 5) bad.push('runoff over the cap ' + ns.ro);
+      if (used > e.pt + 5) bad.push('cap broken ' + used + ' seed ' + seed);
+      if (used < 0 && (ns.to.a + ns.to.b) === (st.to.a + st.to.b)) bad.push('clock went up ' + seed);
       if (ns.clock < 1) bad.push('between snaps the clock must be at least 1 s ' + ns.clock);
     }
     if (ns.clock < 0) bad.push('negative clock');

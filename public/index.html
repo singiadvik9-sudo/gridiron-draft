@@ -445,7 +445,7 @@ window.DATA = {"SCHED":[[1,"NE","SEA"],[1,"SF","LA"],[1,"CHI","CAR"],[1,"TB","CI
 
 /* ================= constants ================= */
 const QLEN = 120;       // seconds per quarter (and per overtime)
-const CAP = 5;          // most clock a single play may run, snap to snap (there is no delay of game)
+const CAP = 5;          // most clock that may run between the end of a play and the next snap (there is no delay of game)
 const TO_HALF = 3, TO_OT = 2;   // timeouts per team per half / in overtime
 const oth = t => t === 'a' ? 'b' : 'a';
 
@@ -802,7 +802,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags) {
   } else if (live) {
     // a snap the players actually played out on the field (lib/live.js): the outcome tells where the ball ended up
     const lv = live, qb = nm(o, 'QB');
-    pt = clamp(Math.ceil((lv.t || 20) / 20), 1, CAP); if (lv.k === 'inc' || lv.oob) stopFlag = true;
+    pt = clamp(Math.ceil((lv.t || 20) / 20), 1, 8); if (lv.k === 'inc' || lv.oob) stopFlag = true;
     entry.live = true; entry.liveT = lv.t || 0;
     const clampY = y => clamp(Math.round(y), -st.ballOn, 100 - st.ballOn);
     if (lv.k === 'sack') {
@@ -964,8 +964,8 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags) {
   const left = s.clock - pt;
   entry.pt = pt;
   if (left > 0) {
-    // while the clock keeps running it burns up to CAP seconds per play (play time included), but a quarter never ends between snaps
-    const ro = stops ? 0 : Math.min(CAP - pt, left - 1);
+    // after the play, if the clock is still running, at most CAP more seconds tick off before the next snap; a quarter never ends between snaps
+    const ro = stops ? 0 : Math.min(CAP, left - 1);
     s.clock = left - ro; s.ro = ro;
     if (st.ot && changed) s.over = true;
   } else {
@@ -1058,7 +1058,7 @@ function cpuOffense(st, U, me, rnd) {
   rnd = rnd || Math.random;
   const OU = U[me];
   const lead = st.score[me] - st.score[oth(me)];
-  if (st.q === 4 && !st.ot && lead > 0 && st.down <= 3 && st.clock <= CAP * (4 - st.down)) return 'KNEEL';
+  if (st.q === 4 && !st.ot && lead > 0 && st.down <= 3 && st.clock <= (CAP + 3) * (4 - st.down)) return 'KNEEL';
   if (!st.ot && (st.q === 2 || (st.q === 4 && lead <= 0)) && st.ro > 0 && st.down <= 3 && st.clock <= 12 && fgDist(st) <= 50) return 'SPIKE';
   if (!st.ot && (st.q === 2 || (st.q === 4 && lead < 0)) && st.clock <= 40 && st.down < 4 && fgDist(st) > 20) return ['PASS_S', 'PASS_M', 'PASS_M', 'PASS_D'][Math.floor(rnd() * 4)];
   if (st.down === 4) {
@@ -3208,7 +3208,7 @@ function buildLobby() {
     '<li><b>Snake draft 11 slots.</b> Quarterback, running back, two receivers, tight end, an entire offensive line, an entire defense, a kicker, a punt returner, a kick returner, and the rest of special teams (punter, long snapper, coverage). You and your opponent take turns from one shared pool (1-2-2-1…), and every player can only be on one team.</li>' +
     '<li><b>Optional salary cap.</b> Every player and unit has a salary based on rating and position. QBs and pass rushers cost the most, running backs and safeties the least. Stay under the cap or the pick is blocked.</li>' +
     '<li><b>Call plays.</b> Offense and defense pick in secret at the same time. Pro-game ratings decide who wins the matchup.</li>' +
-    '<li><b>Beat the clock.</b> Each quarter is 2:00 and the clock follows NFL rules (it stops on incompletions, out of bounds, scores and turnovers), with one change: no delay of game, a play can only run the clock 5 seconds. Each team has 3 timeouts a half, plus spikes and kneel-downs.</li>' +
+    '<li><b>Beat the clock.</b> Each quarter is 2:00 and the clock follows NFL rules (it stops on incompletions, out of bounds, scores and turnovers), with one change: no delay of game, just a cap of 5 seconds on the clock that can run between plays. Each team has 3 timeouts a half, plus spikes and kneel-downs.</li>' +
     '<li><b>Or play it yourself.</b> Switch on <i>Control your players</i> when you call a play. You run the quarterback (then whoever has the ball) or a defender on the field, and everyone else moves on their own. Switch it off any time to only call plays.</li></ol>' +
     '<p class="hint">Ratings are Madden NFL 27 overalls for current starters. Unofficial fan project, no logos.</p></div>' +
     '</section>';
