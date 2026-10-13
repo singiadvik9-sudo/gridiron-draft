@@ -784,6 +784,20 @@ function drawWait() {
 }
 
 /* ---------- game screen ---------- */
+// full screen: the browser's own full screen where it exists (not on iPhone), plus a layout that drops the header and gives the field all the room
+const isFull = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+const fsLabel = () => document.body.classList.contains('fs') ? '✕ Exit full screen' : '⛶ Full screen';
+function setFs(on) { document.body.classList.toggle('fs', on); const b = $('.fsbtn'); if (b) b.textContent = fsLabel(); }
+function toggleFull() {
+  const on = !document.body.classList.contains('fs'), d = document, el = d.documentElement;
+  try {
+    if (on) { const rq = el.requestFullscreen || el.webkitRequestFullscreen; if (rq) { const r = rq.call(el); if (r && r.catch) r.catch(() => {}); } }
+    else if (isFull()) { const ex = d.exitFullscreen || d.webkitExitFullscreen; if (ex) ex.call(d); }
+  } catch (e) { /* the layout still switches */ }
+  setFs(on);
+}
+document.addEventListener('fullscreenchange', () => { if (!isFull()) setFs(false); });
+document.addEventListener('webkitfullscreenchange', () => { if (!isFull()) setFs(false); });
 function buildGame() {
   Field.init();
   $('#main').innerHTML =
@@ -796,6 +810,7 @@ function buildGame() {
     '<div class="side"><div class="banner" id="banner"></div><ol class="log" id="log"></ol>' +
     '<div class="row"><button class="btn small" data-act="rosters">Rosters</button><button class="btn small" data-act="matchups">Matchups</button></div></div></div></section>';
   $('#fieldHost').appendChild(Field.cv);
+  $('#fieldHost').insertAdjacentHTML('beforeend', '<button class="fsbtn" data-act="fullscreen" title="Full screen (F)" aria-label="Toggle full screen">' + fsLabel() + '</button>');
   S.shown = null; S.callSig = null;
 }
 function updateGame() {
@@ -803,6 +818,7 @@ function updateGame() {
   if (!G) { drawWait(); return; }
   S.G = G;
   const st = G.state, T = G.teams, ck = E.clockInfo(st);
+  document.body.classList.toggle('gover', !!st.over);
   const set = (id, v) => { const el = $(id); if (el && el.textContent !== String(v)) el.textContent = v; };
   set('#sb-an', T.a.name + (S.me === 'a' ? ' (you)' : '')); set('#sb-bn', T.b.name + (S.me === 'b' ? ' (you)' : ''));
   set('#sb-as', st.score.a); set('#sb-bs', st.score.b);
@@ -922,7 +938,7 @@ function renderCall(G) {
   p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
     ctlRowHTML(role) + toRowHTML(st) +
     '<div class="cats" role="tablist" aria-label="Play type">' + cats.map(c => '<button class="cat' + (c.id === cat ? ' on' : '') + '" role="tab" aria-selected="' + (c.id === cat) + '" data-act="cat" data-cat="' + c.id + '">' + esc(c.label) + '<i>' + c.n + '</i></button>').join('') + '</div>' +
-    '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k; return '<button class="call" data-act="call" data-id="' + o.id + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
+    '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k; return '<button class="call" data-act="call" data-id="' + o.id + '" title="' + esc(o.desc) + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
 }
 // play calls come in sections (Inside Run, Quick Pass, Cover 2/3/4 ...): one section is open at a time
 function callOpts(role, st) {
@@ -1020,7 +1036,7 @@ window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.a
 /* ---------- router ---------- */
 function render() {
   const sc = screenName(), changed = sc !== S.screen;
-  S.screen = sc;
+  S.screen = sc; document.body.classList.toggle('ingame', sc === 'game');
   renderHeader();
   if (sc === 'lobby') { if (changed) { if (window.HUB) window.HUB.show(); else buildLobby(); } }
   else if (sc === 'draft') { if (changed) { S.sd && (S.sd.built = false); sdUpdate(); } else sdUpdate(); }
@@ -1035,6 +1051,7 @@ document.addEventListener('click', ev => {
   if (a === 'create') createRoom();
   else if (a === 'join') joinRoom($('#code').value);
   else if (a === 'cpu') startLocal();
+  else if (a === 'fullscreen') toggleFull();
   else if (a === 'leave') leave();
   else if (a === 'ctx-done') { const c = S.ctx; leave(); if (c && c.onDone) c.onDone(); }
   else if (a === 'ctx-retry') { const c = S.ctx; if (c) { c.sent = false; ctxFinish(S.G); renderCall(S.G); } }
@@ -1060,6 +1077,7 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape') { closeModal(); return; }
   const m = $('#modal'); if (m && !m.hidden) return;
   if (LV.on) { if (LV.key(ev, true)) return; }
+  if (S.screen === 'game' && (ev.key === 'f' || ev.key === 'F') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { toggleFull(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && $('#callpanel .cats')) { ev.preventDefault(); stepCat(ev.key === 'ArrowRight' ? 1 : -1); return; }
