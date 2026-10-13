@@ -8,6 +8,13 @@ A pixel-football game with real NFL starters (Madden-style ratings). Static page
 - **Leagues** (accounts only): the manager creates a league and shares the code. In the lobby the manager toggles divisions on/off (and how many), CPU teams on/off, NFL-team entry vs. a snake draft of every player, trades on/off (plus deadline), games per team, playoff size, draft order and who sits in which division. Humans can play each other live or the manager can sim the week. Each finished season is written to every manager's account (record, rank, champion flag, personal stat lines) until they delete it on the Account page.
 - **Tournaments** (accounts only): single elimination, best-of per round (early / semis / final), snake-drafted teams (optional salary cap, up to 16 teams, CPU entrants auto-pick, manager can auto-pick for anyone who stalls) or real NFL teams, CPU entrants, custom seeding (drag-free: up/down arrows, join order, random, by rating), manager overrides. Byes go to top seeds when the field isn't a power of two.
 
+## Playing it yourself (live control)
+On every call screen there is a **Control your players** switch (key `C`, remembered between plays). Off: you only call plays and the stat engine decides the snap, as before. On: both sides' players run on the field in real time (`lib/live.js`, 22 players at 20 ticks a second). The offense plays the quarterback (WASD or arrows to move, `1-4` throw to the numbered receiver, `Space` throws it away), then whoever has the ball (`Space` jukes). The defense plays one defender (`Space` dives, `E` switches to the one nearest the ball). Everyone you don't control moves on his own, following the play call. Touch screens get an on-screen pad. "Let the computer play it" hands your player back mid-snap. Kicks and punts stay automatic. Either player can have it on or off on any play, vs. a friend or the CPU, in quick games, leagues and tournaments.
+
+How it stays in sync (and honest): the snap is a pure function of `seed + play number + squads + calls + each controller's input trace`. Each player streams inputs through the room (`op: 'live'` in `api/room.js`); an input takes effect ~0.5 s later on every screen (input delay, which raises itself if the connection is slow) and a screen only advances once it has both players' inputs (lockstep). The traces are stored with the game, so the server replays the exact same snap when it verifies a league or tournament result. If a player vanishes mid-snap, the other can hand their player to the computer after 5 s. Reloading mid-snap rebuilds it from the room.
+
+Note: a live snap costs roughly 10 Redis commands per second per controlling player while it runs (about 100-200 commands for a snap), so a game played entirely live uses a few thousand.
+
 ## Deploy
 1. Push this folder to GitHub, import it in Vercel. Framework: **Other**, no build command, output directory `public` (already in `vercel.json`; `public/index.html` is committed pre-built).
 2. Add **Upstash Redis** from the Vercel Marketplace (it sets `KV_REST_API_URL` / `KV_REST_API_TOKEN`, or `UPSTASH_REDIS_REST_URL` / `_TOKEN`). Without it the functions use per-instance memory, which only works for local testing.
@@ -27,8 +34,9 @@ Leagues and tournaments poll a tiny version key every 5 s while open. Free-tier 
 ```
 python3 build.py          # inlines lib/ + src/ into public/index.html
 node dev-server.js 3000       # serves public/ and mounts every api/*.js (in-memory store)
-node test_league.js && node test_custom.js && node test_api.js
+node test_league.js && node test_custom.js && node test_api.js && node test_live.js
+python3 mkfast.py && node dev-server.js 5055 public_fast   # then: python3 ui_live.py (human vs human, live), ui_live_cpu.py
 ```
-- `lib/engine.js` shared game engine; `lib/league.js` season/draft/trade/bracket logic (browser + server); `lib/draft.js` snake-draft board, salary model and CPU drafter; `lib/data.json` real players (built by `build_data.py` from nflverse depth charts, rosters and schedule + EA Madden ratings; players without a published rating inherit comparable players' ratings).
+- `lib/live.js` the on-field simulation (`src/live_client.js` is its renderer, input and lockstep layer); `lib/engine.js` shared game engine; `lib/league.js` season/draft/trade/bracket logic (browser + server); `lib/draft.js` snake-draft board, salary model and CPU drafter; `lib/data.json` real players (built by `build_data.py` from nflverse depth charts, rosters and schedule + EA Madden ratings; players without a published rating inherit comparable players' ratings).
 - Skin/hair per player are approximate; sprites only vary in those two (plus team colors).
 - Unofficial fan project, no logos.

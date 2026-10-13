@@ -1,9 +1,41 @@
 // Quick-game rooms (guests or accounts) and the live rooms used by league games and tournament matches.
 const { cmd, getJ, setJ, parse, readBody, send, fail, clean, randCode, userFrom, withLock } = require('./_lib');
-const { createRoom, rkey, TTL } = require('./_rooms');
+const { createRoom, readRoom, liveAll, rkey, TTL } = require('./_rooms');
 const E = require('../lib/engine.js');
 const DR = require('../lib/draft.js');
 const CAPVALS = Object.values(DR.CAPS);
+
+/* Live plays: each seat streams its controller inputs (lib/live.js traces) through here, one key per play and seat.
+   rec = { ev: [ints], upto: tick through which the stream is complete, fin: the play is over for this seat, t: last write, f: 1 when the other seat forced an AI takeover } */
+async function liveOp(res, b, code, seat) {
+  const n = b.n;
+  if (!Number.isInteger(n) || n < 0 || n > 400) return fail(res, 400, 'bad_request');
+  const me = rkey(code, 'lv:' + n + ':' + seat), her = rkey(code, 'lv:' + n + ':' + (seat === 'a' ? 'b' : 'a'));
+  const [mine, other] = (await cmd(['MGET', me, her])).map(parse);
+  const now = Date.now();
+  if (b.poll) return send(res, 200, { o: other || null, forced: mine && mine.f ? mine : undefined });
+  if (b.force) {   // the other player is gone: their stream ends with the computer taking over their player
+    const o = other || { ev: [], upto: 0, fin: false, t: 0 };
+    if (o.fin || o.f) return send(res, 200, { o });
+    if (other && now - (other.t || 0) < 5000) return fail(res, 409, 'alive');
+    const mk = (o.ev.length ? Math.floor(o.ev[o.ev.length - 1] / 100) : 0);
+    const tick = Math.max(o.upto || 0, mk) + 1;
+    const nr = { ev: o.ev.concat([tick * 100 + 49]), upto: 9999, fin: true, t: now, f: 1 };
+    await setJ(her, nr, TTL);
+    return send(res, 200, { o: nr });
+  }
+  const ev = E.cleanTrace(b.ev), upto = Number.isInteger(b.upto) ? Math.max(0, Math.min(9999, b.upto)) : 0;
+  if (!ev) return fail(res, 400, 'bad_request');
+  if (mine && mine.f) return send(res, 200, { o: other || null, forced: mine });
+  let rec = mine;
+  if (!mine || upto > mine.upto || (b.fin && !mine.fin) || ev.length > mine.ev.length) {
+    const prev = mine ? mine.ev : [];
+    for (let i = 0; i < prev.length; i++) if (ev[i] !== prev[i]) return fail(res, 409, 'diverged');
+    rec = { ev, upto: Math.max(upto, mine ? mine.upto : 0), fin: !!(b.fin || (mine && mine.fin)), t: now };
+    await setJ(me, rec, TTL);
+  } else if (now - (mine.t || 0) > 1500) { rec = Object.assign({}, mine, { t: now }); await setJ(me, rec, TTL); }
+  return send(res, 200, { o: other || null });
+}
 
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -39,7 +71,9 @@ module.exports = async function handler(req, res) {
     }
     if (op === 'state') {
       const v = (await cmd(['MGET', rkey(code, 'a'), rkey(code, 'b'), rkey(code, 'ma'), rkey(code, 'mb'), rkey(code, 'dr')])).map(parse);
-      return send(res, 200, { seats: { a: v[0] || undefined, b: v[1] || undefined }, moves: { a: v[2] || {}, b: v[3] || {} }, dr: v[4] || undefined });
+      const out = { seats: { a: v[0] || undefined, b: v[1] || undefined }, moves: { a: v[2] || {}, b: v[3] || {} }, dr: v[4] || undefined };
+      if (b.lvall) out.lv = await liveAll(code, out.moves);
+      return send(res, 200, out);
     }
     const seat = b.seat === 'a' || b.seat === 'b' ? b.seat : null;
     if (!seat || !pid) return fail(res, 400, 'bad_request');
@@ -71,10 +105,11 @@ module.exports = async function handler(req, res) {
       if (!Number.isInteger(n) || n < 0 || n > 400 || !pick) return fail(res, 400, 'bad_request');
       const mk = rkey(code, 'm' + seat);
       const moves = parse(await cmd(['GET', mk])) || {};
-      if (moves[n] === undefined) moves[n] = pick;
+      if (moves[n] === undefined) moves[n] = b.ctl ? { p: pick, c: 1 } : pick;   // c: this player also runs the players on the field
       await setJ(mk, moves, TTL);
       return send(res, 200, { ok: true });
     }
+    if (op === 'live') return await liveOp(res, b, code, seat);
     return fail(res, 400, 'bad_request');
   } catch (e) { return fail(res, 500, 'server'); }
 };

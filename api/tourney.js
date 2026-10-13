@@ -297,11 +297,7 @@ module.exports = async function (req, res) {
             const rm = await readRoom(cur.room); if (!rm) bad('The room expired.');
             R = E.replay(gameSeed(doc, m, cur.k), cur.T, rm.moves, []);
           } else {
-            const side = homeEnt === mine ? 'a' : 'b', mv = {};
-            Object.keys(b.moves || {}).forEach(k => {
-              const mm = /^(\d{1,3})-(a|b)$/.exec(k); const pk = b.moves[k] && b.moves[k].pick;
-              if (mm && mm[2] === side && typeof pk === 'string' && pk.length <= 12) mv[k] = { pick: pk };
-            });
+            const side = homeEnt === mine ? 'a' : 'b', mv = E.cleanMoves(b.moves, side);
             R = E.replay(gameSeed(doc, m, cur.k), cur.T, mv, [side === 'a' ? 'b' : 'a']);
           }
           if (!R.state.over) bad('That game did not finish.');

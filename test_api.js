@@ -4,17 +4,18 @@ const H={auth:require('./api/auth.js'),league:require('./api/league.js'),tourney
 async function call(name,body,tok){return new Promise(r=>{const req={method:'POST',body,headers:tok?{'x-token':tok}:{}};const res={status(c){this.c=c;return this},json(o){r(Object.assign({_c:this.c},o))},setHeader(){}};H[name](req,res)})}
 const ok=(c,m)=>{if(!c){console.log('FAIL',m);process.exitCode=1}else console.log('ok  ',m)};
 // play a human side locally: returns moves for that side
-function playSide(info){
-  const T=info.T,U={a:E.teamUnits(T.a),b:E.teamUnits(T.b)}; let st=E.initState(info.seed); const mine=info.side, moves={}; let g=0;
+function playSide(info,live){
+  const T=info.T,U={a:E.teamUnits(T.a),b:E.teamUnits(T.b)}; let st=E.initState(info.seed); const mine=info.side, other=mine==='a'?'b':'a', moves={}; let g=0;
+  const r=E.mulberry32(info.seed);
   while(!st.over&&g++<200){const n=st.playNo,off=st.poss,def=off==='a'?'b':'a';
-    const pick=(side,role)=>E.cpuMove(st,U,side,info.seed,role);
-    let om,dm; if(off===mine){om={pick:pick(mine,'off')};moves[n+'-'+off]=om}else om={pick:pick(off,'off')};
-    const kick=E.OFF&&0;
-    const k=require('./lib/engine.js');
-    // defense
-    const isKick=false;
-    if(def===mine){dm={pick:pick(mine,'def')};moves[n+'-'+def]=dm}else dm={pick:pick(def,'def')};
-    const res=E.stepGame(st,T,U,info.seed,om.pick,dm.pick);st=res.state;}
+    const role=off===mine?'off':'def';
+    const pick=E.cpuMove(st,U,mine,info.seed,role);
+    const kick=role==='off'&&E.OFF[E.legalOff(st,pick)].kind==='kick';
+    const ctl=live&&!kick&&n%3===0;
+    moves[n+'-'+mine]=ctl?{pick,ctl:1}:{pick};
+    if(ctl){const a=[];let t=2;for(let k=0;k<10;k++){t+=1+Math.floor(r()*9);a.push(E.LIVE.enc(t,Math.floor(r()*3)-1,Math.floor(r()*3)-1,r()<.25?1+Math.floor(r()*6):0))}
+      moves[n+'-lv']=mine==='a'?{a,b:[]}:{a:[],b:a}}
+    st=E.replay(info.seed,T,moves,[other]).state;}
   return moves;
 }
 (async()=>{
@@ -58,7 +59,7 @@ function playSide(info){
         } else {
           const owner=L.teams[who[0]].owner, tok=owner==='alice'?ta:tb;
           const p=await call('league',{op:'play',code,gid:x.id},tok);
-          const mv=playSide(p);
+          const mv=playSide(p,true);
           const rp=await call('league',{op:'report',code,gid:x.id,moves:mv},tok); ok(rp.ok,'vs cpu verified '+rp.sh+'-'+rp.sa+' '+(rp.error||''));
           // tampered replay should fail
         }
@@ -93,7 +94,7 @@ function playSide(info){
         for(const k in mh){await call('room',{op:'move',code:pa.room,seat:pa.side,n:+k.split('-')[0],pick:mh[k].pick},ta)}
         const os=pa.side==='a'?'b':'a';for(const k in ma){await call('room',{op:'move',code:pa.room,seat:os,n:+k.split('-')[0],pick:ma[k].pick},tb)}
         const rp=await call('tourney',{op:'report',code:tc,mid:m.id},ta);ok(rp.ok,'t report hvh '+(rp.error||''))}
-      else if(hs.length===1){const tk=hs[0].owner==='alice'?ta:tb;const p=await call('tourney',{op:'play',code:tc,mid:m.id},tk);const rp=await call('tourney',{op:'report',code:tc,mid:m.id,moves:playSide(p)},tk);ok(rp.ok,'t report vs cpu '+(rp.error||''))}
+      else if(hs.length===1){const tk=hs[0].owner==='alice'?ta:tb;const p=await call('tourney',{op:'play',code:tc,mid:m.id},tk);const rp=await call('tourney',{op:'report',code:tc,mid:m.id,moves:playSide(p,true)},tk);ok(rp.ok,'t report vs cpu '+(rp.error||''))}
     }
   }
   tg=(await call('tourney',{op:'get',code:tc},ta)).T;ok(tg.phase==='done','tourney done champ '+(tg.ent.find(e=>e.id===tg.champ)||{}).name);

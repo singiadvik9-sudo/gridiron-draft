@@ -401,3 +401,21 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .sd-lu li.empty { opacity: .45; } .sd-lu.small li { font-size: 13px; }
 .sd-recent li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; font-size: 14px; } .sd-recent i { color: var(--mute); font-style: normal; }
 @media (max-width: 800px) { .sd-body { grid-template-columns: 1fr; } .sd-list { max-height: 55vh; } .sd-row { grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 6px; } }
+
+/* live play: running the players yourself */
+.ctlrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
+.btn.ctl { border-color: var(--line); }
+.btn.ctl.on { background: var(--flag); color: #1a1405; border-color: var(--flag); }
+.ctlrow .hint { flex: 1 1 220px; margin: 0; }
+.ctlnote { color: var(--good); }
+.lvinfo { font-size: 19px; line-height: 1.25; margin: 10px 0; min-height: 48px; }
+.lvinfo b { color: var(--flag); font-weight: 600; }
+.lvpad { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 10px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.dpad { display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); gap: 4px; }
+.pb { background: var(--panel2); border: 2px solid var(--line); border-bottom-width: 5px; font-size: 18px; touch-action: none; }
+.pb:active { border-bottom-width: 2px; transform: translateY(2px); border-color: var(--flag); }
+.pb.u { grid-column: 2; grid-row: 1; } .pb.l { grid-column: 1; grid-row: 2; } .pb.r { grid-column: 3; grid-row: 2; } .pb.d { grid-column: 2; grid-row: 3; }
+.lvact { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; flex: 1; }
+.ab { min-width: 52px; min-height: 52px; padding: 0 12px; background: var(--flag); color: #1a1405; border: 2px solid #1a1405; border-bottom-width: 5px; font-family: var(--display); font-size: 14px; touch-action: none; }
+.ab.wide { min-width: 96px; }
+.ab:active { border-bottom-width: 2px; transform: translateY(2px); }

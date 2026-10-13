@@ -306,11 +306,7 @@ module.exports = async function (req, res) {
             const done = LG.playVerified(L, g, rm.moves, []);
             if (!done) bad('Both teams have not finished the game yet.');
           } else {
-            const side = g.h === t.id ? 'a' : 'b', mv = {};
-            Object.keys(b.moves || {}).forEach(k => {
-              const m = /^(\d{1,3})-(a|b)$/.exec(k); const pk = b.moves[k] && b.moves[k].pick;
-              if (m && m[2] === side && typeof pk === 'string' && pk.length <= 12) mv[k] = { pick: pk };
-            });
+            const side = g.h === t.id ? 'a' : 'b', mv = E.cleanMoves(b.moves, side);
             const done = LG.playVerified(L, g, mv, [side === 'a' ? 'b' : 'a']);
             if (!done) bad('That game did not finish.');
           }

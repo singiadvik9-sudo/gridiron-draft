@@ -407,6 +407,24 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .sd-recent li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; font-size: 14px; } .sd-recent i { color: var(--mute); font-style: normal; }
 @media (max-width: 800px) { .sd-body { grid-template-columns: 1fr; } .sd-list { max-height: 55vh; } .sd-row { grid-template-columns: 34px minmax(0, 1fr) auto auto; gap: 6px; } }
 
+/* live play: running the players yourself */
+.ctlrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
+.btn.ctl { border-color: var(--line); }
+.btn.ctl.on { background: var(--flag); color: #1a1405; border-color: var(--flag); }
+.ctlrow .hint { flex: 1 1 220px; margin: 0; }
+.ctlnote { color: var(--good); }
+.lvinfo { font-size: 19px; line-height: 1.25; margin: 10px 0; min-height: 48px; }
+.lvinfo b { color: var(--flag); font-weight: 600; }
+.lvpad { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 10px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.dpad { display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); gap: 4px; }
+.pb { background: var(--panel2); border: 2px solid var(--line); border-bottom-width: 5px; font-size: 18px; touch-action: none; }
+.pb:active { border-bottom-width: 2px; transform: translateY(2px); border-color: var(--flag); }
+.pb.u { grid-column: 2; grid-row: 1; } .pb.l { grid-column: 1; grid-row: 2; } .pb.r { grid-column: 3; grid-row: 2; } .pb.d { grid-column: 2; grid-row: 3; }
+.lvact { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; flex: 1; }
+.ab { min-width: 52px; min-height: 52px; padding: 0 12px; background: var(--flag); color: #1a1405; border: 2px solid #1a1405; border-bottom-width: 5px; font-family: var(--display); font-size: 14px; touch-action: none; }
+.ab.wide { min-width: 96px; }
+.ab:active { border-bottom-width: 2px; transform: translateY(2px); }
+
 </style>
 <div class="wrap">
   <header class="mast">
@@ -669,7 +687,7 @@ function clockInfo(st) {
   return { q: 'Q' + q, inQ: (st.playNo % PQ) + 1, perQ: PQ };
 }
 
-function stepGame(st, teams, U, seed, offPickRaw, defPickRaw) {
+function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live) {
   const R = mulberry32(hashStr(seed + ':' + st.playNo));
   const gauss = () => (R() + R() + R() + R() - 2) * 1.7320508;
   const o = st.poss, d = o === 'a' ? 'b' : 'a';
@@ -755,6 +773,60 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw) {
       entry.ev = 'fgmiss';
       giveBall(d, Math.max(20, 100 - st.ballOn + 7));
       entry.text = nm(o, 'K') + ' misses from ' + dist + ' yards.';
+    }
+  } else if (live) {
+    // a snap the players actually played out on the field (lib/live.js): the outcome tells where the ball ended up
+    const lv = live, qb = nm(o, 'QB');
+    entry.live = true; entry.liveT = lv.t || 0;
+    const clampY = y => clamp(Math.round(y), -st.ballOn, 100 - st.ballOn);
+    if (lv.k === 'sack') {
+      const loss = Math.max(1, Math.round(-lv.x)), who = lv.by ? nm(d, lv.by) : 'The defense'; entry.defId = lv.by; entry.qbId = 'QB';
+      entry.anim = 'sack'; entry.travel = -loss; entry.yards = -loss; entry.ev = 'sack';
+      const nb = st.ballOn - loss;
+      if (nb <= 0) entry.text = safety(who + ' sacks ' + qb + ' in the end zone.');
+      else {
+        s.ballOn = nb; s.toGo = st.toGo + loss; s.down = st.down + 1;
+        entry.text = who + ' sacks ' + qb + ' for a loss of ' + yds(loss) + '.';
+        if (s.down > 4) { giveBall(d, 100 - nb); entry.ev = 'downs'; entry.text += ' Turnover on downs.'; }
+      }
+    } else if (lv.k === 'inc') {
+      const rec = lv.tgt ? nm(o, lv.tgt) : null; entry.qbId = 'QB'; if (lv.tgt) entry.recId = lv.tgt;
+      entry.anim = 'inc'; entry.travel = Math.max(2, Math.round(lv.x)); entry.ev = 'inc';
+      s.toGo = st.toGo; s.down = st.down + 1; s.ballOn = st.ballOn;
+      if (lv.away || !rec) entry.text = qb + ' throws it away.';
+      else if (lv.pbu) { entry.defId = lv.pbu; entry.text = qb + "'s pass for " + rec + ' is broken up by ' + nm(d, lv.pbu) + '.'; }
+      else if (lv.drop) entry.text = rec + ' drops the pass from ' + qb + '.';
+      else entry.text = qb + "'s pass for " + rec + ' falls incomplete.';
+      if (s.down > 4) { giveBall(d, 100 - st.ballOn); entry.ev = 'downs'; entry.text += ' Turnover on downs.'; }
+    } else if (lv.k === 'int') {
+      const who = nm(d, lv.by); entry.defId = lv.by; entry.qbId = 'QB'; entry.anim = 'int'; entry.ev = 'int'; entry.travel = Math.max(2, Math.round(lv.x));
+      const spot = st.ballOn + lv.x;
+      if (lv.tdRet) entry.text = scoreTD(d, qb + ' is picked off by ' + who + ', who takes it all the way back!');
+      else if (spot >= 100) { giveBall(d, 20); entry.text = qb + ' is picked off in the end zone by ' + who + '. Touchback.'; }
+      else { giveBall(d, 100 - (st.ballOn + clamp(lv.retX == null ? lv.x : lv.retX, -st.ballOn + 1, 99 - st.ballOn))); entry.text = qb + ' is picked off by ' + who + '.'; }
+    } else if (lv.k === 'fumble') {
+      const runner = nm(o, lv.who || 'HB'); entry.runId = lv.who; entry.defId = lv.by; entry.ev = 'fumble'; entry.anim = 'run';
+      const y = Math.max(0, clampY(lv.x)); entry.yards = y; entry.travel = y;
+      giveBall(d, 100 - Math.min(st.ballOn + y, 98));
+      entry.text = runner + ' fumbles and ' + teams[d].name + ' recovers.';
+    } else if (lv.k === 'safety') {
+      entry.yards = -st.ballOn; entry.travel = -st.ballOn; entry.ev = 'safety'; entry.anim = 'run';
+      entry.text = safety(nm(o, lv.who || 'QB') + ' is tackled in the end zone.');
+    } else { // 'run' or 'pass': the ball carrier was brought down (or scored)
+      const y = lv.td ? 100 - st.ballOn : clampY(lv.x), who = nm(o, lv.who || 'HB');
+      const passed = lv.k === 'pass';
+      entry.travel = y;
+      let desc;
+      if (passed) {
+        entry.anim = 'pass'; entry.qbId = 'QB'; entry.recId = lv.who;
+        desc = y >= 20 ? qb + ' connects deep with ' + who + ' for ' + yds(y) + '.' : y <= 0 ? qb + ' finds ' + who + (y === 0 ? ' but he is stopped for no gain.' : ' and he is dropped for a loss of ' + yds(y) + '.') : qb + ' finds ' + who + ' for ' + yds(y) + '.';
+      } else {
+        entry.anim = 'run'; entry.runId = lv.who;
+        desc = y <= 0 ? (y === 0 ? who + ' is stuffed for no gain.' : who + ' is dropped for a loss of ' + yds(y) + '.')
+             : y >= 15 ? who + ' breaks free for ' + yds(y) + '.' : lv.who === 'QB' ? who + ' scrambles for ' + yds(y) + '.' : who + ' runs for ' + yds(y) + '.';
+      }
+      entry.text = advance(y, desc);
+      if (entry.ev === 'play') entry.ev = passed ? 'pass' : 'run';
     }
   } else if (OFF[offPick].kind === 'run') {
     const inside = offPick === 'RUN_IN';
@@ -879,7 +951,7 @@ function replay(seed, teams, moves, cpuSides) {
   let st = initState(seed);
   const log = [];
   const U = { a: teamUnits(teams.a), b: teamUnits(teams.b) };
-  let guard = 0;
+  let guard = 0, wait = null;
   while (!st.over && guard++ < 200) {
     const n = st.playNo, off = st.poss, def = off === 'a' ? 'b' : 'a';
     let om = moves[n + '-' + off];
@@ -889,10 +961,46 @@ function replay(seed, teams, moves, cpuSides) {
     let dm = moves[n + '-' + def];
     if (!dm && !kick && cpuSides.indexOf(def) >= 0) dm = { pick: cpuMove(st, U, def, seed, 'def') };
     if (!kick && !dm) break;
-    const res = stepGame(st, teams, U, seed, om.pick, dm ? dm.pick : null);
+    let lv = null;
+    if (!kick && ((om.ctl ? 1 : 0) || (dm && dm.ctl ? 1 : 0))) {
+      // somebody plays this snap on the field: it is decided by their recorded inputs (replay waits until they are in)
+      const lm = moves[n + '-lv'];
+      if (!lm || !E.LIVE) { wait = { n, off, def, om, dm }; break; }
+      lv = liveOutcome(seed, n, st, legalOff(st, om.pick), DEF_CALLS[dm.pick] ? dm.pick : 'ZONE', teams[off], teams[def], om.ctl ? 1 : 0, dm.ctl ? 1 : 0, lm[off], lm[def]);
+    }
+    const res = stepGame(st, teams, U, seed, om.pick, dm ? dm.pick : null, lv);
+    if (lv) res.entry.ctl = { o: om.ctl ? 1 : 0, d: dm && dm.ctl ? 1 : 0 };
     st = res.state; log.push(res.entry);
   }
-  return { state: st, log, U };
+  return { state: st, log, U, wait };
+}
+const LCACHE = new Map();
+function liveOutcome(seed, n, st, offPick, defPick, OT, DT, ctlO, ctlD, trO, trD) {
+  const key = [seed, n, st.ballOn, st.toGo, offPick, defPick, OT.name, DT.name, ctlO, ctlD, (trO || []).join(','), (trD || []).join(',')].join('|');
+  let o = LCACHE.get(key);
+  if (!o) {
+    o = E.LIVE.run({ seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick, defPick, OS: OT.squad, DS: DT.squad, ctlO: !!ctlO, ctlD: !!ctlD }, trO, trD).out;
+    if (LCACHE.size > 600) LCACHE.clear();
+    LCACHE.set(key, o);
+  }
+  return Object.assign({}, o);
+}
+// moves arriving from a client: "n-a"/"n-b" picks (only the sender's side) and "n-lv" input traces of snaps played on the field
+function cleanTrace(a) {
+  if (a === undefined || a === null) return [];
+  if (!Array.isArray(a) || a.length > 500) return null;
+  for (let i = 0; i < a.length; i++) if (!Number.isInteger(a[i]) || a[i] < 0 || a[i] > 40000) return null;
+  return a;
+}
+function cleanMoves(raw, side) {
+  const mv = {};
+  Object.keys(raw || {}).forEach(k => {
+    const m = /^(\d{1,3})-(a|b|lv)$/.exec(k); const v = raw[k]; if (!m || !v || typeof v !== 'object') return;
+    if (m[2] === 'lv') { const a = cleanTrace(v.a), b = cleanTrace(v.b); if (a && b) mv[k] = { a, b }; return; }
+    if (side && m[2] !== side) return;
+    if (typeof v.pick === 'string' && v.pick.length <= 12) mv[k] = v.ctl ? { pick: v.pick, ctl: 1 } : { pick: v.pick };
+  });
+  return mv;
 }
 // deterministic CPU decisions so a server can re-verify any game
 function cpuMove(st, U, side, seed, role) {
@@ -928,10 +1036,663 @@ const E = {
   DATA: D, PQ, OT_MAX, TEAMS, PLAYERS, OLU, DFU, SLOTS, GROUPS, OFF, DEF_CALLS, MATCH,
   KICK, KRS, PRS, STU, stSquad, stFrom, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
   drawOptions, autoDraft, fgDist, legalOff, offOptions, initState, clockInfo,
-  stepGame, replay, cpuOffense, cpuDefense
+  stepGame, replay, cpuOffense, cpuDefense, cleanMoves, cleanTrace
 };
-if (typeof module !== 'undefined' && module.exports) module.exports = E;
+if (typeof module !== 'undefined' && module.exports) { module.exports = E; require('./live.js'); }
 else root.E = E;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+/* Live play simulation: 22 players on a field, 20 ticks a second, deterministic.
+   Both clients (and the server, for verification) run exactly this code from (seed, play number, squads, calls, input traces),
+   so a played-out snap always ends in the same result everywhere.  Only + - * / sqrt, min/max/abs/floor are used (no trig/pow),
+   which are exactly reproducible across JS engines.
+
+   Frame: offense-relative.  x runs toward the offense's goal line (0 = line of scrimmage), y is across the field (screen-down positive).
+   Input per side: { dx, dy } in {-1,0,1} (offense-relative x) plus one-shot action codes:
+     1..4 throw to WR1, WR2, TE, HB (quarterback)  5 juke / dive-tackle+jump / throw away  6 switch defender */
+(function (root) {
+'use strict';
+const E = root.E || require('./engine.js');
+const { mulberry32, hashStr, clamp, fit } = E;
+const DT = 0.05, MAXT = 260, YB = 7.4, TPS = 20;
+const sqrt = Math.sqrt, abs = Math.abs, min = Math.min, max = Math.max;
+const DIAG = 0.70710678;
+
+const T43 = { LDE: [0.9, -2.9], LDT: [0.9, -1], RDT: [0.9, 1], RDE: [0.9, 2.9], WLB: [3, -3.6], MLB: [3.8, 0], SLB: [3, 3.6] };
+const T34 = { LDE: [0.9, -2.2], NT: [0.9, 0], RDE: [0.9, 2.2], WLB: [2.6, -3.8], LILB: [3.6, -1.1], RILB: [3.6, 1.1], SLB: [2.6, 3.8] };
+const TDB = { LCB: [2.2, -6], RCB: [2.2, 6], SS: [9, 2.2], FS: [9, -2.2] };
+const OFFSET = [[-1, 0], [-0.9397, 0.342], [-0.9397, -0.342], [-0.766, 0.643], [-0.766, -0.643], [-0.5, 0.866], [-0.5, -0.866]];
+const DIRS = [[1, 0], [0.9397, 0.342], [0.9397, -0.342], [0.766, 0.643], [0.766, -0.643], [0.5, 0.866], [0.5, -0.866], [0.17, 0.985], [0.17, -0.985]];
+
+/* routes: [forward, sideways] waypoints, sideways is positive toward the sideline the receiver lines up on */
+const ROUTES = {
+  PASS_S: { WR1: [[4, 0], [7, -3.5], [13, -7]], WR2: [[7.5, 0]], TE: [[3, 0], [5, 3]], HB: [[-1, 3], [2, 6]] },
+  PASS_M: { WR1: [[11, 0], [12, -5], [12.5, -9]], WR2: [[10.5, 0], [11, 2.4]], TE: [[9, 0], [10, -1.5]], HB: [[-1, 3], [3, 6]] },
+  PASS_D: { WR1: [[42, 0]], WR2: [[11, 0], [30, -3.5]], TE: [[10, 0], [11, -4]], HB: [[-1, 3], [3, 6]] },
+  SCREEN: { WR1: [[7, 0]], WR2: [[7, 0]], TE: [[4, 2]], HB: [[-3, 5]] }
+};
+const DECIDE = { PASS_S: [12, 26], PASS_M: [24, 40], PASS_D: [34, 54], SCREEN: [22, 36] };
+const DROP = { PASS_S: -3.8, PASS_M: -5, PASS_D: -7, SCREEN: -5 };
+
+function vmaxOf(grp, o, s) {
+  switch (grp) {
+    case 'QB': return 6.0 + (s - 70) * 0.05;
+    case 'HB': return 7.1 + (s - 80) * 0.085;
+    case 'WR': return 7.3 + (s - 85) * 0.085;
+    case 'TE': return 6.6 + (s - 78) * 0.08;
+    case 'OL': return 4.9 + (o - 75) * 0.015;
+    case 'DL': return 6.1 + (o - 75) * 0.02;
+    case 'LB': return 7.0 + (o - 75) * 0.02;
+    case 'CB': return 8.0 + (o - 75) * 0.02;
+    default: return 7.8 + (o - 75) * 0.02;
+  }
+}
+const ACC = 16;
+const RUNMOD = { STACK: -0.010, BLITZ: -0.004, MAN: 0, ZONE: 0.004, PREVENT: 0.012 };
+
+/* ---------- construction ---------- */
+function create(ctx) {
+  const OS = ctx.OS, DS = ctx.DS, spec = ctx.offPick, call = ctx.defPick;
+  const R = mulberry32(hashStr(ctx.seed + ':live:' + ctx.playNo));
+  const sim = {
+    t: 0, P: [], by: {}, R, goalX: 100 - ctx.ballOn, backX: -ctx.ballOn, offPick: spec, defPick: call, toGo: ctx.toGo,
+    ball: { x: -3.2, y: 0, z: 0, st: 'snap', car: null, air: null }, pairs: [], out: null, hist: {}, ctl: { o: { dx: 0, dy: 0 }, d: { dx: 0, dy: 0 } },
+    ctlId: { o: 'QB', d: null }, human: { o: !!ctx.ctlO, d: !!ctx.ctlD }, kind: /^RUN/.test(spec) ? 'run' : 'pass', handoff: 0, thrown: 0, evt: [], ratO: null, ratD: null
+  };
+  const add = (id, side, grp, name, o, s, x, y, extra) => {
+    const p = Object.assign({ id, side, grp, name, o, rat: fit(o), x, y, vx: 0, vy: 0, vmax: vmaxOf(grp, o, s), hold: 0, eng: null, free: false, cool: 0, imm: 0, dive: 0, jump: 0,
+      route: null, ri: 0, man: null, zone: null, mode: 'idle', lag: clamp(Math.round(5 - (fit(o) - 55) * 0.1), 1, 6), seek: null, seekT: 0, s }, extra || {});
+    sim.P.push(p); sim.by[id] = p; return p;
+  };
+  add('QB', 'o', 'QB', OS.qb.n, OS.qb.o, OS.qb.s, -3.2, 0);
+  add('HB', 'o', 'HB', OS.hb.n, OS.hb.o, OS.hb.s, -6.8, 0);
+  add('WR1', 'o', 'WR', OS.wr[0].n, OS.wr[0].o, OS.wr[0].s, -0.8, -5.4);
+  add('WR2', 'o', 'WR', OS.wr[1].n, OS.wr[1].o, OS.wr[1].s, -0.8, 5.4);
+  add('TE', 'o', 'TE', OS.te.n, OS.te.o, OS.te.s, -0.8, 3.4);
+  OS.ol.p.forEach((p, i) => add('OL' + i, 'o', 'OL', p[0], p[1], 70, -0.8, (i - 2) * 1.1));
+  const T = DS.df.sch === '43' ? T43 : T34;
+  DS.df.p.forEach((p, i) => {
+    const q = T[p[0]] || TDB[p[0]] || [4, 0];
+    add('D' + i, 'd', p[1], p[2], p[3], 80, q[0], q[1], { pos: p[0] });
+  });
+  // assignments
+  sim.D = sim.P.filter(p => p.side === 'd'); sim.O = sim.P.filter(p => p.side === 'o');
+  sim.OL = sim.O.filter(p => p.grp === 'OL');
+  const sgnOf = p => p.y < 0 ? -1 : 1;
+  const rt = ROUTES[spec];
+  if (rt) ['WR1', 'WR2', 'TE', 'HB'].forEach(id => {
+    const p = sim.by[id], s = sgnOf(p);
+    p.route = rt[id].map(w => [p.x + w[0], p.y + w[1] * s]); if (id === 'HB') p.route = rt[id].map(w => [w[0], w[1] * (p.y === 0 ? 1 : s)]);
+    p.mode = 'route';
+  });
+  const byPos = n => sim.D.find(p => p.pos === n);
+  const dbs = sim.D.filter(p => p.grp === 'CB' || p.grp === 'S'), lbs = sim.D.filter(p => p.grp === 'LB'), dls = sim.D.filter(p => p.grp === 'DL');
+  const zone = (p, x, y, r) => { p.mode = 'zone'; p.zone = { x, y, r: r || 4 }; };
+  const man = (p, t) => { p.mode = 'man'; p.man = t; };
+  const rush = p => { p.mode = 'rush'; };
+  dls.forEach(rush);
+  const lcb = byPos('LCB'), rcb = byPos('RCB'), ss = byPos('SS'), fs = byPos('FS');
+  const hookY = [-3.6, 0, 3.6, -1.2, 1.2];
+  const lbSorted = lbs.slice().sort((a, b) => a.y - b.y);
+  const sk = sim.kind === 'run' ? 'run' : 'pass';
+  if (call === 'ZONE') {
+    zone(lcb, 8, -5.5, 4.5); zone(rcb, 8, 5.5, 4.5); zone(ss, 16, 3.5, 6); zone(fs, 16, -3.5, 6);
+    lbSorted.forEach((p, i) => zone(p, 6.5, lbSorted.length === 3 ? [-3.6, 0, 3.6][i] : [-4, -1.3, 1.3, 4][i], 3.6));
+  } else if (call === 'MAN') {
+    man(lcb, 'WR1'); man(rcb, 'WR2'); man(ss, 'TE'); zone(fs, 19, 0, 8);
+    const mid = lbSorted.slice().sort((a, b) => abs(a.y) - abs(b.y))[0]; man(mid, 'HB');
+    lbSorted.forEach((p, i) => { if (p !== mid) zone(p, 6, lbSorted.length === 3 ? [-3.6, 0, 3.6][i] : [-4, -1.3, 1.3, 4][i], 3.4); });
+  } else if (call === 'STACK') {
+    man(lcb, 'WR1'); man(rcb, 'WR2'); zone(ss, 4.6, 2.6, 3.4); zone(fs, 17, 0, 8);
+    lbSorted.forEach((p, i) => zone(p, 4.2, lbSorted.length === 3 ? [-3.6, 0, 3.6][i] : [-4, -1.3, 1.3, 4][i], 3.2));
+  } else if (call === 'BLITZ') {
+    man(lcb, 'WR1'); man(rcb, 'WR2'); zone(fs, 18, 0, 8); rush(ss); lbs.forEach(rush);
+  } else { // PREVENT
+    zone(lcb, 23, -5, 7); zone(rcb, 23, 5, 7); zone(ss, 26, 2.5, 7); zone(fs, 26, -2.5, 7);
+    lbSorted.forEach((p, i) => zone(p, 11, lbSorted.length === 3 ? [-3.6, 0, 3.6][i] : [-4, -1.3, 1.3, 4][i], 4));
+  }
+  // read delay: how long the defense takes to recognize a run
+  sim.read = { STACK: 2, BLITZ: 3, MAN: 5, ZONE: 6, PREVENT: 9 }[call] || 6;
+  // line assignments
+  setupBlocks(sim);
+  // default human control targets
+  const mlb = lbSorted.slice().sort((a, b) => abs(a.y) - abs(b.y))[0] || ss;
+  sim.ctlId.d = mlb ? mlb.id : (ss || fs).id;
+  sim.ball.car = null; sim.ball.st = 'snap';
+  return sim;
+}
+
+function setupBlocks(sim) {
+  const OL = sim.OL.slice().sort((a, b) => a.y - b.y);
+  const rushers = sim.kind === 'pass' ? sim.D.filter(p => p.mode === 'rush') : sim.D.filter(p => p.grp === 'DL' || (p.grp === 'LB' && p.x < 5));
+  const free = rushers.slice().sort((a, b) => a.y - b.y);
+  const taken = {};
+  const pair = (b, r) => { taken[r.id] = 1; sim.pairs.push({ b: b.id, r: r.id, L: 0 }); b.mode = 'block'; b.eng = null; r.tgtBlk = b.id; };
+  // pair the closest (lineman, rusher) couples first, defensive linemen before linebackers
+  const cand = [];
+  OL.forEach(b => free.forEach(r => cand.push({ b, r, d: abs(r.y - b.y) + (r.grp === 'DL' ? 0 : 1.8) + (r.x > 2 ? 0.4 : 0) })));
+  cand.sort((u, v) => u.d - v.d || (u.b.id < v.b.id ? -1 : 1));
+  const usedB = {};
+  cand.forEach(c => { if (taken[c.r.id] || usedB[c.b.id] || c.d > 3.4) return; usedB[c.b.id] = 1; pair(c.b, c.r); });
+  OL.forEach(b => { if (!usedB[b.id]) b.mode = 'pocket'; });
+  const extra = free.filter(r => !taken[r.id]);
+  if (sim.kind === 'pass' && sim.offPick !== 'SCREEN' && extra.length) {
+    const hb = sim.by.HB; const r = extra.slice().sort((a, b) => abs(a.y - hb.y) - abs(b.y - hb.y))[0];
+    hb.mode = 'block'; hb.route = null; sim.pairs.push({ b: 'HB', r: r.id, L: 0 }); r.tgtBlk = 'HB'; taken[r.id] = 1;
+  }
+  if (sim.kind === 'run') {
+    const te = sim.by.TE; const ex = free.filter(r => !taken[r.id]).sort((a, b) => abs(a.y - te.y) - abs(b.y - te.y))[0];
+    if (ex) { te.mode = 'block'; te.route = null; sim.pairs.push({ b: 'TE', r: ex.id, L: 0 }); ex.tgtBlk = 'TE'; taken[ex.id] = 1; }
+    [['WR1', 'LCB'], ['WR2', 'RCB']].forEach(([w, c]) => {
+      const cb = sim.D.find(p => p.pos === c); if (cb) { const wr = sim.by[w]; wr.mode = 'block'; wr.route = null; wr.rat = wr.rat * 0.62; sim.pairs.push({ b: w, r: cb.id, L: 0 }); cb.tgtBlk = w; }
+    });
+  }
+}
+
+/* ---------- helpers ---------- */
+const dist = (a, b) => { const dx = a.x - b.x, dy = a.y - b.y; return sqrt(dx * dx + dy * dy); };
+function gauss(R) { return (R() + R() + R() + R() - 2) * 1.7320508; }
+function steer(p, tx, ty, frac, slow) {
+  const dx = tx - p.x, dy = ty - p.y, d = sqrt(dx * dx + dy * dy);
+  if (d < 0.05) { p.wx = 0; p.wy = 0; return; }
+  let sp = p.vmax * (frac == null ? 1 : frac);
+  if (slow !== false && d < 1.2) sp *= d / 1.2 + 0.2;
+  p.wx = dx / d * sp; p.wy = dy / d * sp;
+}
+function stickDir(inp, side) { // offense-relative stick -> unit vector
+  let dx = inp.dx, dy = inp.dy;
+  if (!dx && !dy) return null;
+  if (dx && dy) { dx *= DIAG; dy *= DIAG; }
+  return [dx, dy];
+}
+const isCarrier = (sim, p) => sim.ball.car === p.id;
+const attackDir = p => p.side === 'o' ? 1 : -1;
+
+/* ---------- one tick ---------- */
+function step(sim, inO, inD, acts) {
+  if (sim.out) return sim.out;
+  const R = sim.R, B = sim.ball, P = sim.P;
+  sim.t++;
+  const t = sim.t;
+  // inputs
+  if (acts) { if ((acts.o || []).indexOf(9) >= 0) sim.human.o = false; if ((acts.d || []).indexOf(9) >= 0) sim.human.d = false; }
+  const ctlO = sim.human.o ? sim.by[sim.ctlId.o] : null, ctlD = sim.human.d ? sim.by[sim.ctlId.d] : null;
+  const sO = sim.human.o && inO ? stickDir(inO) : null, sD = sim.human.d && inD ? stickDir(inD) : null;
+  const aO = (acts && acts.o) || [], aD = (acts && acts.d) || [];
+  // history for man coverage
+  sim.O.forEach(p => { const h = sim.hist[p.id] || (sim.hist[p.id] = []); h.push(p.x, p.y); if (h.length > 40) h.splice(0, 2); });
+
+  // ----- actions -----
+  if (sim.human.o) aO.forEach(c => {
+    if (c >= 1 && c <= 4 && B.st === 'carried' && B.car === 'QB' && sim.thrown === 0 && sim.kind === 'pass') throwTo(sim, ['WR1', 'WR2', 'TE', 'HB'][c - 1], true);
+    else if (c === 5) {
+      const q = sim.by[B.car] || ctlO;
+      if (q && B.car === 'QB' && sim.kind === 'pass' && sim.thrown === 0) sim.throwAway = true;
+      else if (q && B.car === q.id && q.cool === 0) { const dy = inO.dy || (q.vy >= 0 ? 1 : -1); q.y = clamp(q.y + dy * 1.3, -YB, YB); q.x += 0.4; q.imm = 8; q.cool = 36; }
+    }
+  });
+  if (sim.human.d) aD.forEach(c => {
+    if (c === 5 && ctlD) { if (ctlD.cool === 0) { ctlD.dive = 4; ctlD.jump = 6; ctlD.cool = 24; } }
+    else if (c === 6) switchDef(sim);
+  });
+  sim.ctlO = ctlO; sim.ctlD = ctlD;
+
+  // ----- intentions -----
+  const carrier = B.car ? sim.by[B.car] : null;
+  for (let i = 0; i < P.length; i++) {
+    const p = P[i]; p.wx = 0; p.wy = 0;
+    if (p.hold > 0) { p.hold--; continue; }
+    if (p.eng) continue;
+    think(sim, p, carrier, t);
+  }
+  // human overrides
+  if (ctlO && sO && ctlO.hold === 0 && !ctlO.eng) { const sp = ctlO.vmax * (ctlO === carrier && ctlO.id !== 'QB' ? 1 : (ctlO.id === 'QB' ? 0.95 : 1)); ctlO.wx = sO[0] * sp; ctlO.wy = sO[1] * sp; ctlO.human = 1; }
+  if (ctlD && sD && ctlD.hold === 0 && !ctlD.eng) { ctlD.wx = sD[0] * ctlD.vmax; ctlD.wy = sD[1] * ctlD.vmax; ctlD.human = 1; }
+
+  // ----- blocks / rushes -----
+  resolvePairs(sim);
+
+  // ----- motion -----
+  for (let i = 0; i < P.length; i++) {
+    const p = P[i];
+    if (p.dcool > 0) p.dcool--; if (p.cool > 0) p.cool--; if (p.imm > 0) p.imm--; if (p.dive > 0) p.dive--; if (p.jump > 0) p.jump--;
+    if (p.eng || p.hold > 0) { if (p.hold > 0) { p.vx *= 0.5; p.vy *= 0.5; } else { p.vx = p.pvx || 0; p.vy = p.pvy || 0; } }
+    else {
+      let wx = p.wx, wy = p.wy;
+      if (p.stumble > 0) { p.stumble--; wx *= 0.65; wy *= 0.65; }
+      if (p.dive > 0) { wx *= 1.15; wy *= 1.15; }
+      const ax = wx - p.vx, ay = wy - p.vy, am = sqrt(ax * ax + ay * ay), lim = ACC * DT;
+      if (am > lim) { p.vx += ax / am * lim; p.vy += ay / am * lim; } else { p.vx = wx; p.vy = wy; }
+    }
+    p.x += p.vx * DT; p.y += p.vy * DT;
+    if (p.y > YB + 0.3) { p.y = YB + 0.3; p.vy = 0; } else if (p.y < -YB - 0.3) { p.y = -YB - 0.3; p.vy = 0; }
+  }
+  // the engaged blocker keeps on the defender
+  sim.pairs.forEach(pr => { const b = sim.by[pr.b], r = sim.by[pr.r]; if (b.eng === r.id) { b.x = r.x - 0.85; b.y = r.y; } });
+
+  // ----- ball -----
+  ballLogic(sim, carrier);
+  if (sim.t >= MAXT && !sim.out) timeout(sim);
+  return sim.out;
+}
+
+function switchDef(sim) {
+  const B = sim.ball, ref = B.car ? sim.by[B.car] : (B.air ? { x: B.air.ex, y: B.air.ey } : sim.by.QB);
+  const cur = sim.ctlId.d;
+  const cand = sim.D.filter(p => p.id !== cur && p.hold === 0).sort((a, b) => dist(a, ref) - dist(b, ref));
+  if (cand.length) sim.ctlId.d = cand[0].id;
+}
+
+/* ---------- behaviour ---------- */
+function think(sim, p, carrier, t) {
+  const B = sim.ball;
+  if (p.side === 'o') return thinkOff(sim, p, carrier, t);
+  return thinkDef(sim, p, carrier, t);
+}
+
+function thinkOff(sim, p, carrier, t) {
+  const B = sim.ball, pass = sim.kind === 'pass';
+  if (carrier && carrier.id === p.id && p.id !== 'QB') { carrierAI(sim, p); return; }
+  if (p.id === 'QB') {
+    if (B.car === 'QB') {
+      if (pass) { qbPass(sim, p, t); return; }
+      // handoff
+      const hb = sim.by.HB;
+      if (!sim.handoff) { steer(p, -3.2, 0, 0.3); if (dist(p, hb) < 1.6 || t >= 12) { if (t >= 7) giveBall(sim, 'HB'); } }
+      else steer(p, p.x, p.y, 0);
+    } else if (sim.handoff || sim.thrown) steer(p, p.x - 1, p.y, 0.15);
+    return;
+  }
+  if (p.id === 'HB') {
+    if (sim.kind === 'run' && !sim.handoff) {
+      const out = sim.offPick === 'RUN_OUT';
+      if (out) { steer(p, -3.2 + 0.2, 4.5 * (sim.runSide || (sim.runSide = (sim.by.TE.y > 0 ? 1 : -1))) * 0.8, 0.95); }
+      else steer(p, -3.4, 0, 0.8);
+      return;
+    }
+  }
+  if (p.mode === 'route' && p.route) { runRoute(sim, p); return; }
+  if (p.mode === 'block' || p.mode === 'pocket') {
+    if (p.mode === 'block') {
+      const pr = sim.pairs.find(q => q.b === p.id);
+      if (pr) { const r = sim.by[pr.r]; if (r) steer(p, r.x - 0.85, r.y, 1); }
+      else if (carrier) steer(p, carrier.x + 1, carrier.y, 0.6);
+    } else {
+      // unassigned lineman: step up and look for work, otherwise get downfield on a run
+      if (sim.kind === 'run' && sim.handoff) { steer(p, p.x + 6, carrier ? carrier.y : p.y, 0.55); }
+      else steer(p, -0.6, p.y, 0.25);
+    }
+    return;
+  }
+  if (carrier && carrier.side === 'd') { // turnover: chase the ball
+    steer(p, carrier.x - 0.8 * attackDir(carrier), carrier.y, 0.95);
+    return;
+  }
+  // trailing receivers / blockers once the ball is out
+  if (sim.thrown && B.air && sim.byTarget === p.id) { steer(p, B.air.ex, B.air.ey, 1, false); return; }
+  if (carrier && carrier.id !== p.id) steer(p, carrier.x + 4, carrier.y, 0.6);
+}
+
+function runRoute(sim, p) {
+  const w = p.route[p.ri];
+  if (!w) { if (sim.thrown && sim.byTarget === p.id && sim.ball.air) steer(p, sim.ball.air.ex, sim.ball.air.ey, 1, false); else steer(p, p.x + 0.001, p.y, 0.2); return; }
+  if (sim.thrown && sim.byTarget === p.id && sim.ball.air) { steer(p, sim.ball.air.ex, sim.ball.air.ey, 1, false); return; }
+  const d = dist(p, { x: w[0], y: w[1] });
+  if (d < 0.8) { p.ri++; }
+  steer(p, w[0], clamp(w[1], -YB, YB), 0.99, p.ri === p.route.length - 1 && p.route.length === 1 && w[0] < 12 ? true : false);
+}
+
+function qbPass(sim, q, t) {
+  const spec = sim.offPick, human = sim.human.o && sim.ctlId.o === 'QB';
+  const dec = DECIDE[spec];
+  // drop back
+  const dx = DROP[spec];
+  steer(q, dx, q.y * 0.9, 0.7);
+  if (sim.thrown) return;
+  if (sim.throwAway) { throwAwayBall(sim); return; }
+  const hold = human ? 160 : dec[1];
+  // look
+  let best = null, bs = -1e9;
+  if (spec === 'SCREEN') best = { id: 'HB', open: 3 };
+  else ['WR1', 'WR2', 'TE', 'HB'].forEach(id => {
+    const r = sim.by[id]; if (!r || r.mode === 'block') return;
+    const open = openness(sim, r);
+    const depthW = spec === 'PASS_D' ? 0.22 : spec === 'PASS_M' ? 0.16 : 0.25, hbPen = spec === 'PASS_D' ? -7 : spec === 'PASS_M' ? -3.6 : -2.5;
+    const done = r.route && r.ri >= r.route.length - (id === 'HB' ? 0 : 0);
+    const sc = min(open, 5) + r.x * depthW + (id === 'HB' ? hbPen : 0) + (done ? 0.5 : 0);
+    if (sc > bs) { bs = sc; best = { id, open }; }
+  });
+  const rusher = nearestFree(sim, q);
+  let pressured = false;
+  if (rusher && dist(rusher, q) < 2.6 && t >= 10) pressured = sim.R() < clamp(0.12 + (q.rat - 60) * 0.004, 0.05, 0.3);
+  if (human) return;
+  if (best && ((t >= dec[0] && (best.open > (spec === 'SCREEN' ? 0 : 2.3) || t >= dec[1])) || (pressured && t >= 10))) {
+    if (pressured && best.open < 1.4 && sim.R() < 0.25) { throwAwayBall(sim); return; }
+    throwTo(sim, best.id, false);
+  }
+}
+function nearestFree(sim, q) {
+  let b = null, bd = 1e9;
+  sim.D.forEach(r => { if (r.hold > 0 || r.eng) return; if (r.mode !== 'rush' && !r.free) return; const d = dist(r, q); if (d < bd) { bd = d; b = r; } });
+  return b;
+}
+function openness(sim, r) {
+  let m = 12;
+  sim.D.forEach(d => { if (d.hold > 0) return; const dd = dist(d, r); if (dd < m) m = dd; });
+  return m;
+}
+
+function throwTo(sim, id, humanThrow) {
+  const B = sim.ball, q = sim.by.QB, r = sim.by[id], R = sim.R;
+  if (!r || sim.thrown) return;
+  sim.thrown = sim.t; sim.byTarget = id;
+  let ex = r.x, ey = r.y;
+  const vb = sim.offPick === 'PASS_D' ? 24 : 20;
+  for (let k = 0; k < 3; k++) { const d = sqrt((ex - q.x) * (ex - q.x) + (ey - q.y) * (ey - q.y)); const ft = d / vb; const pp = predict(r, ft); ex = pp[0]; ey = pp[1]; }
+  const pres = nearestFree(sim, q), pr = pres ? clamp(1 - dist(pres, q) / 5, 0, 1) : 0;
+  const sig = clamp(1.9 - (q.rat - 50) * 0.03, 0.35, 2.1) * (1 + pr * 0.7) * (1 + sqrt((r.x - q.x) * (r.x - q.x)) / 45) * (sim.offPick === 'SCREEN' ? 0.55 : 1) * (humanThrow ? 1.0 : 1.0);
+  ex += gauss(R) * sig * 0.8; ey += gauss(R) * sig * 0.6;
+  ey = clamp(ey, -YB - 1, YB + 1);
+  const d = sqrt((ex - q.x) * (ex - q.x) + (ey - q.y) * (ey - q.y)), n = max(4, Math.ceil(d / (vb * DT)));
+  B.st = 'air'; B.car = null; B.air = { sx: q.x, sy: q.y, ex, ey, n, k: 0, peak: clamp(d * 0.13, 0.8, 5) };
+  sim.ctlId.o = id;
+  sim.evt.push(['throw', sim.t, id]);
+  // defenders recognise the ball after their reaction lag
+  autoSwitch(sim, { x: ex, y: ey });
+}
+// where a receiver will be after ft seconds if he keeps running his route
+function predict(r, ft) {
+  let x = r.x, y = r.y, left = r.vmax * 0.99 * ft;
+  if (r.mode === 'route' && r.route) {
+    for (let i = r.ri; i < r.route.length && left > 0; i++) {
+      const w = r.route[i], dx = w[0] - x, dy = w[1] - y, d = sqrt(dx * dx + dy * dy);
+      if (d <= left) { x = w[0]; y = w[1]; left -= d; } else { x += dx / d * left; y += dy / d * left; left = 0; }
+    }
+    return [x, clamp(y, -YB, YB)];
+  }
+  return [r.x + r.vx * ft, r.y + r.vy * ft];
+}
+function throwAwayBall(sim) {
+  const B = sim.ball, q = sim.by.QB;
+  sim.thrown = sim.t; sim.byTarget = null;
+  const ey = q.y >= 0 ? YB + 4 : -YB - 4;
+  B.st = 'air'; B.car = null; B.air = { sx: q.x, sy: q.y, ex: q.x + 4, ey, n: 10, k: 0, peak: 1.5, away: true, react: sim.t };
+}
+function giveBall(sim, id) {
+  sim.ball.car = id; sim.ball.st = 'carried'; sim.handoff = sim.t; sim.ctlId.o = id; sim.evt.push(['hand', sim.t, id]);
+  if (id !== 'QB') sim.by[id].seek = null;
+  autoSwitch(sim, sim.by[id]);
+}
+function autoSwitch(sim, ref) {
+  if (!sim.human.d) return;
+  const c = sim.D.filter(p => p.hold === 0 && !(p.mode === 'rush' && p.grp === 'DL')).sort((a, b) => dist(a, ref) - dist(b, ref))[0];
+  if (c) sim.ctlId.d = c.id;
+}
+
+function carrierAI(sim, p) {
+  const out = sim.offPick === 'RUN_OUT' && p.id === 'HB' && sim.t - sim.handoff < 14 && p.x < 3;
+  if (p.side === 'd') { dirSeek(sim, p, -1); return; }
+  if (p.id === 'HB' && sim.kind === 'run' && p.x < 0.5 && sim.t - sim.handoff < 10) {
+    const side = sim.runSide || 1;
+    if (out) steer(p, 2.5, side * 6, 1); else { let ty = laneY(sim); steer(p, 1.8, ty, 1); }
+    return;
+  }
+  dirSeek(sim, p, 1);
+}
+function laneY(sim) {
+  const c = [-3.3, -1.65, 0, 1.65, 3.3]; let best = 0, bs = -1e9;
+  c.forEach(y => { let m = 9; sim.D.forEach(d => { if (d.hold > 0 || d.x > 7) return; const dd = sqrt((d.x - 2) * (d.x - 2) + (d.y - y) * (d.y - y)) + (d.eng ? 1.8 : 0); if (dd < m) m = dd; }); const sc = m - abs(y) * 0.12; if (sc > bs) { bs = sc; best = y; } });
+  return best;
+}
+function dirSeek(sim, p, dir) {
+  if (p.seekT > 0 && p.seek) { p.seekT--; steer(p, p.x + p.seek[0] * 6, p.y + p.seek[1] * 6, 1, false); return; }
+  const h = 0.9;
+  let bi = 0, bs = -1e9;
+  const foes = sim.P.filter(q => q.side !== p.side && q.hold === 0 && !q.eng && abs(q.x - p.x) < 12);
+  DIRS.forEach((d, i) => {
+    const dx = d[0] * dir, dy = d[1];
+    const cx = p.x + dx * p.vmax * h, cy = clamp(p.y + dy * p.vmax * h, -YB - 0.5, YB + 0.5);
+    let m = 12;
+    for (let k = 0; k < foes.length; k++) {
+      const q = foes[k], ddx = cx - q.x, ddy = cy - q.y, dd = sqrt(ddx * ddx + ddy * ddy);
+      // a defender running at us closes in
+      const reach = q.vmax * h * 0.8, dz = max(0, dd - reach * 0.8);
+      if (dz < m) m = dz;
+    }
+    const edge = max(0, abs(cy) - 6.2);
+    const sc = m * 1.0 + dx * 2.6 - edge * 3;
+    if (sc > bs) { bs = sc; bi = i; }
+  });
+  const d = DIRS[bi];
+  p.seek = [d[0] * dir, d[1]]; p.seekT = 2;
+  steer(p, p.x + p.seek[0] * 6, p.y + p.seek[1] * 6, 1, false);
+}
+
+function thinkDef(sim, p, carrier, t) {
+  const B = sim.ball, qb = sim.by.QB;
+  if (carrier && carrier.id === p.id) { dirSeek(sim, p, -1); return; }
+  if (carrier && carrier.side === 'd') { // a teammate has the ball: lead block for him
+    steer(p, carrier.x - 4 * attackDir(carrier), carrier.y + (p.y > carrier.y ? 1.4 : -1.4), 0.9); return;
+  }
+  // the offense has the ball in the open: everybody converges, after a read delay on runs
+  const breaker = carrier && carrier.side === 'o' && (carrier.id !== 'QB' || carrier.x > 1.0);
+  if (breaker) {
+    const rush = p.mode === 'rush' || p.grp === 'DL';
+    let delay = 0;
+    if (sim.kind === 'run' && sim.handoff && !sim.thrown) delay = rush ? 0 : p.grp === 'LB' ? max(0, sim.read - 4) : max(0, sim.read - 1) - (sim.t - sim.handoff > 6 ? 0 : 0);
+    const since = sim.thrown ? 99 : (sim.handoff ? sim.t - sim.handoff : sim.t - (sim.scrambleT || (sim.scrambleT = sim.t)));
+    // deep defenders hold their post until the runner is through the line
+    const deepWait = sim.kind === 'run' && !sim.thrown && (p.grp === 'S' || p.grp === 'CB') && carrier.x < 0.8 && sim.t - sim.handoff < 14;
+    if (since >= delay && !deepWait) { pursue(sim, p, carrier); return; }
+    if (deepWait && since >= delay) { steer(p, p.x, p.y + (carrier.y - p.y) * 0.3, 0.35); return; }
+  }
+  if (sim.kind === 'run' && !sim.handoff) { // read phase
+    if (p.mode === 'rush' || p.grp === 'DL') { rushAt(sim, p, sim.by.HB.x > -4 ? sim.by.HB : qb); return; }
+    if (p.mode === 'zone') { steer(p, p.zone.x - (sim.t > sim.read ? 2.5 : 0), p.zone.y, sim.t > sim.read ? 0.8 : 0.45); return; }
+    if (p.mode === 'man') { const r = sim.by[p.man]; if (r) steer(p, r.x + 1.3, r.y, 0.9, false); return; }
+    steer(p, p.x, p.y, 0.2); return;
+  }
+  if (p.mode === 'rush') { rushAt(sim, p, qb); return; }
+  if (p.mode === 'man') {
+    const r = sim.by[p.man]; if (!r) return;
+    const h = sim.hist[r.id] || [], lag = p.lag, i = max(0, h.length / 2 - 1 - lag);
+    const ty = h.length ? h[Math.floor(i) * 2 + 1] : r.y;
+    const cush = p.grp === 'LB' ? 0.7 : 1.5;
+    if (sim.thrown && B.air && !B.air.away && sim.byTarget === r.id && sim.t - sim.thrown >= p.lag - 2) steer(p, B.air.ex, B.air.ey, 1, false);
+    else steer(p, r.x + cush, ty, 0.97, false);
+    return;
+  }
+  if (p.mode === 'zone') {
+    if (sim.thrown && B.air && !B.air.away) { const dl = dist(p, { x: B.air.ex, y: B.air.ey }); if (dl < p.zone.r + 5 && sim.t - sim.thrown >= p.lag - 1) { steer(p, B.air.ex, B.air.ey, 1, false); return; } }
+    let tx = p.zone.x, ty = p.zone.y, bd = 1e9;
+    if (p.grp === 'S' || p.grp === 'CB') { // deep defenders play over the top of whoever runs through their lane
+      let deep = null;
+      sim.O.forEach(r => { if (r.mode !== 'route' || r.grp === 'HB') return; if (abs(r.y - p.zone.y) < p.zone.r + 1.5 && r.x > p.zone.x - p.zone.r * 0.6 && (!deep || r.x > deep.x)) deep = r; });
+      if (deep) { steer(p, deep.x + 2.4, deep.y * 0.85 + p.zone.y * 0.15, 1, false); return; }
+    }
+    sim.O.forEach(r => { if (r.mode === 'block' || r.mode === 'pocket' || r.grp === 'OL' || r.grp === 'QB') return; const d = sqrt((r.x - p.zone.x) * (r.x - p.zone.x) + (r.y - p.zone.y) * (r.y - p.zone.y)); if (d < p.zone.r + 1.5 && d < bd) { bd = d; tx = r.x + 1.1; ty = r.y; } });
+    steer(p, tx, ty, 0.95);
+    return;
+  }
+  steer(p, p.x, p.y, 0.2);
+}
+function rushAt(sim, p, target) {
+  if (p.tgtBlk && !p.free && !p.eng) {
+    const b = sim.by[p.tgtBlk];
+    if (b) { steer(p, b.x + 0.85, b.y, 1.0, false); return; }
+  }
+  steer(p, target.x, target.y, 1.0, false);
+}
+function pursue(sim, p, c) {
+  if (!p.human && p.dive === 0 && (p.dcool || 0) === 0 && c.x > 5 && dist(p, c) < 1.8 && dist(p, c) > 1.0) { p.dive = 4; p.dcool = 30; }
+  // lead the carrier
+  const d = dist(p, c), tt = min(1.4, d / (p.vmax + 1)), tx = c.x + c.vx * tt * 0.8, ty = c.y + c.vy * tt * 0.8;
+  if (p.pursueDeep && sim.D.length) { }
+  steer(p, tx, ty, 1.0, false);
+}
+
+/* ---------- blocks ---------- */
+function resolvePairs(sim) {
+  const R = sim.R, pass = sim.kind === 'pass', run = sim.kind === 'run', qb = sim.by.QB;
+  for (let i = sim.pairs.length - 1; i >= 0; i--) {
+    const pr = sim.pairs[i], b = sim.by[pr.b], r = sim.by[pr.r];
+    if (!b || !r) { sim.pairs.splice(i, 1); continue; }
+    if (b.eng !== r.id) {
+      // not locked yet: lock when they meet
+      if (b.hold === 0 && r.hold === 0 && !r.eng && dist(b, r) < 1.25) { b.eng = r.id; r.eng = b.id; pr.run = run; }
+      continue;
+    }
+    // locked in a block
+    const bRat = b.rat * (b.grp === 'OL' ? 1 : 0.8), rRat = r.rat * (r.grp === 'DL' ? 1 : r.grp === 'LB' ? 0.92 : 0.8);
+    let swim = 0; if (sim.human.d && sim.ctlId.d === r.id && r.dive > 0) swim = 0.012;
+    const bias = pass ? 0.002 : (sim.offPick === 'RUN_OUT' ? 0.011 : 0.02) + (RUNMOD[sim.defPick] || 0) * (sim.offPick === 'RUN_OUT' ? 0.5 : 1);
+    const delta = (bRat - rRat) * 0.0026 + gauss(R) * 0.045 - swim + bias;
+    pr.L = clamp(pr.L * 0.975 + delta, -1, 1); r.pairL = pr.L;
+    // drift
+    let vx;
+    if (pass) vx = pr.L > 0 ? 0.25 * pr.L : pr.L * 1.7;   // negative L: the rusher drives toward the QB (negative x)
+    else vx = pr.L > 0 ? pr.L * 1.7 : pr.L * 0.9;          // run: a winning blocker moves the defender downfield
+    r.pvx = vx; r.pvy = 0; r.x += 0;
+    if (pr.L <= -0.72) { // beaten
+      b.eng = null; r.eng = null; r.free = true; r.tgtBlk = null; b.hold = 7; sim.pairs.splice(i, 1);
+    } else if (pr.L >= 0.82) { // pancake
+      b.eng = null; r.eng = null; r.hold = run ? 16 : 12; r.tgtBlk = null; sim.pairs.splice(i, 1);
+    }
+  }
+}
+
+/* ---------- the ball, tackles, catches ---------- */
+function ballLogic(sim, carrier) {
+  const B = sim.ball, R = sim.R;
+  // position of the ball
+  if (B.st === 'snap') { B.car = 'QB'; B.st = 'carried'; }
+  const car = B.car ? sim.by[B.car] : null;
+  if (car) { B.x = car.x; B.y = car.y; B.z = 0; }
+  if (B.st === 'air') {
+    const a = B.air; a.k++;
+    const f = a.k / a.n; B.x = a.sx + (a.ex - a.sx) * f; B.y = a.sy + (a.ey - a.sy) * f; B.z = 4 * a.peak * f * (1 - f);
+    if (a.k >= a.n) { landBall(sim); return; }
+    return;
+  }
+  if (!car) return;
+  // touchdown / end zone
+  if (car.side === 'o') {
+    if (car.x >= sim.goalX) { return finish(sim, { k: B.car === 'QB' ? 'run' : (sim.thrown ? 'pass' : 'run'), x: sim.goalX + 1, td: true, who: car.id, tgt: sim.byTarget }); }
+    if (abs(car.y) > YB) { if (car.id === 'QB' && !sim.handoff && sim.thrown === 0 && car.x <= 0) return finish(sim, { k: 'inc', x: car.x, away: true }); return finishCarry(sim, car, 'oob'); }
+  } else {
+    if (car.x <= sim.backX) return finish(sim, { k: 'int', x: sim.intX, tdRet: true, retX: sim.backX, by: sim.intBy, who: car.id });
+    if (abs(car.y) > YB) return finishCarry(sim, car, 'oob');
+  }
+  // tackle attempts
+  const foes = sim.P.filter(q => q.side !== car.side && q.hold === 0);
+  let near = 0; foes.forEach(q => { if (dist(q, car) < 2.4) near++; });
+  for (let i = 0; i < foes.length; i++) {
+    const q = foes[i];
+    if (q.cool > 0 && q.dive === 0) continue;
+    if (q.eng && (q.pairL == null || q.pairL > -0.3)) continue;
+    const reach = (q.dive > 0 ? 1.55 : 0.95) * (q.eng ? 0.7 : 1);
+    if (dist(q, car) > reach) continue;
+    if (car.imm > 0 && !(car.id === 'QB')) continue;
+    const isQB = car.id === 'QB' && !sim.handoff && sim.kind === 'pass' && sim.thrown === 0 && car.x <= 0.5;
+    const evade = isQB ? 44 : car.rat * 0.85 + (car.s - 80) * 0.3;
+    let pr = 0.42 + (q.rat - evade) * 0.008 + (near - 1) * 0.07 + (isQB ? 0.2 : 0) + (q.dive > 0 ? 0.08 : 0) - (q.eng ? 0.25 : 0);
+    if (q.human && q.dive > 0) pr += 0.05;
+    pr = clamp(pr, 0.12, 0.93);
+    q.cool = 6;
+    if (R() < pr) return tackled(sim, car, q);
+    car.stumble = 5; q.cool = 8;
+  }
+}
+function tackled(sim, car, q) {
+  const R = sim.R, B = sim.ball;
+  const fumbleP = 0.007 + (q.rat - car.rat) * 0.00006;
+  if (R() < clamp(fumbleP, 0.002, 0.03) && car.side === 'o' && R() < 0.5) return finish(sim, { k: 'fumble', x: car.x, who: car.id, by: q.id });
+  if (car.side === 'o') {
+    if (car.id === 'QB' && !sim.handoff && sim.kind === 'pass' && sim.thrown === 0) return finish(sim, { k: 'sack', x: car.x, by: q.id });
+    if (car.x <= sim.backX) return finish(sim, { k: 'safety', x: car.x, who: car.id });
+    return finish(sim, { k: sim.thrown ? 'pass' : 'run', x: car.x + 0.3, who: car.id, tgt: sim.byTarget, by: q.id });
+  }
+  return finish(sim, { k: 'int', x: sim.intX, retX: car.x - 0.3, by: sim.intBy, who: car.id, tackler: q.id });
+}
+function finishCarry(sim, car, why) {
+  if (car.side === 'o') return finish(sim, { k: sim.thrown ? 'pass' : 'run', x: car.x, who: car.id, tgt: sim.byTarget, oob: true });
+  return finish(sim, { k: 'int', x: sim.intX, retX: car.x, by: sim.intBy, who: car.id, oob: true });
+}
+function finish(sim, out) { out.t = sim.t; sim.out = out; sim.ball.st = 'dead'; sim.ball.car = null; return out; }
+
+function landBall(sim) {
+  const B = sim.ball, a = B.air, R = sim.R;
+  B.x = a.ex; B.y = a.ey; B.z = 0;
+  if (a.away || abs(a.ey) > YB + 0.6) { B.air = null; return finish(sim, { k: 'inc', x: a.ex, tgt: sim.byTarget, away: !!a.away }); }
+  // who is in range?
+  const cands = [];
+  sim.P.forEach(p => {
+    if (p.hold > 0 || p.grp === 'OL' || p.grp === 'QB') return;
+    const d = sqrt((p.x - a.ex) * (p.x - a.ex) + (p.y - a.ey) * (p.y - a.ey));
+    const rr = p.side === 'o' ? 1.9 : (p.jump > 0 ? 3.0 : 2.4);
+    if (d > rr) return;
+    let sc;
+    const prox = (1 - d / (rr + 0.4)) * 9;
+    if (p.side === 'o') sc = 0.62 * p.rat + prox + (p.id === sim.byTarget ? 4 : 0) + gauss(R) * 6;
+    else sc = 0.56 * p.rat * (p.grp === 'DL' ? 0.7 : p.grp === 'LB' ? 0.92 : 1) + prox + (p.jump > 0 ? 9 : 0) + gauss(R) * 6;
+    cands.push({ p, sc });
+  });
+  B.air = null;
+  if (!cands.length) return finish(sim, { k: 'inc', x: a.ex, tgt: sim.byTarget });
+  cands.sort((x, y) => y.sc - x.sc);
+  const w = cands[0], marg = w.sc - (cands[1] ? cands[1].sc : w.sc - 8);
+  if (w.p.side === 'o') {
+    const drop = clamp(0.07 - (w.p.rat - 55) * 0.0018, 0.01, 0.12);
+    if (marg < 5 && R() < drop) return finish(sim, { k: 'inc', x: a.ex, tgt: sim.byTarget, drop: true });
+    B.car = w.p.id; B.st = 'carried'; sim.catchT = sim.t; sim.ctlId.o = w.p.id; sim.catchAt = w.p.x; w.p.seek = null; w.p.stumble = 3; w.p.imm = 4; sim.evt.push(['catch', sim.t, w.p.id]); autoSwitch(sim, w.p);
+    return;
+  }
+  // defense won the ball
+  if (marg > 4 && R() < 0.36 + (w.p.rat - 60) * 0.004) {
+    B.car = w.p.id; B.st = 'carried'; sim.intX = w.p.x; sim.intBy = w.p.id; sim.catchT = sim.t; sim.ctlId.d = w.p.id; sim.evt.push(['int', sim.t, w.p.id]);
+    sim.D.forEach(p => { p.mode = 'ret'; });
+    sim.pairs.length = 0; sim.O.forEach(o => { o.eng = null; if (o.hold) o.hold = 0; }); sim.D.forEach(d => { d.eng = null; });
+    return;
+  }
+  return finish(sim, { k: 'inc', x: a.ex, tgt: sim.byTarget, pbu: w.p.id });
+}
+function timeout(sim) {
+  const car = sim.ball.car ? sim.by[sim.ball.car] : null;
+  if (sim.ball.st === 'air') return landBall(sim);
+  if (!car) return finish(sim, { k: 'inc', x: 0 });
+  if (car.side === 'o') {
+    if (car.id === 'QB' && sim.thrown === 0 && sim.kind === 'pass') return finish(sim, { k: 'inc', x: car.x, away: true });
+    return finish(sim, { k: sim.thrown ? 'pass' : 'run', x: car.x, who: car.id, tgt: sim.byTarget });
+  }
+  return finish(sim, { k: 'int', x: sim.intX, retX: car.x, by: sim.intBy, who: car.id });
+}
+
+/* ---------- running a whole play from traces (used for verification and for plays nobody watched live) ---------- */
+// A trace is a list of integers, one per input change: tick * 100 + dir * 10 + code, dir = (dx + 1) * 3 + (dy + 1) (4 = stick centred),
+// code 0 = none, 1..4 throw to WR1 / WR2 / TE / HB, 5 action, 6 switch defender, 9 hand control back to the computer.
+// An event stamped T is applied on the step that makes the tick count T.
+function enc(tick, dx, dy, code) { return tick * 100 + ((dx + 1) * 3 + (dy + 1)) * 10 + (code || 0); }
+function dec(e) { const code = e % 10, dir = Math.floor(e / 10) % 10, tick = Math.floor(e / 100); return [tick, Math.floor(dir / 3) - 1, (dir % 3) - 1, code]; }
+function cursor(trace) { return { ev: (trace || []).map(dec), i: 0, dx: 0, dy: 0 }; }
+function feed(cur, tick) {
+  const acts = [];
+  while (cur.i < cur.ev.length && cur.ev[cur.i][0] <= tick) { const e = cur.ev[cur.i++]; cur.dx = e[1]; cur.dy = e[2]; if (e[3]) acts.push(e[3]); }
+  return { dx: cur.dx, dy: cur.dy, acts };
+}
+// one tick with inputs taken from the cursors (the same code path runs on the clients and the server)
+function advance(sim, co, cd) {
+  const o = feed(co, sim.t + 1), d = feed(cd, sim.t + 1);
+  step(sim, { dx: o.dx, dy: o.dy }, { dx: d.dx, dy: d.dy }, { o: o.acts, d: d.acts });
+}
+function run(ctx, trO, trD) {
+  const sim = create(ctx), co = cursor(trO), cd = cursor(trD);
+  while (!sim.out && sim.t < MAXT + 5) advance(sim, co, cd);
+  return { out: sim.out, ticks: sim.t, sim };
+}
+
+const LIVE = { DT, MAXT, YB, TPS, create, step, run, advance, cursor, feed, enc, dec, ROUTES, predict };
+E.LIVE = LIVE;
+if (typeof module !== 'undefined' && module.exports) module.exports = LIVE; else root.LIVE = LIVE;
 })(typeof window !== 'undefined' ? window : globalThis);
 
 /* League engine: rosters, schedules, simulation, standings, playoffs, progression, drafts, trades,
@@ -2020,7 +2781,8 @@ const PID = (() => {
 const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
   myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
-  poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null
+  poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null,
+  ctlOn: lsGet('gd_ctl') === '1', ctlN: {}, lv: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
 };
 
 /* ---------- sprites ---------- */
@@ -2162,23 +2924,26 @@ function teamOf(seat) {
   const name = String(d.name || 'Team ' + seat.toUpperCase()).slice(0, 18);
   return d.squad ? { name, squad: d.squad } : { name, roster: d.roster, squad: E.squadFromRoster(d.roster) };
 }
+const moveOf = v => v && typeof v === 'object' ? (v.c ? { pick: v.p, ctl: 1 } : { pick: v.p }) : { pick: v };
+const myMove = n => S.ctlN[n] ? { pick: S.mine[n], ctl: 1 } : { pick: S.mine[n] };
 function allMoves() {
   const mv = Object.assign({}, S.moves);
-  if (S.me) for (const n in S.mine) mv[n + '-' + S.me] = { pick: S.mine[n] };
+  if (S.me) for (const n in S.mine) mv[n + '-' + S.me] = myMove(n);
+  for (const n in S.lv) mv[n + '-lv'] = S.lv[n];
   return mv;
 }
 function derive() {
   if (!bothReady()) return null;
   const teams = { a: teamOf('a'), b: teamOf('b') };
   const rp = E.replay(S.seed, teams, allMoves(), S.cpuSides);
-  return { teams, state: rp.state, log: rp.log, U: rp.U };
+  return { teams, state: rp.state, log: rp.log, U: rp.U, wait: rp.wait };
 }
 
 /* ---------- field renderer ---------- */
 const Field = {
   W: 680, H: 372, YPP: 20, TOP: 42,
   cv: null, ctx: null, scene: null, cam: 50, ballX: null, ballLift: 0, flash: null,
-  queue: [], busy: false,
+  queue: [], busy: false, live: null,
   init() {
     if (this.cv) return;
     const cv = document.createElement('canvas');
@@ -2249,18 +3014,27 @@ const Field = {
     x.fillStyle = '#5aa9ff'; x.fillRect(Math.round(sx(los)) - 1, TOP, 3, H - TOP);
     x.fillStyle = '#ffcf3f'; x.fillRect(Math.round(sx(fd)) - 1, TOP, 3, H - TOP);
     // players
-    this.formation(sc).forEach(p => {
+    const live = this.live;
+    (live ? live.items : this.formation(sc)).forEach(p => {
       const px = Math.round(sx(p.wx)); if (px < -20 || px > W + 20) return;
       x.fillStyle = TEAM_COL[p.team]; x.globalAlpha = 0.55;
       x.beginPath(); x.ellipse(px, p.sy + 9, 11, 4, 0, 0, Math.PI * 2); x.fill(); x.globalAlpha = 1;
-      const face = p.team === sc.poss ? dir : -dir, spx = Math.round(p.sy) - 21;
+      if (p.ring) { x.strokeStyle = p.ring; x.lineWidth = 2; x.beginPath(); x.ellipse(px, p.sy + 9, 14, 6, 0, 0, Math.PI * 2); x.stroke(); }
+      const face = p.face != null ? p.face : (p.team === sc.poss ? dir : -dir), spx = Math.round(p.sy) - 21;
       if (face < 0) { x.save(); x.translate(px, 0); x.scale(-1, 1); x.drawImage(getSprite(p.key), -14, spx, 28, 28); x.restore(); }
       else x.drawImage(getSprite(p.key), px - 14, spx, 28, 28);
+      if (p.ring && p.tag) {
+        x.fillStyle = p.ring; x.beginPath(); x.moveTo(px - 5, spx - 9); x.lineTo(px + 5, spx - 9); x.lineTo(px, spx - 2); x.fill();
+        x.font = '9px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 3; x.strokeStyle = '#0b1020'; x.strokeText(p.tag.toUpperCase(), px, spx - 12); x.fillStyle = p.ring; x.fillText(p.tag.toUpperCase(), px, spx - 12);
+      }
+      if (p.num) {
+        x.fillStyle = '#ffcf3f'; x.fillRect(px - 7, spx - 12, 14, 12); x.fillStyle = '#10152a'; x.font = '11px Silkscreen, monospace'; x.textAlign = 'center'; x.fillText(p.num, px, spx - 2);
+      }
     });
     // ball
-    const bx = this.ballX == null ? los - dir * 0.2 : this.ballX;
-    const by = TOP + (H - TOP) / 2 - this.ballLift;
-    x.fillStyle = 'rgba(0,0,0,.35)'; x.beginPath(); x.ellipse(sx(bx), TOP + (H - TOP) / 2 + 8, 6, 2.5, 0, 0, Math.PI * 2); x.fill();
+    const bx = live ? live.ball.wx : (this.ballX == null ? los - dir * 0.2 : this.ballX);
+    const gy = live ? live.ball.sy : TOP + (H - TOP) / 2, by = gy - this.ballLift;
+    x.fillStyle = 'rgba(0,0,0,.35)'; x.beginPath(); x.ellipse(sx(bx), gy + 8, 6, 2.5, 0, 0, Math.PI * 2); x.fill();
     x.fillStyle = '#8a4b22'; x.beginPath(); x.ellipse(sx(bx), by, 6, 3.6, 0, 0, Math.PI * 2); x.fill();
     x.fillStyle = '#efe9d6'; x.fillRect(Math.round(sx(bx)) - 2, Math.round(by) - 1, 4, 1);
     // mini map
@@ -2278,6 +3052,10 @@ const Field = {
     x.font = '10px Silkscreen, monospace'; x.textAlign = 'left';
     x.fillStyle = '#93a0c4'; x.fillText(abbr(sc.teams.a.name), mx, my + mh + 12);
     x.textAlign = 'right'; x.fillText(abbr(sc.teams.b.name), mx + mw, my + mh + 12);
+    if (live && live.msg) {
+      x.textAlign = 'center'; x.font = '14px Silkscreen, monospace'; x.lineWidth = 5; x.strokeStyle = '#0b1020';
+      x.strokeText(live.msg, W / 2, TOP + 44); x.fillStyle = '#efe9d6'; x.fillText(live.msg, W / 2, TOP + 44);
+    }
     // flash text
     if (this.flash) {
       x.textAlign = 'center'; x.font = '34px Silkscreen, monospace';
@@ -2289,6 +3067,7 @@ const Field = {
   next() {
     const job = this.queue.shift();
     if (!job) { this.busy = false; return; }
+    if (job.seen) { const a = job.seen.after; this.set({ poss: a.poss, ballOn: a.ballOn, down: a.down, toGo: a.toGo, teams: job.teams }); this.next(); return; }
     this.busy = true;
     this.play(job.entry, job.teams, () => this.next());
   },
@@ -2379,7 +3158,8 @@ function buildLobby() {
     '<div class="panel how"><h2>How a game works</h2><ol>' +
     '<li><b>Snake draft 11 slots.</b> Quarterback, running back, two receivers, tight end, an entire offensive line, an entire defense, a kicker, a punt returner, a kick returner, and the rest of special teams (punter, long snapper, coverage). You and your opponent take turns from one shared pool (1-2-2-1…), and every player can only be on one team.</li>' +
     '<li><b>Optional salary cap.</b> Every player and unit has a salary based on rating and position. QBs and pass rushers cost the most, running backs and safeties the least. Stay under the cap or the pick is blocked.</li>' +
-    '<li><b>Call plays.</b> Offense and defense pick in secret at the same time. Pro-game ratings decide who wins the matchup.</li></ol>' +
+    '<li><b>Call plays.</b> Offense and defense pick in secret at the same time. Pro-game ratings decide who wins the matchup.</li>' +
+    '<li><b>Or play it yourself.</b> Switch on <i>Control your players</i> when you call a play. You run the quarterback (then whoever has the ball) or a defender on the field, and everyone else moves on their own. Switch it off any time to only call plays.</li></ol>' +
     '<p class="hint">Ratings are Madden NFL 27 overalls for current starters. Unofficial fan project, no logos.</p></div>' +
     '</section>';
   paintCanvases($('#main'));
@@ -2417,6 +3197,7 @@ function resetForMode() {
   stopPoll();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
   S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; Field.scene = null;
+  S.ctlN = {}; S.lv = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
 }
 function startLocal() {
   readName();
@@ -2456,7 +3237,7 @@ async function joinRoom(code, quiet) {
 }
 function enterRoom(code, seed, seat) {
   resetForMode();
-  S.mode = 'online'; S.code = code; S.seed = seed; S.me = seat;
+  S.mode = 'online'; S.code = code; S.seed = seed; S.me = seat; S.lvLoaded = false;
   ssSet('gd_room', code);
   startPoll();
   render();
@@ -2466,20 +3247,30 @@ function startPoll() {
   stopPoll(); lastPoll = '';
   const tick = async () => {
     if (S.mode !== 'online') return;
-    try {
-      const r = await api({ op: 'state', code: S.code });
+    if (!LV.on) try {
+      const r = await api({ op: 'state', code: S.code, lvall: S.lvLoaded && !(S.G && S.G.wait && !S.me) ? 0 : 1 });
       const sig = JSON.stringify(r);
-      if (sig !== lastPoll) {
+      if (!LV.on && sig !== lastPoll) {
         lastPoll = sig;
         S.seats = r.seats || {};
         const o = {};
-        ['a', 'b'].forEach(s => { const m = (r.moves && r.moves[s]) || {}; for (const n in m) o[n + '-' + s] = { pick: m[n] }; });
-        S.moves = o; sdOnline(r); render();
+        ['a', 'b'].forEach(s => { const m = (r.moves && r.moves[s]) || {}; for (const n in m) o[n + '-' + s] = moveOf(m[n]); });
+        S.moves = o; if (r.lv) takeLv(r.lv); S.lvLoaded = true; sdOnline(r); render();
       }
     } catch (e) { /* transient: keep polling */ }
     if (S.mode === 'online') S.poll = setTimeout(tick, S.screen === 'game' ? 700 : 1200);
   };
   tick();
+}
+// finished live snaps fetched from the room (coming back to a game, or watching one)
+function takeLv(lv) {
+  const mv = allMoves();
+  for (const n in lv) {
+    if (S.lv[n]) continue;
+    const r = lv[n], ca = mv[n + '-a'] && mv[n + '-a'].ctl, cb = mv[n + '-b'] && mv[n + '-b'].ctl;
+    if ((!ca || (r.a && r.a.fin)) && (!cb || (r.b && r.b.fin))) S.lv[n] = { a: (r.a && r.a.ev) || [], b: (r.b && r.b.ev) || [] };
+    else S.lvPart[n] = r;
+  }
 }
 function stopPoll() { if (S.poll) { clearTimeout(S.poll); S.poll = null; } }
 function leave() {
@@ -2747,10 +3538,18 @@ function updateGame() {
     S.shown = L.length;
     Field.set({ poss: st.poss, ballOn: st.ballOn, down: st.down, toGo: st.toGo, teams: T });
   } else {
-    while (S.shown < L.length) { Field.enqueue(L[S.shown], T); S.shown++; }
+    while (S.shown < L.length) {
+      const e = L[S.shown];
+      if (e.live && S.lvSeen[e.n]) { Field.queue.push({ seen: e, teams: T }); }   // already watched on the field
+      else Field.enqueue(e, T);
+      S.shown++;
+    }
+    if (!Field.busy) Field.next();
     if (!Field.busy && !Field.queue.length && L.length === 0) Field.set({ poss: st.poss, ballOn: st.ballOn, down: st.down, toGo: st.toGo, teams: T });
   }
-  renderBanner(G); renderLog(G); renderCall(G);
+  renderBanner(G); renderLog(G);
+  if (G.wait && !LV.on) LV.consider(G);
+  if (LV.on) LV.panel(false); else renderCall(G);
   if (S.ctx && st.over) ctxFinish(G);
 }
 function renderBanner(G) {
@@ -2789,13 +3588,13 @@ function renderCall(G) {
   }
   const n = st.playNo, role = S.me === st.poss ? 'off' : 'def';
   const locked = S.mine[n] != null ? S.mine[n] : null;
-  const sig = n + '|' + role + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn;
+  const sig = n + '|' + role + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0);
   if (S.callSig === sig) return; S.callSig = sig;
   const sit = ddLabel(st) + ' at ' + spotLabel(st, T);
   if (locked) {
     const lbl = role === 'off' ? E.OFF[locked].label : E.DEF_CALLS[locked].label;
     p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'Offense' : 'Defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
-      '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + '</b><p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
+      '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + '</b>' + (S.ctlN[n] ? '<p class="sub ctlnote">You will run the players on the field.</p>' : '') + '<p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
     return;
   }
   let opts;
@@ -2803,7 +3602,13 @@ function renderCall(G) {
   else opts = Object.keys(E.DEF_CALLS).map(id => ({ id, label: E.DEF_CALLS[id].label, desc: E.DEF_CALLS[id].desc, disabled: false, note: '' }));
   let k = 0;
   p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
+    ctlRowHTML(role) +
     '<div class="calls">' + opts.map(o => { const key = o.disabled ? '' : ++k; return '<button class="call" data-act="call" data-id="' + o.id + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
+}
+function ctlRowHTML(role) {
+  const on = S.ctlOn;
+  return '<div class="ctlrow"><button class="btn small ctl' + (on ? ' on' : '') + '" data-act="ctl-toggle" aria-pressed="' + on + '">Control your players: ' + (on ? 'ON' : 'OFF') + '</button>' +
+    '<span class="hint">' + (on ? (role === 'off' ? 'You play the quarterback, then whoever has the ball.' : 'You play one defender and can switch.') + ' Everyone else moves on their own.' : 'You only call the plays. The computer runs everyone.') + ' Press C to switch.</span></div>';
 }
 function submitCall(pick) {
   const G = S.G; if (!G || G.state.over || !S.me) return;
@@ -2812,15 +3617,293 @@ function submitCall(pick) {
   if (role === 'off') { if (!E.offOptions(st).some(o => o.id === pick && !o.disabled)) return; }
   else if (!E.DEF_CALLS[pick]) return;
   S.mine[n] = pick; S.callSig = null;
+  const ctl = S.ctlOn && !(role === 'off' && E.OFF[pick].kind === 'kick') ? 1 : 0;
+  if (ctl) S.ctlN[n] = 1; else delete S.ctlN[n];
   if (S.mode === 'online') {
-    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick }).catch(e => { delete S.mine[n]; S.callSig = null; handleErr(e); updateGame(); });
+    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; S.callSig = null; handleErr(e); updateGame(); });
   }
   updateGame();
 }
 
 
+/* ---------- live play: you run a player on the field ----------
+   Both browsers (and the server, when it verifies a game) run lib/live.js from the same inputs.  Each controlling player
+   streams his inputs through the room; an input made now takes effect LV.D ticks later on every screen, and a screen only
+   moves on to the next tick once it knows everything either controller did up to it (lockstep). */
+const LIVE = E.LIVE;
+const RL = 21;   // pixels per sideways unit on the live field
+const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r', w: 'u', s: 'd', a: 'l', d: 'r', W: 'u', S: 'd', A: 'l', D: 'r' };
+const lastName = n => String(n || '').trim().split(/\s+/).slice(-1)[0] || '';
+const LVLAB = { QB: 'quarterback', HB: 'running back', WR1: 'receiver', WR2: 'receiver', TE: 'tight end' };
+
+function liveKeys(teams, off, def) {
+  const OS = teams[off].squad, DS = teams[def].squad, k = {};
+  const sk = p => p.sk + ':' + p.hr + ':000000:000000';
+  k.QB = fieldKey(sk(OS.qb), off); k.HB = fieldKey(sk(OS.hb), off); k.WR1 = fieldKey(sk(OS.wr[0]), off); k.WR2 = fieldKey(sk(OS.wr[1]), off); k.TE = fieldKey(sk(OS.te), off);
+  const gt = ab => ({ abbr: ab, c1: '#222222', c2: '#222222' });
+  OS.ol.p.forEach((p, n) => { k['OL' + n] = fieldKey(genericKey(gt(OS.ol.tm), 'OL', n), off); });
+  DS.df.p.forEach((p, n) => { k['D' + n] = fieldKey(genericKey(gt(DS.df.tm), 'DEF', n), def); });
+  return k;
+}
+
+const LV = {
+  on: null, D: 10, held: {}, speed: 1, raf: 0, netT: 0, pend: [],
+  speedNow() { return window.__lvSpeed || this.speed; },
+
+  /* ----- starting and stopping ----- */
+  consider(G) {
+    if (this.on || !G.wait || !S.me || !S.lvLoaded) return;
+    const w = G.wait; if (w.n !== G.state.playNo || S.lv[w.n]) return;
+    this.start(G);
+  },
+  start(G) {
+    const w = G.wait, st = G.state, T = G.teams, n = w.n, off = w.off, def = w.def, me = S.me;
+    const ctl = {}; ctl[off] = !!w.om.ctl; ctl[def] = !!(w.dm && w.dm.ctl);
+    const online = S.mode === 'online', both = ctl.a && ctl.b;
+    const ctx = { seed: S.seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick: E.legalOff(st, w.om.pick), defPick: E.DEF_CALLS[w.dm.pick] ? w.dm.pick : 'ZONE', OS: T[off].squad, DS: T[def].squad, ctlO: ctl[off], ctlD: ctl[def] };
+    const m = this.on = {
+      n, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? this.D : 0, dir: off === 'a' ? 1 : -1, st, T, keys: liveKeys(T, off, def),
+      stream: { a: { ev: [], upto: ctl.a ? 0 : 9999, fin: !ctl.a }, b: { ev: [], upto: ctl.b ? 0 : 9999, fin: !ctl.b } },
+      myCtl: !!ctl[me], oppCtl: !!ctl[other(me)], opp: other(me), last: 0, acc: 0, target: 0, stallAt: 0, ended: 0, inflight: false, lastNet: 0, lastStick: '0,0', pan: '', panT: 0, handed: false, tried: 0
+    };
+    const part = S.lvPart && S.lvPart[n];   // coming back to a snap that was already under way
+    if (part && part[me] && m.myCtl) { m.stream[me].ev = part[me].ev.slice(); m.stream[me].upto = part[me].upto; }
+    this.build(m);
+    const sc = { poss: off, ballOn: st.ballOn, down: st.down, toGo: st.toGo, teams: T };
+    Field.queue = []; Field.busy = false; Field.flash = null; Field.scene = sc; Field.live = { items: [], ball: { wx: 0, sy: 0 }, los: Field.losX(sc), dir: m.dir };
+    m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
+    Field.cam = Field.clampCam(Field.losX(sc));
+    this.panel(true);
+    window.GD_LIVE = this;
+    m.readyAt = performance.now() + 1000 / this.speedNow();
+    this.raf = requestAnimationFrame(t => { m.last = t; this.frame(t); });
+    clearInterval(this.netT); this.netT = setInterval(() => this.netTick(), 130);
+    if (online) this.netTick();
+  },
+  build(m) {   // (re)create the simulation from tick zero
+    m.sim = LIVE.create(m.ctx);
+    m.cc = { a: { ev: [], n: 0, i: 0, dx: 0, dy: 0 }, b: { ev: [], n: 0, i: 0, dx: 0, dy: 0 } };
+    m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
+  },
+  rebuild(m) { m.target = Math.max(m.target, m.sim.t); this.build(m); m.acc = 0; },
+  snapshot(m) { return { p: m.sim.P.map(p => [p.x, p.y]), b: [m.sim.ball.x, m.sim.ball.y, m.sim.ball.z] }; },
+  stop() {
+    cancelAnimationFrame(this.raf); this.raf = 0; clearInterval(this.netT); this.netT = 0;
+    this.on = null; this.held = {}; if (Field.live) { Field.live = null; Field.flash = null; }
+    window.GD_LIVE = null;
+  },
+
+  /* ----- the clock ----- */
+  blocked(m) {
+    const need = m.sim.t + 1;
+    for (const s of ['a', 'b']) {
+      if (!m.ctl[s]) continue;
+      if (s === m.me && m.myCtl) continue;   // my own stream is always up to date
+      const rs = m.stream[s]; if (rs.upto < need && !rs.fin) return true;
+    }
+    return false;
+  },
+  sync(m, s) {
+    const c = m.cc[s], ev = m.stream[s].ev;
+    for (; c.n < ev.length; c.n++) c.ev.push(LIVE.dec(ev[c.n]));
+  },
+  frame(ts) {
+    const m = this.on; if (!m) return;
+    this.raf = requestAnimationFrame(t => this.frame(t));
+    const dt = Math.min(120, ts - m.last) * this.speedNow(); m.last = ts;
+    if (ts < m.readyAt) { this.draw(m); if (ts - m.panT > 120) { m.panT = ts; this.panel(false); } return; }
+    if (!m.sim.out) m.acc = Math.min(m.acc + dt, 200);
+    let guard = 0;
+    while (!m.sim.out && guard++ < 500) {
+      const catching = m.sim.t < m.target;
+      if (!catching && m.acc < 50) break;
+      if (this.blocked(m)) { if (!m.stallAt) m.stallAt = ts; break; }
+      if (m.stallAt && ts - m.stallAt > 150 && m.D > 0 && m.D < 18) m.D += 2;   // the connection is slower than the delay: type further ahead
+      m.stallAt = 0;
+      if (!catching) m.acc -= 50;
+      this.tick(m);
+    }
+    if (m.sim.out && !m.ended) { m.ended = ts; this.flashResult(m); this.flush(m); }
+    if (m.sim.out && ts - m.ended > 1250 / Math.max(1, this.speedNow() > 2 ? 4 : 1)) { this.finish(m); return; }
+    this.draw(m);
+    if (ts - m.panT > 120) { m.panT = ts; this.panel(false); }
+  },
+  tick(m) {
+    this.sync(m, 'a'); this.sync(m, 'b');
+    m.sn0 = m.sn1;
+    LIVE.advance(m.sim, m.cc[m.off], m.cc[m.def]);
+    m.sn1 = this.snapshot(m);
+  },
+
+  /* ----- input ----- */
+  stick() {
+    const m = this.on, h = this.held;
+    const sx = (h.r ? 1 : 0) - (h.l ? 1 : 0), sy = (h.d ? 1 : 0) - (h.u ? 1 : 0);
+    return [sx * m.dir, sy * m.dir];
+  },
+  push(code) {
+    const m = this.on; if (!m || !m.myCtl || m.sim.out || m.handed) return;
+    const st = this.stick(), key = st[0] + ',' + st[1];
+    if (!code && key === m.lastStick) return;
+    m.lastStick = key;
+    const stamp = Math.min(399, m.sim.t + 1 + m.D);
+    const ev = m.stream[m.me].ev, e = LIVE.enc(stamp, st[0], st[1], code || 0);
+    ev.push(e);
+    if (ev.length > 480) ev.splice(1, 1);
+    if (m.online) this.netTick();
+  },
+  hand() { const m = this.on; if (!m || !m.myCtl || m.handed) return; this.push(9); m.handed = true; this.panel(true); },
+  key(ev, down) {
+    const m = this.on; if (!m || !m.myCtl) return false;
+    const k = ev.key;
+    if (KEYDIR[k]) { this.held[KEYDIR[k]] = down; ev.preventDefault(); this.push(0); return true; }
+    if (!down) return false;
+    if (k === ' ' || k === 'Spacebar') { ev.preventDefault(); this.push(5); return true; }
+    if (k === 'e' || k === 'E' || k === 'Tab') { ev.preventDefault(); this.push(6); return true; }
+    if (/^[1-4]$/.test(k)) { this.push(+k); return true; }
+    return false;
+  },
+  hold(dir, down) { this.held[dir] = down; this.push(0); },
+
+  /* ----- network ----- */
+  async netTick() {
+    const m = this.on;
+    if (!m || !m.online || m.inflight || (!m.myCtl && !m.oppCtl)) return;
+    m.inflight = true;
+    const mine = m.stream[m.me], gone = this.on !== m;
+    try {
+      const body = { code: S.code, seat: m.me, pid: PID, n: m.n };
+      if (m.myCtl) { body.op = 'live'; body.ev = mine.ev; body.upto = m.sim.out ? 9999 : (m.sim.t + m.D); body.fin = !!m.sim.out; }
+      else { body.op = 'live'; body.poll = 1; }
+      const r = await api(body);
+      if (this.on === m) this.take(m, r);
+      m.tried = 0;
+    } catch (e) { m.tried++; if (e && e.code === 'diverged') { /* our own stream was replaced: pick it up on the next answer */ } }
+    finally { m.inflight = false; }
+  },
+  take(m, r) {
+    if (r.forced) { const f = r.forced, mine = m.stream[m.me]; if (f.ev.length !== mine.ev.length || f.ev.some((e, i) => e !== mine.ev[i])) { mine.ev = f.ev.slice(); this.rebuild(m); } mine.upto = 9999; mine.fin = true; m.handed = true; }
+    const o = r.o; if (!o || !m.oppCtl) return;
+    const rs = m.stream[m.opp];
+    let same = o.ev.length >= rs.ev.length; for (let i = 0; same && i < rs.ev.length; i++) if (rs.ev[i] !== o.ev[i]) same = false;
+    if (!same) { rs.ev = o.ev.slice(); this.rebuild(m); } else if (o.ev.length > rs.ev.length) rs.ev = o.ev.slice();
+    if (o.upto > rs.upto) rs.upto = o.upto;
+    if (o.fin) rs.fin = true;
+  },
+  async force() {
+    const m = this.on; if (!m || !m.online || !m.oppCtl) return;
+    try { const r = await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.n, force: 1 }); this.take(m, r); m.stallAt = 0; }
+    catch (e) { toast(e && e.code === 'alive' ? 'They are still connected. Give it a moment.' : 'Could not reach the server.'); }
+  },
+  // send the finished stream even after the screen has moved on
+  flush(m) {
+    if (!m.online || !m.myCtl) return;
+    const send = async k => {
+      try { await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.n, ev: m.stream[m.me].ev, upto: 9999, fin: true }); }
+      catch (e) { if (k < 12 && S.mode === 'online' && S.code === m.code0) setTimeout(() => send(k + 1), 600 * (k + 1)); }
+    };
+    send(0);
+  },
+
+  /* ----- finishing ----- */
+  flashResult(m) {
+    const o = m.sim.out, own = k => TEAM_COL[k];
+    let text = '', col = '#efe9d6';
+    if (o.td || o.tdRet) { text = 'TOUCHDOWN'; col = own(o.tdRet ? m.def : m.off); }
+    else if (o.k === 'sack') { text = 'SACK'; col = own(m.def); }
+    else if (o.k === 'int') { text = 'INTERCEPTED'; col = own(m.def); }
+    else if (o.k === 'fumble') { text = 'FUMBLE'; col = own(m.def); }
+    else if (o.k === 'safety') { text = 'SAFETY'; col = own(m.def); }
+    else if (o.k === 'inc') text = o.away ? 'THROWN AWAY' : 'INCOMPLETE';
+    else { const y = Math.round(o.x); text = y > 0 ? '+' + y + ' YARDS' : y === 0 ? 'NO GAIN' : y + ' YARDS'; if (y >= m.st.toGo) { text += ' · 1ST DOWN'; col = own(m.off); } }
+    Field.flash = { text, color: col };
+  },
+  finish(m) {
+    const n = m.n, lv = { a: m.stream.a.ev.slice(), b: m.stream.b.ev.slice() };
+    if (!m.ctl.a) lv.a = []; if (!m.ctl.b) lv.b = [];
+    S.lv[n] = lv; S.lvSeen[n] = true;
+    this.stop();
+    S.callSig = null;
+    if (S.mode === 'online' || S.mode === 'local') render();
+  },
+
+  /* ----- drawing ----- */
+  draw(m) {
+    const L = Field.live; if (!L) return;
+    const alpha = Math.max(0, Math.min(1, m.acc / 50)), pv = m.sn0, cu = m.sn1, sim = m.sim, dir = m.dir;
+    const sc = Field.scene, los = Field.losX(sc), mid = Field.TOP + (Field.H - Field.TOP) / 2;
+    const lerp = (a, b) => a + (b - a) * alpha;
+    const items = [];
+    const hot = []; if (m.ctl[m.off] && sim.human.o) hot.push([m.off, sim.ctlId.o]); if (m.ctl[m.def] && sim.human.d) hot.push([m.def, sim.ctlId.d]);
+    const tags = (m.me === m.off && m.myCtl && sim.human.o && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass') ? { WR1: '1', WR2: '2', TE: '3', HB: '4' } : null;
+    sim.P.forEach((p, i) => {
+      const a = pv.p[i] || cu.p[i], b = cu.p[i], x = lerp(a[0], b[0]), y = lerp(a[1], b[1]);
+      const fx = p.vx * dir, face = Math.abs(fx) > 0.8 ? (fx > 0 ? 1 : -1) : (p.side === 'o' ? dir : -dir);
+      const it = { wx: los + dir * x, sy: mid + y * dir * RL, key: m.keys[p.id], team: p.side === 'o' ? m.off : m.def, face, id: p.id };
+      const mineHot = hot.some(h => h[0] === m.me && h[1] === p.id), anyHot = hot.some(h => h[1] === p.id);
+      if (mineHot) { it.ring = '#ffcf3f'; it.tag = lastName(p.name); }
+      else if (anyHot) { it.ring = TEAM_COL[other(m.me)]; }
+      if (tags && tags[p.id]) it.num = tags[p.id];
+      items.push(it);
+    });
+    items.sort((u, v) => u.sy - v.sy);
+    const bx = lerp(pv.b[0], cu.b[0]), by = lerp(pv.b[1], cu.b[1]), bz = lerp(pv.b[2], cu.b[2]);
+    const carried = sim.ball.car != null, car = carried ? sim.by[sim.ball.car] : null;
+    L.items = items; L.los = los; L.dir = dir;
+    L.ball = { wx: los + dir * bx, sy: mid + by * dir * RL, lift: carried ? 11 : bz * 9 };
+    L.msg = performance.now() < m.readyAt ? 'READY…' : m.stallAt && !sim.out && (performance.now() - m.stallAt > 700) ? 'Waiting for ' + esc((S.seats[m.opp] || {}).name || 'your opponent') + '…' : '';
+    Field.cam += (Field.clampCam(L.ball.wx) - Field.cam) * 0.14;
+    Field.ballLift = L.ball.lift; Field.draw();
+  },
+
+  /* ----- the panel under the field ----- */
+  panel(force) {
+    const m = this.on, p = $('#callpanel'); if (!m || !p) return;
+    const sim = m.sim, me = m.me, role = me === m.off ? 'off' : 'def';
+    const sit = ddLabel(m.st) + ' at ' + spotLabel(m.st, m.T);
+    if (force || !p.querySelector('#lvinfo')) {
+      p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (m.myCtl ? 'You are playing' : m.oppCtl ? esc((S.seats[m.opp] || {}).name || 'Your opponent') + ' is playing' : 'Live play') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
+        '<div class="lvinfo" id="lvinfo"></div>' +
+        (m.myCtl ? '<div class="lvpad"><div class="dpad"><button class="pb u" data-hold="u" aria-label="Up">▲</button><button class="pb l" data-hold="l" aria-label="Left">◀</button><button class="pb r" data-hold="r" aria-label="Right">▶</button><button class="pb d" data-hold="d" aria-label="Down">▼</button></div><div class="lvact" id="lvact"></div></div>' +
+          '<div class="row"><button class="btn small" data-act="live-hand"' + (m.handed ? ' disabled' : '') + '>' + (m.handed ? 'The computer is playing it' : 'Let the computer play it') + '</button></div>' : '') +
+        '<div class="row" id="lvforce"></div>';
+      m.pan = '';
+    }
+    // what can I do right now?
+    let info = '', acts = '';
+    const ctlId = role === 'off' ? sim.ctlId.o : sim.ctlId.d, cp = sim.by[ctlId];
+    if (m.myCtl && !m.handed && !sim.out) {
+      if (role === 'off') {
+        const qbHas = sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass';
+        if (qbHas) {
+          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>. Arrows or WASD to move. Pick a target: <b>1</b> ' + esc(lastName(sim.by.WR1.name)) + ' · <b>2</b> ' + esc(lastName(sim.by.WR2.name)) + ' · <b>3</b> ' + esc(lastName(sim.by.TE.name)) + ' · <b>4</b> ' + esc(lastName(sim.by.HB.name)) + '. Space throws it away.';
+          acts = ['1', '2', '3', '4'].map(k => '<button class="ab" data-lvk="' + k + '">' + k + '</button>').join('') + '<button class="ab wide" data-lvk="5">Throw away</button>';
+        } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. Arrows or WASD to move.'; acts = ''; }
+        else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. Arrows or WASD to run, Space to juke.'; acts = '<button class="ab wide" data-lvk="5">Juke</button>'; }
+      } else {
+        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). Arrows or WASD to move, Space to dive, E to switch players.';
+        acts = '<button class="ab wide" data-lvk="5">Dive</button><button class="ab wide" data-lvk="6">Switch</button>';
+      }
+    } else if (m.myCtl && m.handed) info = 'The computer has your players.';
+    else if (m.oppCtl) info = 'Your opponent is playing this snap on the field. Your players move on their own.';
+    else info = 'Watching the snap.';
+    const key = info + '|' + acts;
+    if (key !== m.pan) {
+      m.pan = key;
+      const a = $('#lvinfo'), b = $('#lvact'); if (a) a.innerHTML = info; if (b) b.innerHTML = acts;
+    }
+    const f = $('#lvforce');
+    if (f) {
+      const want = m.online && m.oppCtl && m.stallAt && performance.now() - m.stallAt > 5000 && !sim.out;
+      const html = want ? '<button class="btn small" data-act="live-force">Opponent not responding · let the computer take over their player</button>' : '';
+      if (f.dataset.h !== html) { f.innerHTML = html; f.dataset.h = html; }
+    }
+  }
+};
+
+
 /* ---------- hub-driven games (campaign, leagues, tournaments) ---------- */
-function ctxMoves() { const o = {}; for (const n in S.mine) o[n + '-' + S.me] = { pick: S.mine[n] }; return o; }
+function ctxMoves() { const o = {}; for (const n in S.mine) o[n + '-' + S.me] = myMove(n); for (const n in S.lv) o[n + '-lv'] = S.lv[n]; return o; }
 function ctxFinish(G) {
   const c = S.ctx; if (!c || c.sent) return;
   c.sent = true; c.status = 'saving'; S.callSig = null;
@@ -2836,7 +3919,7 @@ function startCtxCpu(info, ctx) {   // info: {T, seed, side, cpuSide}
 }
 function startCtxRoom(info, ctx) {  // info: {room, seed, side}
   resetForMode();
-  S.mode = 'online'; S.code = info.room; S.seed = info.seed; S.me = info.side;
+  S.mode = 'online'; S.code = info.room; S.seed = info.seed; S.me = info.side; S.lvLoaded = false;
   S.ctx = Object.assign({ kind: 'room', label: 'Live game', sent: false, status: '' }, ctx);
   startPoll(); render();
 }
@@ -2875,6 +3958,9 @@ document.addEventListener('click', ev => {
   else if (a === 'sd-tab') { const sd = S.sd; if (sd) { sd.tab = t.dataset.k; sdUpdate(); } }
   else if (a === 'copy') { const done = () => toast('Room code copied.'); try { navigator.clipboard.writeText(S.code).then(done, () => toast('Copy failed. Select the code and copy it.')); } catch (e) { toast('Copy failed. Select the code and copy it.'); } }
   else if (a === 'call') submitCall(t.dataset.id);
+  else if (a === 'ctl-toggle') { S.ctlOn = !S.ctlOn; lsSet('gd_ctl', S.ctlOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
+  else if (a === 'live-hand') LV.hand();
+  else if (a === 'live-force') LV.force();
   else if (a === 'rosters') showRosters();
   else if (a === 'matchups') showMatchups();
   else if (a === 'close-modal') closeModal();
@@ -2885,11 +3971,21 @@ document.addEventListener('keydown', ev => {
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   if (ev.key === 'Escape') { closeModal(); return; }
   const m = $('#modal'); if (m && !m.hidden) return;
-  if (S.screen === 'game' && /^[1-9]$/.test(ev.key)) {
+  if (LV.on) { if (LV.key(ev, true)) return; }
+  if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
+  if (S.screen === 'game' && !LV.on && /^[1-9]$/.test(ev.key)) {
     const btns = document.querySelectorAll('#callpanel .call:not([disabled])');
     const b = btns[+ev.key - 1]; if (b) submitCall(b.dataset.id);
   }
 });
+document.addEventListener('keyup', ev => { if (LV.on) LV.key(ev, false); });
+window.addEventListener('blur', () => { if (LV.on) { LV.held = {}; LV.push(0); } });
+// on-screen pad: hold a direction, tap an action
+document.addEventListener('pointerdown', ev => {
+  const h = ev.target.closest && ev.target.closest('[data-hold]'); if (h && LV.on) { ev.preventDefault(); LV.hold(h.dataset.hold, true); h.setPointerCapture && h.setPointerCapture(ev.pointerId); return; }
+  const k = ev.target.closest && ev.target.closest('[data-lvk]'); if (k && LV.on) { ev.preventDefault(); LV.push(+k.dataset.lvk); }
+});
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => document.addEventListener(t, ev => { const h = ev.target.closest && ev.target.closest('[data-hold]'); if (h && LV.on) LV.hold(h.dataset.hold, false); }));
 document.addEventListener('input', ev => {
   if (ev.target && ev.target.id === 'sd-q' && S.sd) { S.sd.q = ev.target.value; sdList(); return; }
   if (ev.target && ev.target.id === 'code') ev.target.value = ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
