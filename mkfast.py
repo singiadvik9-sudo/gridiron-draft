@@ -5,3 +5,6 @@ for a,b in [("hold = fl ? 750 : 220, settle = 320","hold = fl ? 5 : 5, settle = 
     t=t.replace(a,b)
 t=t.replace('ms || 5000','300')
 os.makedirs('public_fast',exist_ok=True); open('public_fast/index.html','w').write(t)
+
+import shutil
+shutil.copytree('public/vendor','public_fast/vendor',dirs_exist_ok=True)

@@ -141,8 +141,10 @@ const LV = {
   /* ----- input ----- */
   stick() {
     const m = this.on, h = this.held;
-    const sx = (h.r ? 1 : 0) - (h.l ? 1 : 0), sy = (h.d ? 1 : 0) - (h.u ? 1 : 0);
-    return [sx * m.dir, sy * m.dir];
+    const sx = (h.r ? 1 : 0) - (h.l ? 1 : 0), up = (h.u ? 1 : 0) - (h.d ? 1 : 0);
+    // the keys are relative to the camera: right is the screen's right, up is away from you (a 3D view looks along the field)
+    const b = Field.view !== 'side' && Field3D.active ? Field3D.basis(m) : { R: [1, 0], F: [0, -1] };
+    return [(sx * b.R[0] + up * b.F[0]) * m.dir, (sx * b.R[1] + up * b.F[1]) * m.dir];
   },
   push(code) {
     const m = this.on; if (!m || !m.myCtl || m.sim.out || m.handed) return;
@@ -252,8 +254,11 @@ const LV = {
     sim.P.forEach((p, i) => {
       const a = pv.p[i] || cu.p[i], b = cu.p[i], x = lerp(a[0], b[0]), y = lerp(a[1], b[1]);
       const fx = p.vx * dir, face = Math.abs(fx) > 0.8 ? (fx > 0 ? 1 : -1) : (p.side === 'o' ? dir : -dir);
-      const it = { wx: los + dir * x, sy: mid + y * dir * RL, key: m.keys[p.id], team: p.side === 'o' ? m.off : m.def, face, id: p.id };
+      const it = { wx: los + dir * x, sy: mid + y * dir * RL, wz: y * dir, key: m.keys[p.id], team: p.side === 'o' ? m.off : m.def, face, id: p.id,
+        vx: p.vx * dir, vz: p.vy * dir, grp: p.grp, off: p.side === 'o', dive: p.dive > 0, down: p.hold > 0, jump: p.jump > 0, eng: !!p.eng, carrier: sim.ball.car === p.id,
+        stance: (p.grp === 'OL' || p.grp === 'DL') && sim.t < 4 };
       const mineHot = hot.some(h => h[0] === m.me && h[1] === p.id), anyHot = hot.some(h => h[1] === p.id);
+      it.mine = mineHot;
       if (mineHot) { it.ring = '#ffcf3f'; it.tag = lastName(p.name); }
       else if (anyHot) { it.ring = TEAM_COL[other(m.me)]; }
       if (tags && tags[p.id]) it.num = tags[p.id];
@@ -263,7 +268,8 @@ const LV = {
     const bx = lerp(pv.b[0], cu.b[0]), by = lerp(pv.b[1], cu.b[1]), bz = lerp(pv.b[2], cu.b[2]);
     const carried = sim.ball.car != null, car = carried ? sim.by[sim.ball.car] : null;
     L.items = items; L.los = los; L.dir = dir;
-    L.ball = { wx: los + dir * bx, sy: mid + by * dir * RL, lift: carried ? 11 : bz * 9 };
+    L.ball = { wx: los + dir * bx, sy: mid + by * dir * RL, wz: by * dir, h: bz, carried, lift: carried ? 11 : bz * 9 };
+    L.mine = items.some(i => i.mine); L.meOff = m.me === m.off;
     L.hud = null;
     if (m.myCtl && !m.handed && !sim.out && performance.now() >= m.readyAt) {
       const off = m.me === m.off, qbHas = off && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass';

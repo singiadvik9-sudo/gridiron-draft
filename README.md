@@ -29,6 +29,8 @@ How it stays in sync (and honest): the snap is a pure function of `seed + play n
 
 **Controls on screen.** The player you run has a pulsing ring, a bobbing arrow and a name tag, receivers carry big numbers while the quarterback has the ball, and a key strip along the bottom of the field lists exactly what your keys do at that moment.
 
+**Camera angles / 3D views.** A View menu on the field (and the `V` key) switches between six angles: *Sideline* (the classic pixel view), *Broadcast 3D*, *Behind offense* (down the field), *Behind defense*, *Player cam* (over the shoulder of whoever you control) and *Overhead*. Everything except Sideline is a real 3D scene (low-poly players, stands, goalposts, ball). The choice is remembered. three.js is vendored in `public/vendor/` and only loaded the first time a 3D view is picked; without WebGL the game stays in 2D. Controls are camera-relative, so "up" always means away from the camera. In plays resolved by dice (no live sim) only the ball carrier, receiver and ball move in 3D. `ui_views.py` tests every view and its stick mapping.
+
 Note: a live snap costs roughly 10 Redis commands per second per controlling player while it runs (about 100-200 commands for a snap), so a game played entirely live uses a few thousand.
 
 ## Deploy

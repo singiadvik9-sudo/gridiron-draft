@@ -454,7 +454,7 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 
 /* the game fits one screen: field in the middle, the call panel always under it (desktop and landscape tablets) */
 .fieldhost { position: relative; }
-.fsbtn { position: absolute; top: 8px; right: 8px; z-index: 2; font-family: var(--display); font-size: 10px; line-height: 1.2; text-transform: uppercase; letter-spacing: .05em; padding: 6px 9px; background: rgba(11, 16, 32, .78); border: 2px solid var(--line); color: var(--chalk); opacity: .75; }
+.fsbtn { position: static; font-family: var(--display); font-size: 10px; line-height: 1.2; text-transform: uppercase; letter-spacing: .05em; padding: 6px 9px; background: rgba(11, 16, 32, .78); border: 2px solid var(--line); color: var(--chalk); opacity: .75; }
 .fsbtn:hover { opacity: 1; border-color: var(--flag); }
 @media (min-width: 761px) and (min-height: 620px) {
   body.ingame:not(.gover) { padding-block: 8px; }
@@ -500,8 +500,25 @@ body.ingame.fs.gover .mast { display: flex; }
   body.ingame:not(.gover) .sb { grid-area: sb; }
   body.ingame:not(.gover) .fieldhost { grid-area: field; }
   body.ingame:not(.gover) .deck { grid-area: deck; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; max-height: none; min-height: 0; gap: 8px; }
-  body.ingame:not(.gover) .callpanel { max-height: none; min-height: 0; }
+  body.ingame:not(.gover) .callpanel { max-height: none; min-height: 0; align-self: stretch; }
   body.ingame:not(.gover) .side { max-height: 240px; }
   body.ingame:not(.gover) .calls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   body.ingame:not(.gover) .call small { -webkit-line-clamp: 3; }
+}
+
+/* camera angles: the picker next to the full screen button, and the 3D canvas under the overlay */
+.fvbar { position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; gap: 6px; align-items: flex-start; line-height: 1.2; }
+.vmenu { position: relative; }
+.vlist { position: absolute; right: 0; top: calc(100% + 4px); display: grid; gap: 2px; min-width: 214px; padding: 4px; background: rgba(11, 16, 32, .97); border: 2px solid var(--line); z-index: 4; }
+.vlist[hidden] { display: none; }
+.vopt { display: grid; gap: 1px; text-align: left; padding: 7px 10px; background: var(--panel2); border: 2px solid transparent; }
+.vopt b { font-family: var(--display); font-size: 10px; text-transform: uppercase; font-weight: 400; letter-spacing: .04em; }
+.vopt small { color: var(--mute); font-size: 14px; line-height: 1.1; }
+.vopt.on { border-color: var(--flag); }
+.vopt:hover { border-color: var(--chalk); }
+.fieldhost.v3d { aspect-ratio: 680 / 372; overflow: visible; }
+.fieldhost.v3d canvas.gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.fieldhost.v3d canvas.field { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; object-fit: fill !important; pointer-events: none; image-rendering: auto !important; }
+@media (min-width: 761px) and (min-height: 620px) {
+  body.ingame:not(.gover) .fieldhost.v3d { aspect-ratio: auto; align-self: stretch; overflow: visible; }
 }

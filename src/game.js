@@ -186,7 +186,18 @@ function derive() {
 const Field = {
   W: 680, H: 372, YPP: 20, TOP: 42,
   cv: null, ctx: null, scene: null, cam: 50, ballX: null, ballLift: 0, flash: null,
-  queue: [], busy: false, live: null,
+  queue: [], busy: false, live: null, view: 'side', anim: null,
+  // 3D views (src/field3d.js) take over the drawing; this canvas then only carries the overlay
+  setView(id) {
+    const host = this.cv && this.cv.parentNode;
+    this.view = id;
+    if (id === 'side') { if (Field3D.active) Field3D.disable(); if (host) host.classList.remove('v3d'); this.cv.width = this.W; this.cv.height = this.H; this.draw(); }
+    else if (host) { host.classList.add('v3d'); Field3D.enable(host, id); }
+  },
+  attach() {
+    const host = this.cv.parentNode; if (!host) return;
+    if (this.view !== 'side' && Field3D.ready) { host.classList.add('v3d'); Field3D.enable(host, this.view); } else host.classList.remove('v3d');
+  },
   init() {
     if (this.cv) return;
     const cv = document.createElement('canvas');
@@ -201,24 +212,25 @@ const Field = {
     const o = sc.poss, d = other(o), dir = o === 'a' ? 1 : -1, los = this.losX(sc);
     const midY = this.TOP + (this.H - this.TOP) / 2, ROW = 24;
     const out = [], OS = sc.teams[o].squad, DS = sc.teams[d].squad;
-    const put = (team, wx, sy, base) => out.push({ wx, sy, key: fieldKey(base, team), team });
+    const put = (team, wx, sy, base, id, grp) => out.push({ wx, sy, wz: (sy - midY) / ROW, key: fieldKey(base, team), team, id, grp, stance: grp === 'OL' || grp === 'DL' });
     const sk = p => p.sk + ':' + p.hr + ':000000:000000';
-    const OFFP = [[OS.qb, 3, 0], [OS.hb, 7, 0], [OS.wr[0], 0.7, -5.2], [OS.wr[1], 0.7, 5.2], [OS.te, 0.7, 3]];
-    OFFP.forEach(q => put(o, los - dir * q[1], midY + q[2] * dir * ROW, sk(q[0])));
+    const OFFP = [[OS.qb, 3, 0, 'QB', 'QB'], [OS.hb, 7, 0, 'HB', 'HB'], [OS.wr[0], 0.7, -5.2, 'WR1', 'WR'], [OS.wr[1], 0.7, 5.2, 'WR2', 'WR'], [OS.te, 0.7, 3, 'TE', 'TE']];
+    OFFP.forEach(q => put(o, los - dir * q[1], midY + q[2] * dir * ROW, sk(q[0]), q[3], q[4]));
     const gt = ab => ({ abbr: ab, c1: '#222222', c2: '#222222' });
-    [-2, -1, 0, 1, 2].forEach((yy, n) => put(o, los - dir * 0.7, midY + yy * dir * ROW, genericKey(gt(OS.ol.tm), 'OL', n)));
+    [-2, -1, 0, 1, 2].forEach((yy, n) => put(o, los - dir * 0.7, midY + yy * dir * ROW, genericKey(gt(OS.ol.tm), 'OL', n), 'OL' + n, 'OL'));
     const T43 = { LDE: [-0.9, -2.9], LDT: [-0.9, -1], RDT: [-0.9, 1], RDE: [-0.9, 2.9], WLB: [-3, -3.6], MLB: [-3.8, 0], SLB: [-3, 3.6] };
     const T34 = { LDE: [-0.9, -2.2], NT: [-0.9, 0], RDE: [-0.9, 2.2], WLB: [-2.6, -3.8], LILB: [-3.6, -1.1], RILB: [-3.6, 1.1], SLB: [-2.6, 3.8] };
     const TD = Object.assign({}, DS.df.sch === '43' ? T43 : T34, { LCB: [-2.2, -6], RCB: [-2.2, 6], SS: [-9, 2.2], FS: [-9, -2.2] });
     DS.df.p.forEach((p, n) => {
       const q = TD[p[0]]; if (!q) return;
-      put(d, los - dir * q[0], midY + q[1] * dir * ROW, genericKey(gt(DS.df.tm), 'DEF', n));
+      put(d, los - dir * q[0], midY + q[1] * dir * ROW, genericKey(gt(DS.df.tm), 'DEF', n), 'D' + n, p[1]);
     });
     out.sort((a, b) => a.sy - b.sy);
     return out;
   },
 
   draw() {
+    if (this.view !== 'side') return;   // Field3D renders from this same state
     const x = this.ctx, W = this.W, H = this.H, YPP = this.YPP, TOP = this.TOP, sc = this.scene;
     if (!x) return;
     x.imageSmoothingEnabled = false;
@@ -288,6 +300,12 @@ const Field = {
     x.fillStyle = 'rgba(0,0,0,.35)'; x.beginPath(); x.ellipse(sx(bx), gy + 8, 6, 2.5, 0, 0, Math.PI * 2); x.fill();
     x.fillStyle = '#8a4b22'; x.beginPath(); x.ellipse(sx(bx), by, 6, 3.6, 0, 0, Math.PI * 2); x.fill();
     x.fillStyle = '#efe9d6'; x.fillRect(Math.round(sx(bx)) - 2, Math.round(by) - 1, 4, 1);
+    this.drawOverlay(x, W, H, left, W / YPP);
+  },
+  // minimap, messages, key strip and flash text: drawn over the 2D field and over the 3D views (W x H are logical pixels)
+  drawOverlay(x, W, H, left, span) {
+    const sc = this.scene, live = this.live, TOP = this.TOP;
+    const los = this.losX(sc), dir = sc.poss === 'a' ? 1 : -1, fd = Math.max(-0.01, Math.min(100.01, los + dir * sc.toGo));
     // mini map
     const mx = 14, mw = W - 28, my = 11, mh = 12, mp = wx => mx + (Math.max(0, Math.min(100, wx)) / 100) * mw;
     x.fillStyle = '#17213d'; x.fillRect(mx, my, mw, mh);
@@ -296,7 +314,7 @@ const Field = {
     x.fillStyle = 'rgba(239,233,214,.3)';
     for (let i = 1; i < 10; i++) x.fillRect(Math.round(mp(i * 10)), my, 1, mh);
     x.strokeStyle = 'rgba(239,233,214,.8)'; x.lineWidth = 1;
-    const vl = mp(left), vr = mp(left + W / YPP);
+    const vl = mp(left), vr = mp(left + span);
     x.strokeRect(vl + 0.5, my - 2.5, Math.max(4, vr - vl), mh + 5);
     x.fillStyle = TEAM_COL[sc.poss]; x.fillRect(Math.round(mp(los)) - 2, my - 1, 5, mh + 2);
     x.fillStyle = '#ffcf3f'; x.fillRect(Math.round(mp(fd)) - 1, my - 1, 2, mh + 2);
@@ -358,8 +376,9 @@ const Field = {
     const after = { poss: entry.after.poss, ballOn: entry.after.ballOn, down: entry.after.down, toGo: entry.after.toGo, teams };
     const t0 = performance.now(), hold = fl ? 750 : 220, settle = 320;
     let finished = false;
-    const finish = () => { if (finished) return; finished = true; this.flash = null; this.set(after); done(); };
+    const finish = () => { if (finished) return; finished = true; this.flash = null; this.anim = null; this.set(after); done(); };
     const camStart = this.cam;
+    this.anim = { kind, startX, endX, entry, dir };
     const step = t => {
       if (finished) return;
       const el = t - t0;
@@ -383,6 +402,8 @@ const Field = {
     setTimeout(finish, dur + hold + settle + 1800);
   }
 };
+
+/*FIELD3D*/
 
 /* ---------- header ---------- */
 function renderHeader() {
@@ -784,10 +805,31 @@ function drawWait() {
 }
 
 /* ---------- game screen ---------- */
+// camera angles: the sideline pixel view, plus 3D views that load three.js the first time one is picked
+const getView = () => { const v = lsGet('gd_view'); return VIEWS.some(x => x.id === v) ? v : 'side'; };
+async function pickView(id, quiet) {
+  if (!VIEWS.some(v => v.id === id)) return;
+  if (id !== 'side') {
+    if (!Field3D.supported()) { if (!quiet) toast('The 3D views need WebGL, which this browser does not offer.'); return; }
+    if (!Field3D.ready) { if (!quiet) toast('Loading the 3D views…'); try { await Field3D.load(); } catch (e) { toast('Could not load the 3D views. Check your connection.'); return; } const t = $('#toast'); if (t) t.hidden = true; }
+  }
+  lsSet('gd_view', id); Field.setView(id); S.vmenu = false; paintViewBar();
+}
+function paintViewBar() {
+  const b = $('[data-act="view-menu"]'), l = $('.vlist'); if (!b || !l) return;
+  const cur = VIEWS.find(v => v.id === Field.view) || VIEWS[0];
+  b.textContent = '◉ ' + cur.label; b.setAttribute('aria-expanded', S.vmenu ? 'true' : 'false');
+  l.hidden = !S.vmenu;
+  l.innerHTML = VIEWS.map(v => '<button class="vopt' + (v.id === cur.id ? ' on' : '') + '" data-act="view" data-v="' + v.id + '"><b>' + esc(v.label) + '</b><small>' + esc(v.sub) + '</small></button>').join('');
+}
+function cycleView() {
+  const ok = VIEWS.filter(v => v.id === 'side' || Field3D.supported()), i = ok.findIndex(v => v.id === Field.view);
+  pickView(ok[(i + 1) % ok.length].id);
+}
 // full screen: the browser's own full screen where it exists (not on iPhone), plus a layout that drops the header and gives the field all the room
 const isFull = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
 const fsLabel = () => document.body.classList.contains('fs') ? '✕ Exit full screen' : '⛶ Full screen';
-function setFs(on) { document.body.classList.toggle('fs', on); const b = $('.fsbtn'); if (b) b.textContent = fsLabel(); }
+function setFs(on) { document.body.classList.toggle('fs', on); const b = $('[data-act="fullscreen"]'); if (b) b.textContent = fsLabel(); }
 function toggleFull() {
   const on = !document.body.classList.contains('fs'), d = document, el = d.documentElement;
   try {
@@ -810,7 +852,9 @@ function buildGame() {
     '<div class="side"><div class="banner" id="banner"></div><ol class="log" id="log"></ol>' +
     '<div class="row"><button class="btn small" data-act="rosters">Rosters</button><button class="btn small" data-act="matchups">Matchups</button></div></div></div></section>';
   $('#fieldHost').appendChild(Field.cv);
-  $('#fieldHost').insertAdjacentHTML('beforeend', '<button class="fsbtn" data-act="fullscreen" title="Full screen (F)" aria-label="Toggle full screen">' + fsLabel() + '</button>');
+  $('#fieldHost').insertAdjacentHTML('beforeend', '<div class="fvbar"><div class="vmenu"><button class="fsbtn" data-act="view-menu" aria-haspopup="true" aria-expanded="false" title="Camera angle (V)"></button><div class="vlist" hidden></div></div><button class="fsbtn" data-act="fullscreen" title="Full screen (F)" aria-label="Toggle full screen">' + fsLabel() + '</button></div>');
+  Field.attach(); paintViewBar();
+  if (Field.view === 'side' && getView() !== 'side') pickView(getView(), true);
   S.shown = null; S.callSig = null;
 }
 function updateGame() {
@@ -1031,7 +1075,7 @@ function startBoard(o) {   // hub-driven snake draft (tournaments): {label, d, m
   sdStart(o); sdPollLoop(); render(); sdStep();
 }
 function exitToHub() { leave(); }
-window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S };
+window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field, Field3D };
 
 /* ---------- router ---------- */
 function render() {
@@ -1046,12 +1090,15 @@ function render() {
 
 /* ---------- events ---------- */
 document.addEventListener('click', ev => {
+  if (S.vmenu && !ev.target.closest('.vmenu')) { S.vmenu = false; paintViewBar(); }
   const t = ev.target.closest('[data-act]'); if (!t) return;
   const a = t.dataset.act;
   if (a === 'create') createRoom();
   else if (a === 'join') joinRoom($('#code').value);
   else if (a === 'cpu') startLocal();
   else if (a === 'fullscreen') toggleFull();
+  else if (a === 'view-menu') { S.vmenu = !S.vmenu; paintViewBar(); }
+  else if (a === 'view') pickView(t.dataset.v)
   else if (a === 'leave') leave();
   else if (a === 'ctx-done') { const c = S.ctx; leave(); if (c && c.onDone) c.onDone(); }
   else if (a === 'ctx-retry') { const c = S.ctx; if (c) { c.sent = false; ctxFinish(S.G); renderCall(S.G); } }
@@ -1077,6 +1124,7 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape') { closeModal(); return; }
   const m = $('#modal'); if (m && !m.hidden) return;
   if (LV.on) { if (LV.key(ev, true)) return; }
+  if (S.screen === 'game' && (ev.key === 'v' || ev.key === 'V') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { cycleView(); return; }
   if (S.screen === 'game' && (ev.key === 'f' || ev.key === 'F') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { toggleFull(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }

@@ -16,5 +16,5 @@ http.createServer((req, res) => {
     return;
   }
   const f = path.join(dir, req.url === '/' ? 'index.html' : req.url.split('?')[0]);
-  fs.readFile(f, (e, d) => { if (e) { res.statusCode = 404; res.end('nf'); } else { res.setHeader('content-type', f.endsWith('.html') ? 'text/html' : 'text/plain'); res.end(d); } });
+  fs.readFile(f, (e, d) => { if (e) { res.statusCode = 404; res.end('nf'); } else { res.setHeader('content-type', f.endsWith('.html') ? 'text/html' : f.endsWith('.js') ? 'application/javascript' : 'text/plain'); res.end(d); } });
 }).listen(+process.argv[2] || 5055, () => console.log('up'));
