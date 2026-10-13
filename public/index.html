@@ -1,6 +1,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gridiron Draft</title>
+<title>Fourth &amp; Pixel</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=Silkscreen:wght@400;700&display=swap">
 <style>
 /* Layout concept: a night-game broadcast. Dark stadium ground, chalk-white type,
@@ -445,7 +445,7 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 </style>
 <div class="wrap">
   <header class="mast">
-    <div class="brand">Gridiron <span>Draft</span></div>
+    <div class="brand">Fourth &amp; <span>Pixel</span></div>
     <div id="hdr-right"></div>
   </header>
   <main id="main"></main>
@@ -5209,7 +5209,7 @@ CH.lgdl = el => lgCfg({ deadline: +el.value });
 ACT['lg-simweek'] = async () => { if (confirm('Sim every unplayed game this week, including human games?')) lgOp('simweek'); };
 
 /* ---------- tournaments (accounts only) ---------- */
-const NEWT = { name: 'Gridiron Cup', teamMode: 'draft', early: 1, semi: 1, final: 1, max: 16, open: true, cap: 0 };
+const NEWT = { name: 'The Pixel Bowl', teamMode: 'draft', early: 1, semi: 1, final: 1, max: 16, open: true, cap: 0 };
 const CAPSEG = [[0, 'No cap'], [295, 'Tight $295M'], [325, 'Standard $325M'], [360, 'Loose $360M']];
 const maxSeg = mode => mode === 'draft' ? [[4, '4'], [8, '8'], [16, '16']] : [[8, '8'], [16, '16'], [32, '32'], [64, '64']];
 const TNS = { code: '', ver: 0, T: null, tname: '' };
