@@ -9,7 +9,7 @@ const CAPVALS = Object.values(DR.CAPS);
    rec = { ev: [ints], upto: tick through which the stream is complete, fin: the play is over for this seat, t: last write, f: 1 when the other seat forced an AI takeover } */
 async function liveOp(res, b, code, seat) {
   const n = b.n;
-  if (!Number.isInteger(n) || n < 0 || n > 400) return fail(res, 400, 'bad_request');
+  if (!Number.isInteger(n) || n < 0 || n > 1400 || (n > 400 && n < 1000)) return fail(res, 400, 'bad_request');
   const me = rkey(code, 'lv:' + n + ':' + seat), her = rkey(code, 'lv:' + n + ':' + (seat === 'a' ? 'b' : 'a'));
   const [mine, other] = (await cmd(['MGET', me, her])).map(parse);
   const now = Date.now();
@@ -102,7 +102,7 @@ module.exports = async function handler(req, res) {
     }
     if (op === 'move') {
       const n = b.n, pick = clean(b.pick, 12);
-      if (!Number.isInteger(n) || n < 0 || n > 400 || !pick) return fail(res, 400, 'bad_request');
+      if (!Number.isInteger(n) || n < 0 || n > 1400 || (n > 400 && n < 1000) || !pick) return fail(res, 400, 'bad_request');
       const mk = rkey(code, 'm' + seat);
       const moves = parse(await cmd(['GET', mk])) || {};
       // c: this player also runs the players on the field, t: he calls a timeout before the snap

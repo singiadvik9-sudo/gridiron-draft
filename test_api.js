@@ -16,7 +16,10 @@ function playSide(info,live){
     moves[n+'-'+mine]=Object.assign({pick},ctl?{ctl:1}:{},to?{to:1}:{});
     if(ctl){const a=[];let t=2;for(let k=0;k<10;k++){t+=1+Math.floor(r()*9);a.push(E.LIVE.enc(t,Math.floor(r()*3)-1,Math.floor(r()*3)-1,r()<.25?1+Math.floor(r()*6):0))}
       moves[n+'-lv']=mine==='a'?{a,b:[]}:{a:[],b:a}}
-    st=E.replay(info.seed,T,moves,[other]).state;}
+    let R=E.replay(info.seed,T,moves,[other]);
+    if(R.wait&&R.wait.kind==='ret'){const a=[];let t=2;for(let k=0;k<8;k++){t+=2+Math.floor(r()*9);a.push(E.LIVE.enc(t,1,Math.floor(r()*3)-1,r()<.2?5:0))}
+      moves[R.wait.n+'-rv']={s:mine,ev:a}; R=E.replay(info.seed,T,moves,[other]);}
+    st=R.state;}
   return moves;
 }
 (async()=>{

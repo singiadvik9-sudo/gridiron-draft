@@ -6,6 +6,7 @@ const LIVE = E.LIVE;
 const RL = 21;   // pixels per sideways unit on the live field
 const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r', w: 'u', s: 'd', a: 'l', d: 'r', W: 'u', S: 'd', A: 'l', D: 'r' };
 const lastName = n => String(n || '').trim().split(/\s+/).slice(-1)[0] || '';
+const K = t => '<kbd>' + t + '</kbd>';
 const LVLAB = { QB: 'quarterback', HB: 'running back', WR1: 'receiver', WR2: 'receiver', TE: 'tight end' };
 
 function liveKeys(teams, off, def) {
@@ -18,6 +19,16 @@ function liveKeys(teams, off, def) {
   return k;
 }
 
+function retKeys(teams, recv, kick) {
+  const RS = teams[recv].squad, KS = teams[kick].squad, k = {}, info = E.retInfo(RS);
+  const gt = ab => ({ abbr: ab, c1: '#222222', c2: '#222222' });
+  const kr = info.kr;   // the returner of either kind is drawn like the real player
+  k.HB = fieldKey(kr.sk + ':' + kr.hr + ':000000:000000', recv);
+  for (let i = 0; i < 10; i++) k['B' + i] = fieldKey(genericKey(gt(RS.ol.tm), 'OL', i), recv);
+  for (let i = 0; i < 11; i++) k['D' + i] = fieldKey(genericKey(gt(KS.df.tm), 'DEF', i), kick);
+  return k;
+}
+
 const LV = {
   on: null, D: 10, held: {}, speed: 1, raf: 0, netT: 0, pend: [],
   speedNow() { return window.__lvSpeed || this.speed; },
@@ -25,32 +36,50 @@ const LV = {
   /* ----- starting and stopping ----- */
   consider(G) {
     if (this.on || !G.wait || !S.me || !S.lvLoaded) return;
-    const w = G.wait; if (w.n !== G.state.playNo || S.lv[w.n]) return;
+    const w = G.wait; if (w.n !== G.state.playNo) return;
+    if (w.kind === 'ret') {   // the receiving player runs the kick back: he starts it, the other screen watches once his move is in
+      if (S.rv[w.n]) return;
+      const recv = w.ro.recv;
+      if (S.me === recv || (S.moves[(RVN + w.n) + '-' + recv] && S.moves[(RVN + w.n) + '-' + recv].ctl)) this.start(G);
+      return;
+    }
+    if (S.lv[w.n]) return;
     this.start(G);
   },
   start(G) {
-    const w = G.wait, st = G.state, T = G.teams, n = w.n, off = w.off, def = w.def, me = S.me;
-    const ctl = {}; ctl[off] = !!w.om.ctl; ctl[def] = !!(w.dm && w.dm.ctl);
+    const w = G.wait, T = G.teams, n = w.n, me = S.me, ret = w.kind === 'ret';
+    const off = ret ? w.ro.recv : w.off, def = ret ? w.ro.kicker : w.def;
+    const st = ret ? Object.assign({}, G.state, { poss: off, ballOn: w.ro.at, down: 1, toGo: 10 }) : G.state;
+    const ctl = {}; ctl[off] = ret ? true : !!w.om.ctl; ctl[def] = ret ? false : !!(w.dm && w.dm.ctl);
     const online = S.mode === 'online', both = ctl.a && ctl.b;
-    const ctx = { seed: S.seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick: E.legalOff(st, w.om.pick), defPick: E.DEF_CALLS[w.dm.pick] ? w.dm.pick : 'ZONE', OS: T[off].squad, DS: T[def].squad, ctlO: ctl[off], ctlD: ctl[def] };
+    const ctx = ret ? { seed: S.seed, playNo: n, ret: { kind: w.ro.kind }, ballOn: w.ro.at, toGo: 10, OS: T[off].squad, DS: T[def].squad, ctlO: true, ctlD: false }
+      : { seed: S.seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick: E.legalOff(st, w.om.pick), defPick: E.DEF_CALLS[w.dm.pick] ? w.dm.pick : 'ZONE', OS: T[off].squad, DS: T[def].squad, ctlO: ctl[off], ctlD: ctl[def] };
     const m = this.on = {
-      n, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? this.D : 0, dir: off === 'a' ? 1 : -1, st, T, keys: liveKeys(T, off, def),
+      n, wn: ret ? RVN + n : n, ret: ret ? w.ro : null, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? this.D : 0, dir: off === 'a' ? 1 : -1, st, T, keys: ret ? retKeys(T, off, def) : liveKeys(T, off, def),
       stream: { a: { ev: [], upto: ctl.a ? 0 : 9999, fin: !ctl.a }, b: { ev: [], upto: ctl.b ? 0 : 9999, fin: !ctl.b } },
       myCtl: !!ctl[me], oppCtl: !!ctl[other(me)], opp: other(me), last: 0, acc: 0, target: 0, stallAt: 0, ended: 0, inflight: false, lastNet: 0, lastStick: '0,0', pan: '', panT: 0, handed: false, tried: 0
     };
-    const part = S.lvPart && S.lvPart[n];   // coming back to a snap that was already under way
+    const part = S.lvPart && S.lvPart[m.wn];   // coming back to a snap that was already under way
     if (part && part[me] && m.myCtl) { m.stream[me].ev = part[me].ev.slice(); m.stream[me].upto = part[me].upto; }
     this.build(m);
     const sc = { poss: off, ballOn: st.ballOn, down: st.down, toGo: st.toGo, teams: T };
     Field.queue = []; Field.busy = false; Field.flash = null; Field.scene = sc; Field.live = { items: [], ball: { wx: 0, sy: 0 }, los: Field.losX(sc), dir: m.dir };
     m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
-    Field.cam = Field.clampCam(Field.losX(sc));
+    Field.cam = Field.clampCam(Field.losX(sc) + (ret ? m.dir * 9 : 0));
     this.panel(true);
     window.GD_LIVE = this;
     m.readyAt = performance.now() + 1000 / this.speedNow();
     this.raf = requestAnimationFrame(t => { m.last = t; this.frame(t); });
     clearInterval(this.netT); this.netT = setInterval(() => this.netTick(), 130);
+    if (ret && online && m.myCtl) this.announce(m);
     if (online) this.netTick();
+  },
+  // tell the room that this player runs the return (the other screen starts watching, and the server finds the stream)
+  async announce(m) {
+    for (let k = 0; k < 8 && this.on === m; k++) {
+      try { await api({ op: 'move', code: S.code, seat: m.me, pid: PID, n: m.wn, pick: 'R', ctl: 1 }); return; }
+      catch (e) { await new Promise(r => setTimeout(r, 500 * (k + 1))); }
+    }
   },
   build(m) {   // (re)create the simulation from tick zero
     m.sim = LIVE.create(m.ctx);
@@ -144,7 +173,7 @@ const LV = {
     m.inflight = true;
     const mine = m.stream[m.me], gone = this.on !== m;
     try {
-      const body = { code: S.code, seat: m.me, pid: PID, n: m.n };
+      const body = { code: S.code, seat: m.me, pid: PID, n: m.wn };
       if (m.myCtl) { body.op = 'live'; body.ev = mine.ev; body.upto = m.sim.out ? 9999 : (m.sim.t + m.D); body.fin = !!m.sim.out; }
       else { body.op = 'live'; body.poll = 1; }
       const r = await api(body);
@@ -164,14 +193,14 @@ const LV = {
   },
   async force() {
     const m = this.on; if (!m || !m.online || !m.oppCtl) return;
-    try { const r = await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.n, force: 1 }); this.take(m, r); m.stallAt = 0; }
+    try { const r = await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.wn, force: 1 }); this.take(m, r); m.stallAt = 0; }
     catch (e) { toast(e && e.code === 'alive' ? 'They are still connected. Give it a moment.' : 'Could not reach the server.'); }
   },
   // send the finished stream even after the screen has moved on
   flush(m) {
     if (!m.online || !m.myCtl) return;
     const send = async k => {
-      try { await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.n, ev: m.stream[m.me].ev, upto: 9999, fin: true }); }
+      try { await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.wn, ev: m.stream[m.me].ev, upto: 9999, fin: true }); }
       catch (e) { if (k < 12 && S.mode === 'online' && S.code === m.code0) setTimeout(() => send(k + 1), 600 * (k + 1)); }
     };
     send(0);
@@ -181,7 +210,15 @@ const LV = {
   flashResult(m) {
     const o = m.sim.out, own = k => TEAM_COL[k];
     let text = '', col = '#efe9d6';
-    if (o.td || o.tdRet) { text = 'TOUCHDOWN'; col = own(o.tdRet ? m.def : m.off); }
+    if (o.k === 'ret') {
+      const sp = Math.round(m.ret.at + o.x);
+      if (o.td) { text = 'TOUCHDOWN'; col = own(m.off); }
+      else if (o.fumble) { text = 'FUMBLE'; col = own(m.def); }
+      else if (o.fc) text = 'FAIR CATCH';
+      else if (o.tb) text = 'TOUCHBACK';
+      else text = 'TO THE ' + (sp > 50 ? 'OPP ' + (100 - sp) : 'OWN ' + sp);
+    }
+    else if (o.td || o.tdRet) { text = 'TOUCHDOWN'; col = own(o.tdRet ? m.def : m.off); }
     else if (o.k === 'sack') { text = 'SACK'; col = own(m.def); }
     else if (o.k === 'int') { text = 'INTERCEPTED'; col = own(m.def); }
     else if (o.k === 'fumble') { text = 'FUMBLE'; col = own(m.def); }
@@ -193,7 +230,8 @@ const LV = {
   finish(m) {
     const n = m.n, lv = { a: m.stream.a.ev.slice(), b: m.stream.b.ev.slice() };
     if (!m.ctl.a) lv.a = []; if (!m.ctl.b) lv.b = [];
-    S.lv[n] = lv; S.lvSeen[n] = true;
+    if (m.ret) { S.rv[n] = { s: m.off, ev: lv[m.off] }; S.rvSeen[n] = true; }
+    else { S.lv[n] = lv; S.lvSeen[n] = true; }
     this.stop();
     S.callSig = null;
     if (S.mode === 'online' || S.mode === 'local') render();
@@ -223,8 +261,17 @@ const LV = {
     const carried = sim.ball.car != null, car = carried ? sim.by[sim.ball.car] : null;
     L.items = items; L.los = los; L.dir = dir;
     L.ball = { wx: los + dir * bx, sy: mid + by * dir * RL, lift: carried ? 11 : bz * 9 };
-    L.msg = performance.now() < m.readyAt ? 'READY…' : m.stallAt && !sim.out && (performance.now() - m.stallAt > 700) ? 'Waiting for ' + esc((S.seats[m.opp] || {}).name || 'your opponent') + '…' : '';
-    Field.cam += (Field.clampCam(L.ball.wx) - Field.cam) * 0.14;
+    L.hud = null;
+    if (m.myCtl && !m.handed && !sim.out && performance.now() >= m.readyAt) {
+      const off = m.me === m.off, qbHas = off && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass';
+      const mv = ['WASD / ARROWS', 'MOVE'];
+      L.hud = m.ret ? [mv, ['SPACE', 'JUKE']].concat(m.ret.kind === 'pr' ? [['E', 'FAIR CATCH']] : [])
+        : qbHas ? [mv, ['1 2 3 4', 'THROW TO #'], ['SPACE', 'THROW AWAY']]
+        : off ? (sim.kind === 'run' && sim.ball.car === 'QB' ? [mv] : [mv, ['SPACE', 'JUKE']])
+        : [mv, ['SPACE', 'DIVE'], ['E', 'SWITCH PLAYER']];
+    }
+    L.msg = performance.now() < m.readyAt ? (m.myCtl ? 'READY · YOU ARE ' + lastName((sim.by[m.me === m.off ? sim.ctlId.o : sim.ctlId.d] || {}).name).toUpperCase() : 'READY…') : m.stallAt && !sim.out && (performance.now() - m.stallAt > 700) ? 'Waiting for ' + esc((S.seats[m.opp] || {}).name || 'your opponent') + '…' : '';
+    Field.cam += (Field.clampCam(L.ball.wx + (m.ret ? dir * 9 : 0)) - Field.cam) * 0.14;   // on a return the camera looks ahead at the coverage
     Field.ballLift = L.ball.lift; Field.draw();
   },
 
@@ -232,7 +279,7 @@ const LV = {
   panel(force) {
     const m = this.on, p = $('#callpanel'); if (!m || !p) return;
     const sim = m.sim, me = m.me, role = me === m.off ? 'off' : 'def';
-    const sit = ddLabel(m.st) + ' at ' + spotLabel(m.st, m.T);
+    const sit = (m.ret ? (m.ret.kind === 'ko' ? 'Kickoff return' : 'Punt return') : ddLabel(m.st)) + ' at ' + spotLabel(m.st, m.T);
     if (force || !p.querySelector('#lvinfo')) {
       p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (m.myCtl ? 'You are playing' : m.oppCtl ? esc((S.seats[m.opp] || {}).name || 'Your opponent') + ' is playing' : 'Live play') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
         '<div class="lvinfo" id="lvinfo"></div>' +
@@ -245,15 +292,19 @@ const LV = {
     let info = '', acts = '';
     const ctlId = role === 'off' ? sim.ctlId.o : sim.ctlId.d, cp = sim.by[ctlId];
     if (m.myCtl && !m.handed && !sim.out) {
-      if (role === 'off') {
+      if (m.ret) {
+        const pr = m.ret.kind === 'pr';
+        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b>, the ' + (pr ? 'punt' : 'kick') + ' returner. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke' + (pr ? ' · ' + K('E') + ' fair catch' : '') + '. Follow your blockers.';
+        acts = '<button class="ab wide" data-lvk="5">Juke</button>' + (pr ? '<button class="ab wide" data-lvk="6">Fair catch</button>' : '');
+      } else if (role === 'off') {
         const qbHas = sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass';
         if (qbHas) {
-          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>. Arrows or WASD to move. Pick a target: <b>1</b> ' + esc(lastName(sim.by.WR1.name)) + ' · <b>2</b> ' + esc(lastName(sim.by.WR2.name)) + ' · <b>3</b> ' + esc(lastName(sim.by.TE.name)) + ' · <b>4</b> ' + esc(lastName(sim.by.HB.name)) + '. Space throws it away.';
+          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>, the quarterback. ' + K('WASD') + K('←↑↓→') + ' move. Throw to ' + K('1') + esc(lastName(sim.by.WR1.name)) + ' ' + K('2') + esc(lastName(sim.by.WR2.name)) + ' ' + K('3') + esc(lastName(sim.by.TE.name)) + ' ' + K('4') + esc(lastName(sim.by.HB.name)) + ' · ' + K('Space') + ' throws it away.';
           acts = ['1', '2', '3', '4'].map(k => '<button class="ab" data-lvk="' + k + '">' + k + '</button>').join('') + '<button class="ab wide" data-lvk="5">Throw away</button>';
-        } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. Arrows or WASD to move.'; acts = ''; }
-        else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. Arrows or WASD to run, Space to juke.'; acts = '<button class="ab wide" data-lvk="5">Juke</button>'; }
+        } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. ' + K('WASD') + K('←↑↓→') + ' move.'; acts = ''; }
+        else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="5">Juke</button>'; }
       } else {
-        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). Arrows or WASD to move, Space to dive, E to switch players.';
+        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('WASD') + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('E') + ' switch player.';
         acts = '<button class="ab wide" data-lvk="5">Dive</button><button class="ab wide" data-lvk="6">Switch</button>';
       }
     } else if (m.myCtl && m.handed) info = 'The computer has your players.';

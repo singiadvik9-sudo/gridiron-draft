@@ -431,3 +431,8 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .mt-wide th, .mt-wide td { padding: 5px 6px; font-size: 13px; }
 .mt .vt { height: 118px; vertical-align: bottom; padding: 4px 2px; }
 .mt .vt span { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-size: 9px; }
+
+/* live controls */
+.lvinfo { font-size: 21px; }
+.lvinfo kbd { display: inline-block; min-width: 24px; padding: 1px 7px; margin: 0 3px; text-align: center; font-family: var(--display); font-size: 11px; line-height: 20px; color: var(--ink); background: var(--chalk); border: 2px solid #0b1020; border-bottom-width: 4px; border-radius: 3px; vertical-align: 2px; }
+.lvinfo { padding: 10px 12px; background: rgba(255, 207, 63, .08); border-left: 4px solid var(--flag); }

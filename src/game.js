@@ -24,7 +24,7 @@ const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
   myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
   poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null,
-  ctlOn: lsGet('gd_ctl') === '1', toN: {}, toSel: null, ctlN: {}, lv: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
+  ctlOn: lsGet('gd_ctl') === '1', toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
 };
 
 /* ---------- sprites ---------- */
@@ -172,6 +172,7 @@ function allMoves() {
   const mv = Object.assign({}, S.moves);
   if (S.me) for (const n in S.mine) mv[n + '-' + S.me] = myMove(n);
   for (const n in S.lv) mv[n + '-lv'] = S.lv[n];
+  for (const n in S.rv) mv[n + '-rv'] = S.rv[n];
   return mv;
 }
 function derive() {
@@ -261,16 +262,24 @@ const Field = {
       const px = Math.round(sx(p.wx)); if (px < -20 || px > W + 20) return;
       x.fillStyle = TEAM_COL[p.team]; x.globalAlpha = 0.55;
       x.beginPath(); x.ellipse(px, p.sy + 9, 11, 4, 0, 0, Math.PI * 2); x.fill(); x.globalAlpha = 1;
-      if (p.ring) { x.strokeStyle = p.ring; x.lineWidth = 2; x.beginPath(); x.ellipse(px, p.sy + 9, 14, 6, 0, 0, Math.PI * 2); x.stroke(); }
+      if (p.ring) {
+        const pulse = p.tag ? 0.5 + 0.5 * Math.sin(performance.now() / 170) : 0;   // your own player pulses
+        x.strokeStyle = p.ring; x.lineWidth = p.tag ? 3 : 2; x.beginPath(); x.ellipse(px, p.sy + 9, 15 + pulse * 3, 6.5 + pulse * 1.5, 0, 0, Math.PI * 2); x.stroke();
+        if (p.tag) { x.globalAlpha = 0.18 + 0.12 * pulse; x.fillStyle = p.ring; x.beginPath(); x.ellipse(px, p.sy + 9, 15 + pulse * 3, 6.5 + pulse * 1.5, 0, 0, Math.PI * 2); x.fill(); x.globalAlpha = 1; }
+      }
       const face = p.face != null ? p.face : (p.team === sc.poss ? dir : -dir), spx = Math.round(p.sy) - 21;
       if (face < 0) { x.save(); x.translate(px, 0); x.scale(-1, 1); x.drawImage(getSprite(p.key), -14, spx, 28, 28); x.restore(); }
       else x.drawImage(getSprite(p.key), px - 14, spx, 28, 28);
       if (p.ring && p.tag) {
-        x.fillStyle = p.ring; x.beginPath(); x.moveTo(px - 5, spx - 9); x.lineTo(px + 5, spx - 9); x.lineTo(px, spx - 2); x.fill();
-        x.font = '9px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 3; x.strokeStyle = '#0b1020'; x.strokeText(p.tag.toUpperCase(), px, spx - 12); x.fillStyle = p.ring; x.fillText(p.tag.toUpperCase(), px, spx - 12);
+        const bob = Math.round(Math.sin(performance.now() / 200) * 2);
+        x.fillStyle = p.ring; x.beginPath(); x.moveTo(px - 8, spx - 14 + bob); x.lineTo(px + 8, spx - 14 + bob); x.lineTo(px, spx - 3 + bob); x.fill();
+        x.strokeStyle = '#0b1020'; x.lineWidth = 2; x.stroke();
+        x.font = '11px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020';
+        const lab = 'YOU · ' + p.tag.toUpperCase(); x.strokeText(lab, px, spx - 19 + bob); x.fillStyle = p.ring; x.fillText(lab, px, spx - 19 + bob);
       }
       if (p.num) {
-        x.fillStyle = '#ffcf3f'; x.fillRect(px - 7, spx - 12, 14, 12); x.fillStyle = '#10152a'; x.font = '11px Silkscreen, monospace'; x.textAlign = 'center'; x.fillText(p.num, px, spx - 2);
+        x.fillStyle = '#ffcf3f'; x.strokeStyle = '#0b1020'; x.lineWidth = 2; x.fillRect(px - 10, spx - 20, 20, 18); x.strokeRect(px - 10, spx - 20, 20, 18);
+        x.fillStyle = '#10152a'; x.font = '15px Silkscreen, monospace'; x.textAlign = 'center'; x.fillText(p.num, px, spx - 5);
       }
     });
     // ball
@@ -297,6 +306,22 @@ const Field = {
     if (live && live.msg) {
       x.textAlign = 'center'; x.font = '14px Silkscreen, monospace'; x.lineWidth = 5; x.strokeStyle = '#0b1020';
       x.strokeText(live.msg, W / 2, TOP + 44); x.fillStyle = '#efe9d6'; x.fillText(live.msg, W / 2, TOP + 44);
+    }
+    // key reminder strip while you control a player
+    if (live && live.hud && live.hud.length) {
+      const bh = 30, by0 = H - bh;
+      x.fillStyle = 'rgba(11,16,32,.88)'; x.fillRect(0, by0, W, bh); x.fillStyle = '#ffcf3f'; x.fillRect(0, by0, W, 2);
+      x.font = '11px Silkscreen, monospace'; x.textBaseline = 'middle';
+      let tw = 0; const parts = live.hud.map(h => { const kw = Math.max(20, x.measureText(h[0]).width + 12), lw = x.measureText(h[1]).width; tw += kw + 6 + lw + 18; return [kw, lw]; });
+      let cx = Math.max(8, (W - (tw - 18)) / 2);
+      live.hud.forEach((h, i) => {
+        const kw = parts[i][0], cy = by0 + bh / 2 + 1;
+        x.fillStyle = '#efe9d6'; x.fillRect(cx, cy - 10, kw, 20); x.fillStyle = '#9aa2bf'; x.fillRect(cx, cy + 7, kw, 3);
+        x.fillStyle = '#10152a'; x.textAlign = 'center'; x.fillText(h[0], cx + kw / 2, cy - 1);
+        x.fillStyle = '#efe9d6'; x.textAlign = 'left'; x.fillText(h[1], cx + kw + 6, cy - 1);
+        cx += kw + 6 + parts[i][1] + 18;
+      });
+      x.textBaseline = 'alphabetic';
     }
     // flash text
     if (this.flash) {
@@ -441,7 +466,7 @@ function resetForMode() {
   stopPoll();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
   S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; Field.scene = null;
-  S.ctlN = {}; S.toN = {}; S.toSel = null; S.lv = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
+  S.ctlN = {}; S.toN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
 }
 function startLocal() {
   readName();
@@ -510,12 +535,21 @@ function startPoll() {
 function takeLv(lv) {
   const mv = allMoves();
   for (const n in lv) {
+    const r = lv[n];
+    if (+n >= RVN) {   // a kick or punt return played by the receiving player (move numbers 1000 + the number of the kick)
+      const rn = n - RVN; if (S.rv[rn]) continue;
+      let got = false;
+      ['a', 'b'].forEach(s => { const m = mv[n + '-' + s]; if (m && m.ctl && r[s] && r[s].fin) { S.rv[rn] = { s, ev: r[s].ev || [] }; got = true; } });
+      if (!got) S.lvPart[n] = r;
+      continue;
+    }
     if (S.lv[n]) continue;
-    const r = lv[n], ca = mv[n + '-a'] && mv[n + '-a'].ctl, cb = mv[n + '-b'] && mv[n + '-b'].ctl;
+    const ca = mv[n + '-a'] && mv[n + '-a'].ctl, cb = mv[n + '-b'] && mv[n + '-b'].ctl;
     if ((!ca || (r.a && r.a.fin)) && (!cb || (r.b && r.b.fin))) S.lv[n] = { a: (r.a && r.a.ev) || [], b: (r.b && r.b.ev) || [] };
     else S.lvPart[n] = r;
   }
 }
+const RVN = 1000;   // return moves are numbered 1000 + the play they belong to
 function stopPoll() { if (S.poll) { clearTimeout(S.poll); S.poll = null; } }
 function leave() {
   stopPoll(); ssSet('gd_room', null);
@@ -786,7 +820,7 @@ function updateGame() {
   } else {
     while (S.shown < L.length) {
       const e = L[S.shown];
-      if (e.live && S.lvSeen[e.n]) { Field.queue.push({ seen: e, teams: T }); }   // already watched on the field
+      if ((e.live && S.lvSeen[e.n]) || (e.rvLive && S.rvSeen[e.n])) { Field.queue.push({ seen: e, teams: T }); }   // already watched on the field
       else Field.enqueue(e, T);
       S.shown++;
     }
@@ -891,7 +925,7 @@ function toRowHTML(st) {
 function ctlRowHTML(role) {
   const on = S.ctlOn;
   return '<div class="ctlrow"><button class="btn small ctl' + (on ? ' on' : '') + '" data-act="ctl-toggle" aria-pressed="' + on + '">Control your players: ' + (on ? 'ON' : 'OFF') + '</button>' +
-    '<span class="hint">' + (on ? (role === 'off' ? 'You play the quarterback, then whoever has the ball.' : 'You play one defender and can switch.') + ' Everyone else moves on their own.' : 'You only call the plays. The computer runs everyone.') + ' Press C to switch.</span></div>';
+    '<span class="hint">' + (on ? (role === 'off' ? 'You play the quarterback, then whoever has the ball.' : 'You play one defender and can switch.') + ' Everyone else moves on their own. You also run back kickoffs and punts.' : 'You only call the plays. The computer runs everyone.') + ' Press C to switch.</span></div>';
 }
 function submitCall(pick) {
   const G = S.G; if (!G || G.state.over || !S.me) return;
@@ -915,7 +949,7 @@ function submitCall(pick) {
 /*LIVE_CLIENT*/
 
 /* ---------- hub-driven games (campaign, leagues, tournaments) ---------- */
-function ctxMoves() { const o = {}; for (const n in S.mine) o[n + '-' + S.me] = myMove(n); for (const n in S.lv) o[n + '-lv'] = S.lv[n]; return o; }
+function ctxMoves() { const o = {}; for (const n in S.mine) o[n + '-' + S.me] = myMove(n); for (const n in S.lv) o[n + '-lv'] = S.lv[n]; for (const n in S.rv) o[n + '-rv'] = S.rv[n]; return o; }
 function ctxFinish(G) {
   const c = S.ctx; if (!c || c.sent) return;
   c.sent = true; c.status = 'saving'; S.callSig = null;

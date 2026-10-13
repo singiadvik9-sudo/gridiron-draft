@@ -1,6 +1,7 @@
 // Room storage shared by quick games, league games and tournament matches.
 const { cmd, setJ, getJ, parse, randCode } = require('./_lib');
 const TTL = 60 * 60 * 24;
+const RV = 1000;   // move numbers from here on belong to the return of kick number n - RV
 const rkey = (code, part) => 'gd:' + code + ':' + part;
 async function createRoom(seed, ctx, seats, extra) {
   for (let i = 0; i < 10; i++) {
@@ -32,10 +33,16 @@ async function readRoom(code) {
   [['a', v[2]], ['b', v[3]]].forEach(([s, m]) => { Object.keys(m || {}).forEach(n => { moves[n + '-' + s] = moveOf(m[n]); }); });
   const lv = await liveAll(code, { a: v[2], b: v[3] });
   Object.keys(lv).forEach(n => {
-    const a = moves[n + '-a'], b = moves[n + '-b'], r = lv[n];
+    const r = lv[n];
+    if (+n >= RV) {   // a kick or punt return played by the receiving player: move 1000 + n, finished stream under the same number
+      ['a', 'b'].forEach(s => { if (moves[n + '-' + s] && moves[n + '-' + s].ctl && r[s] && r[s].fin) moves[(n - RV) + '-rv'] = { s, ev: r[s].ev || [] }; });
+      return;
+    }
+    const a = moves[n + '-a'], b = moves[n + '-b'];
     const okSide = (s, mv) => !mv || !mv.ctl || (r[s] && r[s].fin);   // a side that played needs its finished stream
     if (a && b && okSide('a', a) && okSide('b', b)) moves[n + '-lv'] = { a: (r.a && r.a.ev) || [], b: (r.b && r.b.ev) || [] };
   });
+  Object.keys(moves).forEach(k => { const m = /^(\d+)-[ab]$/.exec(k); if (m && +m[1] >= RV) delete moves[k]; });
   return { room, seats: { a: v[0], b: v[1] }, moves };
 }
-module.exports = { createRoom, readRoom, liveAll, moveOf, rkey, TTL };
+module.exports = { RV, createRoom, readRoom, liveAll, moveOf, rkey, TTL };
