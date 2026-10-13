@@ -436,3 +436,18 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .lvinfo { font-size: 21px; }
 .lvinfo kbd { display: inline-block; min-width: 24px; padding: 1px 7px; margin: 0 3px; text-align: center; font-family: var(--display); font-size: 11px; line-height: 20px; color: var(--ink); background: var(--chalk); border: 2px solid #0b1020; border-bottom-width: 4px; border-radius: 3px; vertical-align: 2px; }
 .lvinfo { padding: 10px 12px; background: rgba(255, 207, 63, .08); border-left: 4px solid var(--flag); }
+
+/* box score */
+.boxwrap { width: 100%; max-width: 760px; display: grid; gap: 14px; text-align: left; }
+.box { width: 100%; border-collapse: collapse; font-size: 13px; }
+.box th, .box td { padding: 5px 8px; border-bottom: 1px solid var(--line, rgba(255,255,255,.12)); }
+.box thead th { font-family: var(--display); text-transform: uppercase; font-size: 12px; letter-spacing: .04em; }
+.box tbody th { text-align: center; font-weight: 600; opacity: .7; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.box td:first-child, .box thead th:first-child { text-align: right; }
+.box td:last-child, .box thead th:last-child { text-align: left; }
+.boxsides { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.boxside h4 { font-family: var(--display); text-transform: uppercase; font-size: 12px; margin: 0 0 4px; letter-spacing: .04em; }
+.boxside ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
+.boxside li { display: grid; gap: 1px; }
+.boxside li span { opacity: .75; font-size: 12px; }
+@media (max-width: 560px) { .boxsides { grid-template-columns: 1fr; } }

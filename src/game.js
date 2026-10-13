@@ -149,7 +149,7 @@ function spotLabel(st, teams) {
   if (st.ballOn < 50) return abbr(teams[st.poss].name) + ' ' + st.ballOn;
   return abbr(teams[other(st.poss)].name) + ' ' + (100 - st.ballOn);
 }
-function ddLabel(st) { return ord(st.down) + ' & ' + (st.toGo >= 100 - st.ballOn ? 'Goal' : st.toGo); }
+function ddLabel(st) { if (st.kick) return 'Kickoff'; return ord(st.down) + ' & ' + (st.toGo >= 100 - st.ballOn ? 'Goal' : st.toGo); }
 
 let toastTimer = 0;
 function toast(msg) {
@@ -353,6 +353,7 @@ const Field = {
       int: ['INTERCEPTED', other(b.poss)], sack: ['SACK', other(b.poss)], fumble: ['FUMBLE', other(b.poss)],
       downs: ['TURNOVER ON DOWNS', other(b.poss)], safety: ['SAFETY', entry.ptsTeam]
     };
+    if (entry.onside) FL.kickoff = entry.onside === 'kept' ? ['ONSIDE KICK RECOVERED', b.poss] : ['ONSIDE KICK FAILS', other(b.poss)];
     const fl = FL[entry.ev] || (entry.firstDown ? ['FIRST DOWN', b.poss] : null);
     const after = { poss: entry.after.poss, ballOn: entry.after.ballOn, down: entry.after.down, toGo: entry.after.toGo, teams };
     const t0 = performance.now(), hold = fl ? 750 : 220, settle = 320;
@@ -832,11 +833,12 @@ function updateGame() {
   if (LV.on) LV.panel(false); else renderCall(G);
   if (S.ctx && st.over) ctxFinish(G);
 }
+const offLabel = id => (E.OFF[id] || E.KICKS[id] || { label: id }).label;
 function renderBanner(G) {
   const el = $('#banner'); if (!el) return;
   const e = G.log[G.log.length - 1], T = G.teams;
   if (!e) { el.innerHTML = '<div class="bn-meta">Kickoff</div><div class="bn-text">' + esc(T[G.state.poss].name) + ' take the opening possession.</div>'; el.style.setProperty('--bc', TEAM_COL[G.state.poss]); return; }
-  const o = E.OFF[e.offPick].label, d = e.defPick ? E.DEF_CALLS[e.defPick].label : null;
+  const o = offLabel(e.offPick), d = e.defPick ? E.DEF_CALLS[e.defPick].label : null;
   el.style.setProperty('--bc', TEAM_COL[e.ptsTeam || e.off]);
   el.innerHTML = '<div class="bn-meta">Last play · ' + esc(o) + (d ? ' vs ' + esc(d) : '') + '</div><div class="bn-text">' + esc(e.text) + '</div>';
 }
@@ -850,6 +852,35 @@ function renderLog(G) {
   const html = rows.join('');
   if (el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; }
 }
+// the box score under the final: team totals, then the players who mattered for each side
+function boxHTML(G) {
+  const T = G.teams, B = E.boxScore(G.log, T), a = B.teams.a, b = B.teams.b;
+  const rows = [
+    ['Total yards', a.total, b.total],
+    ['Passing', a.comp + '/' + a.att + ', ' + a.pass + ' yds', b.comp + '/' + b.att + ', ' + b.pass + ' yds'],
+    ['Rushing', a.ratt + ' car, ' + a.rush + ' yds', b.ratt + ' car, ' + b.rush + ' yds'],
+    ['First downs', a.first, b.first],
+    ['Sacks', a.sacksBy, b.sacksBy],
+    ['Giveaways', a.to, b.to],
+    ['Pass breakups', a.pbu, b.pbu],
+    ['Punts', a.punts ? a.punts + ' · avg ' + Math.round(a.puntYds / a.punts) : '0', b.punts ? b.punts + ' · avg ' + Math.round(b.puntYds / b.punts) : '0']
+  ];
+  const tbl = '<table class="box"><thead><tr><th style="color:' + TEAM_COL.a + '">' + esc(T.a.name) + '</th><th></th><th style="color:' + TEAM_COL.b + '">' + esc(T.b.name) + '</th></tr></thead><tbody>' +
+    rows.map(r => '<tr><td>' + r[1] + '</td><th>' + r[0] + '</th><td>' + r[2] + '</td></tr>').join('') + '</tbody></table>';
+  const line = (p, f) => '<li><b>' + esc(p.name) + '</b><span>' + f + '</span></li>';
+  const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+  const side = k => {
+    const L = B.lead[k];
+    const items = [];
+    L.passing.forEach(p => items.push(line(p, p.c + '/' + p.a + ', ' + p.pyd + ' yds' + (p.ptd ? ', ' + p.ptd + ' TD' : '') + (p.int ? ', ' + p.int + ' INT' : ''))));
+    L.rushing.forEach(p => items.push(line(p, p.ratt + ' car' + ', ' + p.ryd + ' yds' + (p.rtd ? ', ' + p.rtd + ' TD' : ''))));
+    L.receiving.forEach(p => items.push(line(p, p.rec + ' rec' + ', ' + p.recyd + ' yds' + (p.rectd ? ', ' + p.rectd + ' TD' : ''))));
+    L.defense.forEach(p => items.push(line(p, [p.sk && plural(p.sk, 'sack'), p.dint && plural(p.dint, 'INT'), p.pbu && plural(p.pbu, 'PBU'), p.ff && p.ff + ' FF'].filter(Boolean).join(' · '))));
+    L.kicking.forEach(p => items.push(line(p, 'FG ' + p.fgm + '/' + p.fga + (p.fgl ? ', long ' + p.fgl : ''))));
+    return '<div class="boxside"><h4 style="color:' + TEAM_COL[k] + '">' + esc(T[k].name) + '</h4><ul>' + (items.join('') || '<li><span>No stats</span></li>') + '</ul></div>';
+  };
+  return '<div class="boxwrap">' + tbl + '<div class="boxsides">' + side('a') + side('b') + '</div></div>';
+}
 function renderCall(G) {
   const p = $('#callpanel'); if (!p) return;
   const st = G.state, T = G.teams;
@@ -859,6 +890,7 @@ function renderCall(G) {
     const head = w === null ? 'Tie game' : (S.me ? (w === S.me ? 'You win' : 'You lose') : T[w].name + ' win');
     const cx = S.ctx, cxRow = cx ? (cx.status === 'saving' ? '<p class="sub">Saving the result…</p>' : cx.status === 'err' ? '<p class="sub bad">Could not save the result' + (cx.err ? ': ' + esc(cx.err) : '') + '.</p><div class="row"><button class="btn primary" data-act="ctx-retry">Try again</button></div>' : '<div class="row"><button class="btn primary" data-act="ctx-done">Continue</button><button class="btn" data-act="rosters">Rosters</button></div>') : '';
     p.innerHTML = '<div class="final"><span class="eyebrow">Final</span><h2>' + esc(head) + '</h2><div class="fscore"><span style="color:' + TEAM_COL.a + '">' + esc(T.a.name) + ' <b>' + st.score.a + '</b></span><span style="color:' + TEAM_COL.b + '">' + esc(T.b.name) + ' <b>' + st.score.b + '</b></span></div>' +
+      boxHTML(G) +
       (cx ? cxRow : '<div class="row"><button class="btn primary" data-act="leave">Back to menu</button><button class="btn" data-act="rosters">Rosters</button></div>') + '</div>';
     return;
   }
@@ -867,12 +899,20 @@ function renderCall(G) {
     p.innerHTML = '<p class="sub">You are watching this game.</p>'; return;
   }
   const n = st.playNo, role = S.me === st.poss ? 'off' : 'def';
+  if (st.kick && role === 'def') {   // the other team is choosing its kick
+    const sg = 'kw' + n; if (S.callSig === sg) return; S.callSig = sg;
+    p.innerHTML = '<div class="cp-head"><span class="role def">Kickoff</span><span class="sit">' + esc(T[st.kick.k].name) + ' kick off</span></div><div class="locked"><span class="eyebrow">Get ready</span><b>You receive the kick</b><p class="sub">Waiting for ' + esc(T[st.kick.k].name) + ' to choose a deep kick or an onside kick…</p></div>'; return;
+  }
   const locked = S.mine[n] != null ? S.mine[n] : null;
-  const sig = n + '|' + role + '|' + (callCat(role, st) || '') + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0) + '|' + (toSel(n) ? 1 : 0) + '|' + (S.toN[n] ? 1 : 0) + '|' + st.clock + '|' + st.ro;
+  const sig = n + '|' + role + '|' + (callCat(role, st) || '') + '|' + (locked || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0) + '|' + (st.kick ? 'k' : '') + '|' + (toSel(n) ? 1 : 0) + '|' + (S.toN[n] ? 1 : 0) + '|' + st.clock + '|' + st.ro;
   if (S.callSig === sig) return; S.callSig = sig;
-  const sit = ddLabel(st) + ' at ' + spotLabel(st, T);
+  const sit = st.kick ? 'Kickoff' : ddLabel(st) + ' at ' + spotLabel(st, T);
+  if (st.kick && !locked) {
+    p.innerHTML = '<div class="cp-head"><span class="role off">You kick off</span><span class="sit">' + esc(T[S.me].name) + ' kick to ' + esc(T[other(S.me)].name) + '</span></div>' +
+      '<div class="calls">' + E.offOptions(st).map((o, i) => '<button class="call" data-act="call" data-id="' + o.id + '"><span class="key">' + (i + 1) + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small></button>').join('') + '</div>'; return;
+  }
   if (locked) {
-    const lbl = role === 'off' ? E.OFF[locked].label : E.DEF_CALLS[locked].label;
+    const lbl = role === 'off' ? offLabel(locked) : E.DEF_CALLS[locked].label;
     p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'Offense' : 'Defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
       '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + '</b>' + (S.ctlN[n] ? '<p class="sub ctlnote">You will run the players on the field.</p>' : '') + (S.toN[n] ? '<p class="sub ctlnote">Timeout called.</p>' : '') + '<p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
     return;
@@ -934,7 +974,7 @@ function submitCall(pick) {
   if (role === 'off') { if (!E.offOptions(st).some(o => o.id === pick && !o.disabled)) return; }
   else if (!E.DEF_CALLS[pick]) return;
   S.mine[n] = pick; S.callSig = null;
-  { const c = (role === 'off' ? E.OFF[pick] : E.DEF_CALLS[pick]).cat; if (c !== 'SPEC') lsSet('gd_cat_' + role, c); }
+  if (!st.kick) { const c = (role === 'off' ? E.OFF[pick] : E.DEF_CALLS[pick]).cat; if (c !== 'SPEC') lsSet('gd_cat_' + role, c); }
   const ctl = S.ctlOn && !(role === 'off' && E.noDef(pick)) ? 1 : 0;
   const to = toSel(n) && st.ro > 0 && st.to[S.me] > 0 ? 1 : 0;
   if (to) S.toN[n] = 1; else delete S.toN[n];

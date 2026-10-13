@@ -68,6 +68,6 @@ ok(E.OFF_CATS.every(c => c.id === 'SPEC' || E.OFF[c.id] && E.OFF[c.id].cat === c
   }
   ok(badCpu === 0, 'the cpu only calls real plays');
   const a = E.replay(seed, T, moves, ['a', 'b']), b = E.replay(seed, T, moves, ['a', 'b']);
-  ok(JSON.stringify(a.log) === JSON.stringify(b.log) && a.log.every(e => E.OFF[e.offPick]), 'replay with named plays is deterministic');
+  ok(JSON.stringify(a.log) === JSON.stringify(b.log) && a.log.every(e => E.OFF[e.offPick] || E.KICKS[e.offPick]), 'replay with named plays is deterministic');
 }
 console.log(process.exitCode ? 'SOME FAILED' : 'ALL OK');

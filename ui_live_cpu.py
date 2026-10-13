@@ -15,8 +15,9 @@ with sync_playwright() as p:
         n+=1
         pg.wait_for_selector('#callpanel .call:not([disabled]), .final', timeout=20000)
         if pg.query_selector('.final'): break
-        on=pg.evaluate("document.querySelector('[data-act=ctl-toggle]').classList.contains('on')")
-        if not on: pg.click('[data-act=ctl-toggle]')
+        if pg.query_selector('[data-act=ctl-toggle]'):
+            on=pg.evaluate("document.querySelector('[data-act=ctl-toggle]').classList.contains('on')")
+            if not on: pg.click('[data-act=ctl-toggle]')
         cats=pg.query_selector_all('#callpanel .cat')
         if cats and random.random()<0.6: random.choice(cats).click(); pg.wait_for_timeout(30)
         ids=pg.evaluate("Array.from(document.querySelectorAll('#callpanel .call:not([disabled])')).map(b=>b.dataset.id)")

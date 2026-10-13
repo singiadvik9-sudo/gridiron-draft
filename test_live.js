@@ -72,7 +72,9 @@ const mk = n => { const r = E.mulberry32(n); return [E.mkTeam('A', E.autoDraft(r
       const tr = () => { const a = []; let t = 2; for (let k = 0; k < 14; k++) { t += 1 + Math.floor(rnd() * 8); a.push(L.enc(t, Math.floor(rnd() * 3) - 1, Math.floor(rnd() * 3) - 1, rnd() < 0.2 ? 1 + Math.floor(rnd() * 6) : 0)); } return a; };
       moves[n + '-lv'] = { a: tr(), b: tr() }; liveN++;
     }
-    const R = E.replay(seed, teams, moves, []);
+    let R = E.replay(seed, teams, moves, []);
+    // a human who runs his players also returns kicks by hand
+    while (R.wait && R.wait.kind === 'ret') { moves[R.wait.n + '-rv'] = { s: R.wait.ro.recv, ev: [L.enc(2, 1, 0, 0), L.enc(12, 1, 1, 0)] }; R = E.replay(seed, teams, moves, []); }
     if (R.wait) { console.log('FAIL waiting at', R.wait.n); process.exitCode = 1; break; }
     st = R.state;
   }

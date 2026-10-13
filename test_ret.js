@@ -53,16 +53,31 @@ ok(withLive > 6, 'returns were played by hand (' + withLive + ')');
   const r2 = E.stepGame(st, T, U, 1, 'PUNT', 'ZONE', null, null, Object.assign({ kind: 'pr' }, fc));
   ok(/Fair catch/.test(r2.entry.text) && r2.state.poss === 'a' && r2.state.ballOn === ro.at, 'the ball is spotted where it was caught: ' + r2.entry.text);
   const td = E.stepGame(st, T, U, 1, 'PUNT', 'ZONE', null, null, { kind: 'pr', x: 120, td: true });
-  ok(td.state.score.a >= 6 && td.entry.rtd === 'a' && td.state.poss === 'b', 'a punt return touchdown scores and the kicking team gets the next kickoff: ' + td.entry.text);
+  ok(td.state.score.a >= 6 && td.entry.rtd === 'a' && td.state.kick && td.state.kick.k === 'a' && td.state.poss === 'a', 'a punt return touchdown scores and the scorer kicks off next: ' + td.entry.text);
   const fm = E.stepGame(st, T, U, 1, 'PUNT', 'ZONE', null, null, { kind: 'pr', x: 9, fumble: true });
   ok(fm.state.poss === 'b' && /recovers/.test(fm.entry.text), 'a fumbled return goes back to the kicking team');
-  // kickoff after a field goal: find a seed where there is a return opportunity
-  let kr = null; for (let sd = 1; sd < 60 && !kr; sd++) { const s2 = Object.assign(E.initState(sd), { poss: 'b', ballOn: 88, down: 4, toGo: 5 }); const r = E.stepGame(s2, T, U, sd, 'FG', 'ZONE', null, null); if (r.entry.retOpp && r.entry.ev === 'fg') kr = { sd, s2, r }; }
-  ok(kr && kr.r.entry.retOpp.kind === 'ko', 'a kickoff after a score offers a return');
-  const k2 = E.stepGame(kr.s2, T, U, kr.sd, 'FG', 'ZONE', null, null, { kind: 'ko', x: 120, td: true });
-  ok(k2.entry.rtd === 'a' && k2.entry.pts2 >= 6 && k2.state.score.b === 3 && k2.state.score.a >= 6, 'a kickoff return touchdown after a field goal scores for the returner: ' + k2.entry.text);
-  const k3 = E.stepGame(kr.s2, T, U, kr.sd, 'FG', 'ZONE', null, null, { kind: 'ko', x: 30 });
-  ok(k3.state.poss === 'a' && k3.state.ballOn === Math.round(kr.r.entry.retOpp.at + 30), 'the kickoff return is spotted at the catch plus the yards run: ' + k3.entry.text);
+  // a field goal sets up a kickoff step the kicking team chooses
+  const s2 = Object.assign(E.initState(3), { poss: 'b', ballOn: 88, down: 4, toGo: 5 });
+  let fg = null; for (let sd = 1; sd < 80 && !fg; sd++) { const r = E.stepGame(s2, T, U, sd, 'FG', 'ZONE', null, null); if (r.entry.ev === 'fg') fg = { sd, r }; }
+  ok(fg && fg.r.state.kick && fg.r.state.kick.k === 'b' && fg.r.state.poss === 'b', 'a field goal is followed by a kickoff step for the scorer');
+  ok(E.offOptions(fg.r.state).map(o => o.id).join() === 'KO,ONSIDE', 'the kicking team chooses between a deep kick and an onside kick');
+  ok(E.legalOff(fg.r.state, 'RUN_IN') === 'KO' && !E.noDef('ONSIDE') === false, 'any other call is a deep kick');
+  let kr = null; for (let sd = 1; sd < 80 && !kr; sd++) { const r = E.stepGame(fg.r.state, T, U, sd, 'KO', 'ZONE', null, null); if (r.entry.retOpp) kr = { sd, r }; }
+  ok(kr && kr.r.entry.retOpp.kind === 'ko' && kr.r.entry.ev === 'kickoff', 'a deep kick offers a return');
+  const k2 = E.stepGame(fg.r.state, T, U, kr.sd, 'KO', 'ZONE', null, null, { kind: 'ko', x: 120, td: true });
+  ok(k2.entry.rtd === 'a' && k2.state.score.a >= 6 && k2.state.score.b === 3 && k2.state.kick && k2.state.kick.k === 'a', 'a kickoff return touchdown scores for the returner, who then kicks off: ' + k2.entry.text);
+  const k3 = E.stepGame(fg.r.state, T, U, kr.sd, 'KO', 'ZONE', null, null, { kind: 'ko', x: 30 });
+  ok(k3.state.poss === 'a' && !k3.state.kick && k3.state.ballOn === Math.round(kr.r.entry.retOpp.at + 30), 'the kickoff return is spotted at the catch plus the yards run: ' + k3.entry.text);
+  // onside kicks: about one in eight works, and the spots are right
+  let kept = 0, lost = 0;
+  for (let sd = 1; sd <= 400; sd++) {
+    const r = E.stepGame(fg.r.state, T, U, sd, 'ONSIDE', 'ZONE', null, null);
+    if (r.entry.onside === 'kept') { kept++; if (!(r.state.poss === 'b' && r.state.ballOn === 45 && r.state.down === 1)) bad++; }
+    else { lost++; if (!(r.state.poss === 'a' && r.state.ballOn === 55)) bad++; }
+  }
+  ok(kept > 20 && kept < 90 && lost > 300, 'onside kicks work about one time in eight (' + kept + '/400) and spot the ball correctly');
+  ok(E.cpuKick(Object.assign(E.initState(1), { q: 4, clock: 40, score: { a: 10, b: 14 }, kick: { k: 'a', r: 'b' } }), 'a', () => 0.5) === 'ONSIDE', 'the computer onside kicks when it is behind late');
+  ok(E.cpuKick(Object.assign(E.initState(1), { q: 2, clock: 40, score: { a: 10, b: 14 } }), 'a', () => 0.5) === 'KO', 'and kicks deep otherwise');
 }
 console.log('returns TD', rtd);
 
