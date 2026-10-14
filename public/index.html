@@ -2638,9 +2638,9 @@ function teamStats(L, tid, view) {
     Object.keys(ps).forEach(id => add(L.players[id], ps[id]));
   } else if (view && view.indexOf('y:') === 0) {
     const y = +view.slice(2);
-    Object.values(L.players).forEach(p => { const e = (p.ss || []).filter(x => x.y === y); if (e.length) add(p, sumStats(e)); });
+    Object.values(L.players).forEach(p => { const e = (p.ss || []).filter(x => x.y === y && x.t === tid); if (e.length) add(p, sumStats(e)); });
   } else if (view === 'career') {
-    Object.values(L.players).forEach(p => { if (p.t === tid || (p.ss || []).some(x => x.t === tid)) add(p, sumStats((p.ss || []).concat(p.t === tid ? [L.stats[p.i]] : []))); });
+    Object.values(L.players).forEach(p => { if (p.t === tid || (p.ss || []).some(x => x.t === tid)) add(p, sumStats((p.ss || []).filter(x => x.t === tid).concat(p.t === tid ? [L.stats[p.i]] : []))); });
   } else rosterOf(L, tid).forEach(p => add(p, L.stats[p.i]));
   return out;
 }
@@ -5535,7 +5535,7 @@ document.addEventListener('keydown', ev => {
 });
 
 /* ---------- franchise UI (shared by the campaign and by league play) ---------- */
-const FR = { A: null, tab: 'home', to: null, give: [], get: [], offers: null, faPos: 'ALL', dpos: 'ALL', sview: 'season', dq: '', rtid: null };
+const FR = { A: null, tab: 'home', to: null, give: [], get: [], offers: null, faPos: 'ALL', dpos: 'ALL', sview: 'season', dq: '', rtid: null, stid: null };
 const TABS = [['home', 'Home'], ['sched', 'Schedule'], ['roster', 'Roster'], ['stand', 'Standings'], ['trades', 'Trades'], ['fa', 'Free agents'], ['stats', 'Stats']];
 const PL = (L, id) => L.players[id];
 const plLabel = (L, id) => {
@@ -5716,24 +5716,29 @@ FRV.fa = A => {
 ACT['fr-sign'] = async t => { const r = await FR.A.act('sign', { pid: t.dataset.id }); if (r && !r.ok) toast(r.msg); };
 
 /* stats */
-/* your own players: one game, the season so far, a past season, or a whole career */
+/* any team's players (your own by default): one game, the season so far, a past season, or a whole career */
 const STCOL = [
   ['Passing', ['pc', 'C'], ['pa', 'Att'], ['pyd', 'Yds'], ['ptd', 'TD'], ['int', 'INT']],
   ['Rushing', ['att', 'Att'], ['ryd', 'Yds'], ['rtd', 'TD']],
   ['Receiving', ['rec', 'Rec'], ['recyd', 'Yds'], ['rectd', 'TD']],
   ['Defense', ['sk', 'Sacks'], ['dint', 'INT'], ['pbu', 'PBU']]
 ];
-function myStats(A) {
-  const L = A.L, tid = A.tid, games = LG.gameLog(L, tid);
+function teamStatsPanel(A) {
+  const key = A.L.seed + ':' + A.tid; if (FR.stKey !== key) { FR.stKey = key; FR.stid = null; }   // a different save or league starts on your own team
+  const L = A.L, tid = FR.stid != null && L.teams[FR.stid] ? FR.stid : A.tid >= 0 ? A.tid : 0, games = LG.gameLog(L, tid);
+  const mine = tid === A.tid, kept = !!L.teams[tid].owner;   // single games and past seasons are only stored for teams a person runs
   const years = Array.from(new Set(Object.values(L.players).reduce((a, p) => a.concat((p.ss || []).filter(x => x.t === tid).map(x => x.y)), []))).sort((a, b) => b - a);
   let view = FR.sview;
-  if (view.indexOf('g:') === 0 && !games.some(g => 'g:' + g.id === view)) view = FR.sview = 'season';
+  if ((view.indexOf('g:') === 0 && !games.some(g => 'g:' + g.id === view)) || (view === 'career' && !kept)) view = FR.sview = 'season';
   const opt = (v, label) => '<option value="' + v + '"' + (view === v ? ' selected' : '') + '>' + esc(label) + '</option>';
   const gl = g => { const home = g.h === tid, opp = L.teams[home ? g.a : g.h], me = home ? g.sh : g.sa, th = home ? g.sa : g.sh; return (g.pl === 'po' ? 'Playoffs' : 'Week ' + g.w) + ' ' + (home ? 'vs ' : '@ ') + opp.abbr + ' · ' + (me > th ? 'W' : me < th ? 'L' : 'T') + ' ' + me + '-' + th; };
   const rows = LG.teamStats(L, tid, view);
-  let h = '<div class="panel"><div class="row between"><h3>Your players</h3><select data-hc="sview" aria-label="Stat period">' +
-    opt('season', 'Season ' + L.season + ' · total') + games.slice().reverse().map(g => opt('g:' + g.id, gl(g))).join('') + years.map(y => opt('y:' + y, y + ' season')).join('') + opt('career', 'Career with this team') + '</select></div>';
-  if (!rows.length) return h + '<p class="hint">' + (view === 'season' ? 'No stats yet. They appear as your games are played.' : 'No stats recorded for this period.') + '</p></div>';
+  let h = '<div class="panel"><div class="row between"><h3>' + (mine ? 'Your players' : esc(L.teams[tid].name)) + '</h3><div class="row">' +
+    '<select data-hc="stid" aria-label="Team">' + L.teams.map(x => '<option value="' + x.id + '"' + (x.id === tid ? ' selected' : '') + '>' + esc(x.name) + (x.owner ? ' (' + esc(x.owner === 'You' ? 'you' : x.owner) + ')' : '') + '</option>').join('') + '</select>' +
+    '<select data-hc="sview" aria-label="Stat period">' +
+    opt('season', 'Season ' + L.season + ' · total') + games.slice().reverse().map(g => opt('g:' + g.id, gl(g))).join('') + years.map(y => opt('y:' + y, y + ' season')).join('') + (kept ? opt('career', 'Career with this team') : '') + '</select></div></div>' +
+    (kept ? '' : '<p class="hint">Single games and past seasons are only kept for teams a person runs, so this team shows this season\'s totals.</p>');
+  if (!rows.length) return h + '<p class="hint">' + (view === 'season' ? 'No stats yet. They appear as ' + (mine ? 'your' : 'their') + ' games are played.' : 'No stats recorded for this period.') + '</p></div>';
   const num = v => v || 0;
   STCOL.forEach(c => {
     const cols = c.slice(1), sort = { Passing: 'pyd', Rushing: 'ryd', Receiving: 'recyd', Defense: 'sk' }[c[0]];
@@ -5746,7 +5751,7 @@ function myStats(A) {
 FRV.stats = A => {
   const L = A.L;
   const cats = [['pyd', 'Passing yards'], ['ptd', 'Passing TDs'], ['ryd', 'Rushing yards'], ['recyd', 'Receiving yards'], ['sk', 'Sacks'], ['dint', 'Interceptions']];
-  let h = A.tid >= 0 ? myStats(A) : '';
+  let h = teamStatsPanel(A);
   h += '<div class="grid2">';
   cats.forEach(c => {
     const top = LG.leaders(L, c[0], 6);
@@ -5792,6 +5797,7 @@ ACT['fr-dauto'] = async () => { const d = FR.A.L.draft, on = !(d.auto && d.auto[
 const CH = {
   rtid: el => { FR.rtid = +el.value; frShow(FR.A); },
   sview: el => { FR.sview = el.value; frShow(FR.A); },
+  stid: el => { FR.stid = +el.value; FR.sview = 'season'; frShow(FR.A); },
   trto: el => { FR.to = +el.value; FR.give = []; FR.get = []; frShow(FR.A); },
   fapos: el => { FR.faPos = el.value; frShow(FR.A); },
   dpos: el => { FR.dpos = el.value; frShow(FR.A); }
