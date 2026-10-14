@@ -37,6 +37,12 @@ function playSide(info,live){
   r=await call('league',{op:'start',code},ta); ok(r.ok,'start '+JSON.stringify(r));
   let g=await call('league',{op:'get',code},ta); let L=g.L; ok(L.phase==='regular'&&L.sched.length>0,'regular, games '+L.sched.length);
   const same=await call('league',{op:'get',code,ver:g.ver},ta); ok(same.same,'ver poll');
+  { const fg=L.sched.find(x=>x.w===L.week&&!x.done&&L.teams[x.h].owner); if(fg){
+    ok((await call('league',{op:'forfeit',code,gid:fg.id,loser:fg.h},tb)).error==='manager_only','non-mgr cant forfeit');
+    ok((await call('league',{op:'forfeit',code,gid:fg.id,loser:999},ta)).error,'forfeit needs a team in the game');
+    ok((await call('league',{op:'forfeit',code,gid:fg.id,loser:fg.a},ta)).ok,'manager forfeits a game');
+    const g3=await call('league',{op:'get',code},ta); const done=g3.L.sched.find(x=>x.id===fg.id); ok(done.done&&done.ff===fg.a&&done.sa===0&&done.sh===1,'forfeit recorded 1-0');
+    ok((await call('league',{op:'play',code,gid:fg.id},ta)).error,'cannot play a forfeited game'); } }
   // find a week-1 game for alice
   for(let season=0;season<1;season++){
     let guard=0;

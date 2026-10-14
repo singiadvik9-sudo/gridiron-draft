@@ -2557,6 +2557,15 @@ function simGame(L, g) {
   const R = E.replay(gameSeed(L, g), T, {}, ['a', 'b']);
   return finishGame(L, g, T, R);
 }
+// the manager ends a game early: the team named loses 0-1 (the NFL's own forfeit score), no player stats are kept
+function forfeit(L, g, loser) {
+  if (!g || g.done) return 'That game is not available.';
+  if (loser !== g.h && loser !== g.a) return 'Pick one of the two teams.';
+  delete g.T; delete g.room;
+  g.done = true; g.ff = loser; g.ot = false;
+  g.sh = loser === g.h ? 0 : 1; g.sa = loser === g.a ? 0 : 1;
+  return null;
+}
 // moves: the human's picks keyed "n-side"; sides: which side the CPU runs
 function playVerified(L, g, moves, cpuSides) {
   const T = g.T || teamsFor(L, g.h, g.a);   // g.T: squads frozen when the game was started
@@ -3228,7 +3237,7 @@ const ROUND_NAMES = n => n === 1 ? 'Final' : n === 2 ? 'Semifinals' : n === 3 ? 
 const LG = {
   POS, POS_NAME, ROSTER_MAX, TRADE_DEADLINE, DIV_NAMES, CONF_DIVS, counts, MIN_DEPTH, COLORS, ROUND_NAMES,
   newNFL, rosterOf, posCount, lineup, squadOf, teamsFor, teamRating, gameSeed,
-  simGame, playVerified, weekGames, simWeek, advanceWeek, runUntilHuman, humanSides, checkFinal,
+  simGame, forfeit, playVerified, weekGames, simWeek, advanceWeek, runUntilHuman, humanSides, checkFinal,
   records, standings, overallRank, rank, startPlayoffs, advancePlayoffs,
   progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, startSeason, trimRoster, fillDepth, finishDraft,
   playerValue, tradeCheck, cpuTrade, doTrade, canTrade, cpuOffers, signFA, release,
@@ -5471,7 +5480,7 @@ FRV.sched = A => {
   const games = L.sched.filter(g => g.h === tid || g.a === tid).sort((a, b) => a.w - b.w);
   const rows = games.map(g => {
     const home = g.h === tid, mine = home ? g.sh : g.sa, theirs = home ? g.sa : g.sh;
-    const res = g.done ? '<b class="' + (mine > theirs ? 'win' : mine < theirs ? 'loss' : '') + '">' + (mine > theirs ? 'W' : mine < theirs ? 'L' : 'T') + ' ' + mine + '-' + theirs + (g.ot ? ' OT' : '') + '</b>' : (g.w === L.week && (L.phase === 'regular' || L.phase === 'playoffs') ? 'This week' : '');
+    const res = g.done ? '<b class="' + (mine > theirs ? 'win' : mine < theirs ? 'loss' : '') + '">' + (mine > theirs ? 'W' : mine < theirs ? 'L' : 'T') + ' ' + mine + '-' + theirs + (g.ot ? ' OT' : '') + (g.ff != null ? ' (forfeit)' : '') + '</b>' : (g.w === L.week && (L.phase === 'regular' || L.phase === 'playoffs') ? 'This week' : '');
     return '<tr><td>' + (g.pl === 'po' ? 'PO' : g.w) + '</td><td class="nm">' + esc(gameLine(L, g, tid)) + '</td><td>' + res + '</td></tr>';
   }).join('');
   return '<div class="panel">' + tbl(['Wk', 'Opponent', 'Result'], rows) + '</div>';
@@ -5911,11 +5920,26 @@ function lgPanel(A) {
       ((L.phase === 'regular' || L.phase === 'playoffs') ? '<button class="btn primary" data-h="lg-simweek">Sim this week for everyone</button>' : '') +
       (L.phase === 'offseason' ? '<button class="btn primary" data-h="fr-offseason">Start the offseason</button>' : '') +
       (L.phase === 'preseason' ? '<button class="btn primary" data-h="fr-season">Start season ' + (L.season + 1) + '</button>' : '') + '</div>' +
+      ffPanel(L) +
       '<div class="setgrid"><div><label class="fld">Trading</label>' + seg('trades', c.trades, yn) + '</div><div><label class="fld">Trade deadline (week)</label><input type="number" min="0" max="20" data-hc="lgdl" value="' + c.deadline + '"></div></div>' +
       '<div class="row"><button class="btn ghost" data-h="lg-del">Delete league</button></div></div>';
   } else h += '<div class="panel"><div class="row"><button class="btn ghost" data-h="lg-leave">Leave league</button></div></div>';
   return h;
 }
+// games this week that are still open: the manager can award one to a team whose opponent did not show
+function ffPanel(L) {
+  if (L.phase !== 'regular' && L.phase !== 'playoffs') return '';
+  const open = L.sched.filter(g => g.w === L.week && !g.done && (L.teams[g.h].owner || L.teams[g.a].owner));
+  if (!open.length) return '';
+  return '<h3>Open games this week</h3><p class="hint">If someone does not show up, make their team forfeit. The other team wins 1-0 and the week can move on.</p><ul class="news">' + open.map(g => {
+    const H_ = L.teams[g.h], A_ = L.teams[g.a];
+    return '<li>' + esc(H_.name) + ' vs ' + esc(A_.name) + ' <span class="row"><button class="btn small ghost" data-h="lg-ff" data-gid="' + g.id + '" data-loser="' + g.h + '">' + esc(H_.nick) + ' forfeit</button><button class="btn small ghost" data-h="lg-ff" data-gid="' + g.id + '" data-loser="' + g.a + '">' + esc(A_.nick) + ' forfeit</button></span></li>';
+  }).join('') + '</ul>';
+}
+ACT['lg-ff'] = t => {
+  const L = LGS.L, loser = L.teams[+t.dataset.loser];
+  if (confirm(loser.name + ' will forfeit this game and lose 0-1. This cannot be undone. Continue?')) lgOp('forfeit', { gid: t.dataset.gid, loser: +t.dataset.loser });
+};
 CH.lgdl = el => lgCfg({ deadline: +el.value });
 ACT['lg-simweek'] = async () => { if (confirm('Sim every unplayed game this week, including human games?')) lgOp('simweek'); };
 

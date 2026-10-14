@@ -185,10 +185,25 @@ function lgPanel(A) {
       ((L.phase === 'regular' || L.phase === 'playoffs') ? '<button class="btn primary" data-h="lg-simweek">Sim this week for everyone</button>' : '') +
       (L.phase === 'offseason' ? '<button class="btn primary" data-h="fr-offseason">Start the offseason</button>' : '') +
       (L.phase === 'preseason' ? '<button class="btn primary" data-h="fr-season">Start season ' + (L.season + 1) + '</button>' : '') + '</div>' +
+      ffPanel(L) +
       '<div class="setgrid"><div><label class="fld">Trading</label>' + seg('trades', c.trades, yn) + '</div><div><label class="fld">Trade deadline (week)</label><input type="number" min="0" max="20" data-hc="lgdl" value="' + c.deadline + '"></div></div>' +
       '<div class="row"><button class="btn ghost" data-h="lg-del">Delete league</button></div></div>';
   } else h += '<div class="panel"><div class="row"><button class="btn ghost" data-h="lg-leave">Leave league</button></div></div>';
   return h;
 }
+// games this week that are still open: the manager can award one to a team whose opponent did not show
+function ffPanel(L) {
+  if (L.phase !== 'regular' && L.phase !== 'playoffs') return '';
+  const open = L.sched.filter(g => g.w === L.week && !g.done && (L.teams[g.h].owner || L.teams[g.a].owner));
+  if (!open.length) return '';
+  return '<h3>Open games this week</h3><p class="hint">If someone does not show up, make their team forfeit. The other team wins 1-0 and the week can move on.</p><ul class="news">' + open.map(g => {
+    const H_ = L.teams[g.h], A_ = L.teams[g.a];
+    return '<li>' + esc(H_.name) + ' vs ' + esc(A_.name) + ' <span class="row"><button class="btn small ghost" data-h="lg-ff" data-gid="' + g.id + '" data-loser="' + g.h + '">' + esc(H_.nick) + ' forfeit</button><button class="btn small ghost" data-h="lg-ff" data-gid="' + g.id + '" data-loser="' + g.a + '">' + esc(A_.nick) + ' forfeit</button></span></li>';
+  }).join('') + '</ul>';
+}
+ACT['lg-ff'] = t => {
+  const L = LGS.L, loser = L.teams[+t.dataset.loser];
+  if (confirm(loser.name + ' will forfeit this game and lose 0-1. This cannot be undone. Continue?')) lgOp('forfeit', { gid: t.dataset.gid, loser: +t.dataset.loser });
+};
 CH.lgdl = el => lgCfg({ deadline: +el.value });
 ACT['lg-simweek'] = async () => { if (confirm('Sim every unplayed game this week, including human games?')) lgOp('simweek'); };

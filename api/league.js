@@ -199,6 +199,12 @@ module.exports = async function (req, res) {
           return { ok: true };
         }
         case 'simweek': { needMgr(); if (L.phase !== 'regular' && L.phase !== 'playoffs') bad('Nothing to sim.'); LG.simWeek(L, false); LG.advanceWeek(L); return { ok: true }; }
+        case 'forfeit': {   // manager only: the named team loses the game (a no-show, or a game nobody can finish)
+          needMgr(); if (L.phase !== 'regular' && L.phase !== 'playoffs') bad('No games are being played right now.');
+          const g = L.sched.find(x => x.id === b.gid); if (!g || g.done || g.w !== L.week) bad('That game is not available.');
+          const e = LG.forfeit(L, g, +b.loser); if (e) bad(e);
+          LG.advanceWeek(L); return { ok: true };
+        }
         case 'offseason': {
           needMgr(); if (L.phase !== 'offseason') bad('The season is not over yet.');
           LG.offseasonBegin(L, c.rookieRounds || 3); if (L.draft) L.draft.auto = L.draft.auto || {};

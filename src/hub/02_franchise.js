@@ -82,7 +82,7 @@ FRV.sched = A => {
   const games = L.sched.filter(g => g.h === tid || g.a === tid).sort((a, b) => a.w - b.w);
   const rows = games.map(g => {
     const home = g.h === tid, mine = home ? g.sh : g.sa, theirs = home ? g.sa : g.sh;
-    const res = g.done ? '<b class="' + (mine > theirs ? 'win' : mine < theirs ? 'loss' : '') + '">' + (mine > theirs ? 'W' : mine < theirs ? 'L' : 'T') + ' ' + mine + '-' + theirs + (g.ot ? ' OT' : '') + '</b>' : (g.w === L.week && (L.phase === 'regular' || L.phase === 'playoffs') ? 'This week' : '');
+    const res = g.done ? '<b class="' + (mine > theirs ? 'win' : mine < theirs ? 'loss' : '') + '">' + (mine > theirs ? 'W' : mine < theirs ? 'L' : 'T') + ' ' + mine + '-' + theirs + (g.ot ? ' OT' : '') + (g.ff != null ? ' (forfeit)' : '') + '</b>' : (g.w === L.week && (L.phase === 'regular' || L.phase === 'playoffs') ? 'This week' : '');
     return '<tr><td>' + (g.pl === 'po' ? 'PO' : g.w) + '</td><td class="nm">' + esc(gameLine(L, g, tid)) + '</td><td>' + res + '</td></tr>';
   }).join('');
   return '<div class="panel">' + tbl(['Wk', 'Opponent', 'Result'], rows) + '</div>';
