@@ -17,6 +17,9 @@ ok(others === 0, 'only games with a person\'s team keep per-game lines (' + othe
 const ranks = LG.divisionRanks(L);
 ok(Object.keys(ranks).length === 32 && [0, 1, 2, 3].every(r => Object.values(ranks).filter(x => x === r).length === 8), 'every division has a first to fourth place');
 const before = { pyd: sum('pyd'), ryd: sum('ryd') };
+// any team's season totals can be looked up (the Stats tab team picker), and they match the league totals
+const cpu = LG.teamStats(L, 5, 'season'), ids = new Set(LG.rosterOf(L, 5).map(p => p.i));
+ok(cpu.length > 0 && cpu.every(r => ids.has(r.p.i) && r.s === L.stats[r.p.i]), 'a CPU team lists its own players with their season totals (' + cpu.length + ')');
 LG.offseasonBegin(L, 7); let n = 0; while (L.phase === 'draft' && n++ < 2000) { const t = LG.onClock(L); LG.draftPick(L, t, LG.cpuPickFor(L, t, L.draft.pool)); }
 LG.startSeason(L);
 ok(L.season === 2027 && L.sched.length === 272, 'season two has 272 games');
@@ -29,5 +32,6 @@ ok(L.teams.every(t => same[t.id] === 5), 'every team plays 5 non-division oppone
 const car = LG.teamStats(L, 0, 'career');
 ok(car.length > 0 && car.reduce((t, x) => t + (x.s.pyd || 0), 0) === before.pyd, 'career shows last season\'s totals (' + before.pyd + ' pass yds)');
 ok(LG.teamStats(L, 0, 'y:2026').reduce((t, x) => t + (x.s.ryd || 0), 0) === before.ryd, 'a past season can be looked up');
+ok(LG.teamStats(L, 0, 'y:2026').every(x => (x.p.ss || []).some(e => e.y === 2026 && e.t === 0)), 'a past season only lists players who were on that team');
 ok(LG.teamStats(L, 0, 'season').length === 0, 'the new season starts with empty totals');
 console.log('ALL DONE');
