@@ -1086,7 +1086,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
                          : 0.50 * OU.h + 0.30 * OU.ol + 0.20 * OU.wr) + (inside && OU.hasFB ? 2 : 0);
     const Drun = 0.38 * DU.dl + 0.36 * DU.lb + 0.14 * DU.s + 0.12 * DU.cb + (DU.scheme === '43' ? 3 : 0);
     const diff = Orun - Drun * eff;
-    let y = Math.round((inside ? 3.9 : 4.3) + (OC.ym || 0) + diff * 0.10 + gauss() * (inside ? 2.8 : 3.8) * (OC.sd || 1));
+    let y = Math.round((inside ? 3.6 : 4.0) + (OC.ym || 0) + diff * 0.10 + gauss() * (inside ? 2.8 : 3.8) * (OC.sd || 1));
     const bigP = (inside ? 0.035 : 0.07) + (OC.bp || 0) + Math.max(0, OU.hSpd - 55) / 700;
     if (R() < bigP * (1 - m * 0.25)) y += Math.round(8 + R() * 20);
     y = Math.max(y, OC.fl == null ? -4 : OC.fl);
@@ -1120,7 +1120,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
     const m = matchup(defPick, offPick), eff = 1 + 0.30 * m;
     const rush = 0.6 * DU.dl + 0.4 * DU.lb + (DC.rush || 0) + (DU.scheme === '34' ? 2 : 0);
     const prot = OU.ol;
-    const sackP = clamp(0.055 + (rush - prot) * 0.0035 + (DC.sack || 0) + (spec.sack || 0), 0.01, 0.30);
+    const sackP = clamp(0.06 + (rush - prot) * 0.0035 + (DC.sack || 0) + (spec.sack || 0), 0.01, 0.30);
     const pressure = Math.max(0, rush - prot) * 0.0030 + (DC.press || 0);
     const cov = 0.45 * DU.cb + 0.30 * DU.s + 0.25 * DU.lb;
     // target
@@ -1139,7 +1139,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
     }
     const qb = nm(o, 'QB'), rec = nm(o, tgt.id); entry.qbId = 'QB'; entry.recId = tgt.id;
     const O = 0.38 * OU.q + 0.42 * tgt.fit + 0.20 * OU.ol + (spec.fbq && !OU.hasFB ? 2 : 0);
-    const compP = clamp(spec.base + (O - cov * eff) * 0.0070 - pressure, 0.08, 0.93);
+    const compP = clamp(spec.base - 0.03 + (O - cov * eff) * 0.0070 - pressure, 0.08, 0.93);   // -0.03: offense tuned a little harder
     const intP = clamp(0.028 + (cov * eff - OU.q) * 0.0012 + (spec.int || 0), 0.006, 0.12);
     const r1 = R();
     if (r1 < sackP) {
@@ -1513,7 +1513,7 @@ function vmaxOf(grp, o, s) {
 }
 const ACC = 16;
 // pass protection tuning: bias per tick (base, plus extra while the line is still setting up), help per free lineman, skill weight, noise, how hard a losing block gets driven back, when a block is beaten
-const PRO = { flyDB: 0.16, flyLB: 0.10, flyDL: 0.05, flyPick: 0.10, fum: 0.042, fumSack: 2.2, ball: 3, blitzDelay: 6, blitzEdge: 0.006, base: 0.003, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82 };
+const PRO = { flyDB: 0.19, flyLB: 0.12, flyDL: 0.05, flyPick: 0.10, fum: 0.042, fumSack: 2.2, ball: 4, blitzDelay: 6, blitzEdge: 0.006, base: 0.0038, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82 };
 const RUNMOD = { STACK: -0.010, BLITZ: -0.004, MAN: 0, ZONE: 0.004, PREVENT: 0.012 };
 
 /* ---------- construction ---------- */
@@ -2126,7 +2126,7 @@ function ballLogic(sim, carrier) {
     if (car.imm > 0 && !(car.id === 'QB')) continue;
     const isQB = car.id === 'QB' && !sim.handoff && sim.kind === 'pass' && sim.thrown === 0 && car.x <= 0.5;
     const evade = isQB ? 54 : car.rat * 0.85 + (car.s - 80) * 0.3;
-    let pr = 0.42 + (q.rat - evade) * 0.008 + (near - 1) * 0.07 + (isQB ? 0.05 : 0) + (q.dive > 0 ? 0.08 : 0) - (q.eng ? 0.25 : 0);
+    let pr = 0.46 + (q.rat - evade) * 0.008 + (near - 1) * 0.07 + (isQB ? 0.05 : 0) + (q.dive > 0 ? 0.08 : 0) - (q.eng ? 0.25 : 0);
     if (q.human && q.dive > 0) pr += 0.05;
     pr = clamp(pr, 0.12, 0.93);
     q.cool = 6;
