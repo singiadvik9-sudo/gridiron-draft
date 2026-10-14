@@ -335,6 +335,19 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .pk:hover { background: var(--panel2); }
 .pk .pos { color: var(--mute); font-family: var(--display); font-size: 11px; width: 26px; }
 .pk small { color: var(--mute); margin-left: auto; }
+/* draft picks in the trade screen: one row per year, one chip per round (number = trade value) */
+.pkgrid { display: grid; gap: 4px; margin: 0 0 8px; }
+.pkrow { display: flex; gap: 4px; align-items: center; }
+.pky { color: var(--mute); font-family: var(--display); font-size: 11px; width: 34px; flex: none; }
+.pkc { position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 3px 0 2px; border: 1px solid var(--line); border-radius: 5px; cursor: pointer; font-size: 11px; line-height: 1.15; background: transparent; }
+.pkc input { position: absolute; opacity: 0; inset: 0; cursor: pointer; margin: 0; }
+.pkc span { color: var(--mute); font-family: var(--display); }
+.pkc b { font-size: 13px; }
+.pkc small { font-size: 9px; color: var(--mute); }
+.pkc.via { border-style: dashed; }
+.pkc:has(input:checked) { background: var(--flag); border-color: var(--flag); color: #111; }
+.pkc:has(input:checked) span, .pkc:has(input:checked) small { color: #111; }
+.pkc:hover { border-color: var(--mute); }
 .offers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .offers li { display: grid; gap: 6px; background: var(--panel2); border-radius: 8px; padding: 8px 10px; }
 .ordlist { margin: 0 0 8px; padding: 0 0 0 24px; display: grid; gap: 4px; }

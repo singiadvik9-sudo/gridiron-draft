@@ -49,6 +49,7 @@ function histEntry(doc, name) {
 // advance everything that does not need a human; returns history entries to write after saving
 function settle(doc) {
   const L = doc.L, push = [];
+  if (L.teams.length) LG.ensurePicks(L);
   if (L.phase === 'draft' && L.draft) { LG.autoDraftToHuman(L); if (L.phase !== 'draft') LG.finalizeLeagueDraft(L); }
   if (L.phase === 'preseason' && !L.sched.length) LG.finalizeLeagueDraft(L);
   if (L.phase === 'regular' || L.phase === 'playoffs') { LG.runUntilHuman(L, 60); LG.checkFinal(L); }
@@ -241,7 +242,7 @@ module.exports = async function (req, res) {
           if (!t) bad('You have no team.'); if (!LG.canTrade(L)) bad('Trading is closed right now.');
           const to = L.teams[+b.to]; if (!to || to.id === t.id) bad('bad_request');
           const give = (b.give || []).map(String), get = (b.get || []).map(String);
-          if (give.length > 6 || get.length > 6) bad('At most 6 players each way.');
+          if (give.length > 8 || get.length > 8) bad('At most 8 players and picks each way.');
           const why = LG.tradeCheck(L, t.id, to.id, give, get); if (why) return { ok: false, msg: why };
           if (to.owner) {
             L.offers = L.offers || [];

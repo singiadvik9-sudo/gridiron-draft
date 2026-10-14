@@ -2,7 +2,10 @@
 const FR = { A: null, tab: 'home', to: null, give: [], get: [], offers: null, faPos: 'ALL', dpos: 'ALL', dq: '', rtid: null };
 const TABS = [['home', 'Home'], ['sched', 'Schedule'], ['roster', 'Roster'], ['stand', 'Standings'], ['trades', 'Trades'], ['fa', 'Free agents'], ['stats', 'Stats']];
 const PL = (L, id) => L.players[id];
-const plLabel = (L, id) => { const p = PL(L, id); return p ? p.n + ' (' + p.p + ' ' + p.o + ')' : '?'; };
+const plLabel = (L, id) => {
+  if (LG.isPick(id)) { const k = LG.pickOf_(L, id); return k ? LG.pickLabel(L, k) + ' pick' : '?'; }
+  const p = PL(L, id); return p ? p.n + ' (' + p.p + ' ' + p.o + ')' : '?';
+};
 const trend = p => { const h = p.h || []; if (!h.length) return ''; const d = p.o - h[h.length - 1]; return d > 0 ? '<i class="up">▲' + d + '</i>' : d < 0 ? '<i class="dn">▼' + (-d) + '</i>' : ''; };
 const gradeCls = o => 'g-' + E.grade(o);
 function plRows(L, list, btn) {
@@ -113,14 +116,27 @@ FRV.stand = A => {
 
 /* trades */
 const plPick = (L, ids, side) => ids.map(p => '<label class="pk"><input type="checkbox" data-h="tr-tog" data-side="' + side + '" data-id="' + p.i + '"' + (FR[side].indexOf(p.i) >= 0 ? ' checked' : '') + '><span class="pos">' + p.p + '</span> ' + esc(p.n) + ' <b>' + p.o + '</b> <small>' + p.a + 'y</small></label>').join('');
+// draft picks in the trade lists: round, year, who it came from, and where it is expected to land
+const pkPick = (L, tid, side) => {
+  const fr = LG.strengthFrac(L), ks = LG.picksOf(L, tid).filter(k => LG.pickOpen(L, k));
+  if (!ks.length) return '<p class="hint">No picks to trade.</p>';
+  const years = Array.from(new Set(ks.map(k => k.y)));
+  return '<div class="pkgrid">' + years.map(y => '<div class="pkrow"><span class="pky">' + y + '</span>' + ks.filter(k => k.y === y).map(k => {
+    const id = LG.pickId(k), pj = LG.pickProjection(L, k, fr);
+    const tip = 'Round ' + k.r + ', ' + k.y + (k.o === k.t ? '' : ' (from ' + L.teams[k.o].name + ')') + ' · expected overall pick ' + (pj.known ? '' : '≈') + pj.overall + ' · value ' + Math.round(LG.pickValue(L, k, fr));
+    return '<label class="pkc' + (k.o === k.t ? '' : ' via') + '" title="' + esc(tip) + '"><input type="checkbox" data-h="tr-tog" data-side="' + side + '" data-id="' + id + '"' + (FR[side].indexOf(id) >= 0 ? ' checked' : '') + '><span>R' + k.r + '</span><b>' + Math.round(LG.pickValue(L, k, fr)) + '</b>' + (k.o === k.t ? '' : '<small>' + esc(L.teams[k.o].abbr) + '</small>') + '</label>';
+  }).join('') + '</div>').join('') + '</div>';
+};
 FRV.trades = A => {
   const L = A.L, tid = A.tid;
+  LG.ensurePicks(L);
   if (!LG.canTrade(L)) return '<div class="panel"><h3>Trades are closed</h3><p class="sub">' + (L.cfg && L.cfg.trades === false ? 'The manager turned trading off for this league.' : 'The deadline has passed. Trading opens again in the offseason.') + '</p></div>';
   const others = L.teams.filter(t => t.id !== tid);
   if (FR.to == null || FR.to === tid || !L.teams[FR.to]) FR.to = others[0].id;
   const to = L.teams[FR.to];
   const mine = LG.rosterOf(L, tid).sort((a, b) => POSN.indexOf(a.p) - POSN.indexOf(b.p) || b.o - a.o), theirs = LG.rosterOf(L, FR.to).sort((a, b) => POSN.indexOf(a.p) - POSN.indexOf(b.p) || b.o - a.o);
-  const valSum = ids => Math.round(ids.reduce((s, id) => s + LG.playerValue(PL(L, id)), 0));
+  const frs = LG.strengthFrac(L);
+  const valSum = ids => Math.round(ids.reduce((s, id) => s + LG.assetValue(L, id, frs), 0));
   let h = '';
   if (A.kind === 'league') {
     const inc = (L.offers || []).filter(o => o.to === tid), out = (L.offers || []).filter(o => o.from === tid);
@@ -131,9 +147,9 @@ FRV.trades = A => {
     }
   }
   h += '<div class="panel"><div class="row between"><h3>Propose a trade</h3><select data-hc="trto" aria-label="Trade partner">' + others.map(t => '<option value="' + t.id + '"' + (t.id === FR.to ? ' selected' : '') + '>' + esc(t.name) + (t.owner ? ' (' + esc(t.owner) + ')' : '') + '</option>').join('') + '</select></div>' +
-    '<div class="trcols"><div><h4>You send · value ' + valSum(FR.give) + '</h4><div class="pklist">' + plPick(L, mine, 'give') + '</div></div><div><h4>' + esc(to.nick) + ' send · value ' + valSum(FR.get) + '</h4><div class="pklist">' + plPick(L, theirs, 'get') + '</div></div></div>' +
+    '<div class="trcols"><div><h4>You send · value ' + valSum(FR.give) + '</h4>' + pkPick(L, tid, 'give') + '<div class="pklist">' + plPick(L, mine, 'give') + '</div></div><div><h4>' + esc(to.nick) + ' send · value ' + valSum(FR.get) + '</h4>' + pkPick(L, FR.to, 'get') + '<div class="pklist">' + plPick(L, theirs, 'get') + '</div></div></div>' +
     '<div class="row"><button class="btn primary" data-h="tr-prop">' + (to.owner ? 'Send offer to ' + esc(to.owner) : 'Propose to ' + esc(to.nick)) + '</button><button class="btn ghost" data-h="tr-clear">Clear</button></div>' +
-    '<p class="hint">CPU teams judge by player value, age and what they need. Rosters must keep a full set of starters and stay at ' + LG.ROSTER_MAX + ' or fewer.</p></div>';
+    '<p class="hint">CPU teams judge by player value, age and what they need. Draft picks are worth more the earlier the round, the sooner the draft, and the worse the original team is projected to finish (hover a pick to see its expected overall slot; far-off picks are less certain and discounted). Dashed picks came from another team. Rosters must keep a full set of starters and stay at ' + LG.ROSTER_MAX + ' or fewer.</p></div>';
   h += '<div class="panel"><div class="row between"><h3>CPU offers</h3><button class="btn small" data-h="tr-offers">Find offers</button></div>' +
     (FR.offers ? (FR.offers.length ? '<ul class="offers">' + FR.offers.map((o, i) => '<li>' + esc(L.teams[o.t].name) + ' would give ' + o.get.map(id => esc(plLabel(L, id))).join(', ') + ' for your ' + o.give.map(id => esc(plLabel(L, id))).join(', ') + '<span class="row"><button class="btn small primary" data-h="tr-acc" data-i="' + i + '">Accept</button></span></li>').join('') + '</ul>' : '<p class="hint">No teams are interested right now.</p>') : '<p class="hint">Ask around to see which CPU teams would make a deal.</p>') + '</div>';
   return h;
@@ -141,7 +157,7 @@ FRV.trades = A => {
 ACT['tr-tog'] = t => { const a = FR[t.dataset.side], i = a.indexOf(t.dataset.id); if (t.checked && i < 0) a.push(t.dataset.id); else if (!t.checked && i >= 0) a.splice(i, 1); frShow(FR.A); };
 ACT['tr-clear'] = () => { FR.give = []; FR.get = []; frShow(FR.A); };
 ACT['tr-prop'] = async () => {
-  if (!FR.give.length && !FR.get.length) { toast('Pick at least one player.'); return; }
+  if (!FR.give.length && !FR.get.length) { toast('Pick at least one player or draft pick.'); return; }
   const r = await FR.A.act('trade', { to: FR.to, give: FR.give.slice(), get: FR.get.slice() });
   if (r && r.ok) { FR.give = []; FR.get = []; FR.offers = null; }
   if (r) toast(r.msg || (r.ok ? 'Done.' : 'No deal.'));

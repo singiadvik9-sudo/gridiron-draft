@@ -37,6 +37,18 @@ function playSide(info,live){
   r=await call('league',{op:'start',code},ta); ok(r.ok,'start '+JSON.stringify(r));
   let g=await call('league',{op:'get',code},ta); let L=g.L; ok(L.phase==='regular'&&L.sched.length>0,'regular, games '+L.sched.length);
   const same=await call('league',{op:'get',code,ver:g.ver},ta); ok(same.same,'ver poll');
+  { // picks as trade assets between two managers, and with a CPU team
+    const pa='pk:'+(L.season+1)+':1:0', pb='pk:'+(L.season+1)+':2:1';
+    ok((await call('league',{op:'trade',code,to:1,give:[pa,pa],get:[]},ta)).error||(await call('league',{op:'trade',code,to:1,give:[pa,pa],get:[]},ta)).ok===false,'duplicate pick refused');
+    let r2=await call('league',{op:'trade',code,to:1,give:[pa],get:[pb]},ta); ok(r2.ok&&r2.pending,'pick-for-pick offer sent to bob');
+    const gg=await call('league',{op:'get',code},tb); const off=gg.L.offers.find(o=>o.give.includes(pa));
+    ok(!!off,'offer lists the pick');
+    ok((await call('league',{op:'tradeop',code,id:off.id,act:'accept'},ta)).error==='forbidden','sender cannot accept own offer');
+    ok((await call('league',{op:'tradeop',code,id:off.id,act:'accept'},tb)).ok,'bob accepts');
+    const g4=await call('league',{op:'get',code},ta); const P=g4.L.picks;
+    ok(P.find(k=>k.y===L.season+1&&k.r===1&&k.o===0).t===1&&P.find(k=>k.y===L.season+1&&k.r===2&&k.o===1).t===0,'picks changed hands');
+    ok((await call('league',{op:'trade',code,to:1,give:[pa],get:[]},ta)).ok===false,'alice no longer owns it');
+  }
   { const fg=L.sched.find(x=>x.w===L.week&&!x.done&&L.teams[x.h].owner); if(fg){
     ok((await call('league',{op:'forfeit',code,gid:fg.id,loser:fg.h},tb)).error==='manager_only','non-mgr cant forfeit');
     ok((await call('league',{op:'forfeit',code,gid:fg.id,loser:999},ta)).error,'forfeit needs a team in the game');
