@@ -17,9 +17,10 @@ ok(mono, 'earlier rounds are worth more: ' + [1, 2, 3, 4, 5, 6, 7].map(r => V(pk
 ok(V(pk(worst, 2026, 1)) > V(pk(best, 2026, 1)), 'a bad team\'s first-rounder beats a good team\'s (' + V(pk(worst, 2026, 1)).toFixed(1) + ' vs ' + V(pk(best, 2026, 1)).toFixed(1) + ')');
 // recency
 ok(V(pk(mid, 2026, 1)) > V(pk(mid, 2027, 1)) && V(pk(mid, 2027, 1)) > V(pk(mid, 2028, 1)), 'nearer drafts are worth more than later ones');
-// uncertainty: far-off picks regress toward the middle
-const gap = y => V(pk(worst, y, 1)) / (1) - V(pk(best, y, 1));
-ok(Math.abs(LG.pickProjection(L, pk(worst, 2028, 1), fr).frac - 0.5) < Math.abs(LG.pickProjection(L, pk(worst, 2026, 1), fr).frac - 0.5), 'projection of far picks regresses to the middle');
+// later drafts go by the team's overall rating: the lowest-rated team's future picks project first in the round, the highest-rated last
+const byOvr = L.teams.map(t => t.id).sort((a, b) => LG.teamRating(L, a).ovr - LG.teamRating(L, b).ovr || a - b);
+ok([2027, 2028].every(y => LG.pickProjection(L, pk(byOvr[0], y, 1), fr).slot === 1 && LG.pickProjection(L, pk(byOvr[n - 1], y, 1), fr).slot === n), 'future picks project from the overall rating (slot 1 for the weakest team, ' + n + ' for the strongest)');
+ok([2027, 2028].every(y => V(pk(byOvr[0], y, 1)) > V(pk(byOvr[n - 1], y, 1))), 'a weak team\'s future first is worth more than a strong team\'s');
 // trading
 const me = 0, cpu = L.teams.find(t => !t.owner && t.id !== me).id;
 const mine = pk(me, 2026, 1), id1 = LG.pickId(mine);
@@ -56,9 +57,14 @@ ok(d.seq[slot] === cpu, 'my traded first-round slot is used by ' + L.teams[cpu].
 ok(d.seq.filter(t => t === cpu).length === 7 + 2 - 0 || d.seq.filter(t => t === cpu).length >= 9, 'their pick count grew (' + d.seq.filter(t => t === cpu).length + ')');
 ok(LG.tradeCheck(L, me, cpu, [LG.pickId(pk(me, 2026, 5))], []) !== null, 'this year\'s picks are locked once the draft has started');
 ok(LG.tradeCheck(L, me, cpu, [LG.pickId(pk(me, 2027, 5))], []) === null, 'next year\'s picks are still tradeable');
+const openYears = () => [...new Set(LG.picksOf(L, me).filter(k => LG.pickOpen(L, k)).map(k => k.y))].sort().join(',');
+ok(openYears() === '2027,2028,2029', 'during the draft three later years can be traded (' + openYears() + ')');
+ok(LG.tradeCheck(L, me, cpu, [LG.pickId(pk(me, 2029, 1))], []) === null, 'the new third year can be offered');
 LG.autoDraftToHuman(L); g = 0; while (L.phase === 'draft' && g++ < 400) { const t = LG.onClock(L); LG.draftPick(L, t, LG.cpuPickFor(L, t, L.draft.pool)); }
 ok(L.phase === 'preseason' && !L.picks.some(k => k.y === 2026), 'draft done, 2026 picks are spent');
+ok(openYears() === '2027,2028,2029', 'after the draft three years can still be traded (' + openYears() + ')');
 LG.startSeason(L);
 ok(L.season === 2027 && L.picks.some(k => k.y === 2029) && !L.picks.some(k => k.y === 2026), 'a new year of picks appears each season');
 ok(L.picks.length === n * 7 * 3, 'always three drafts of picks (' + L.picks.length + ')');
+ok(openYears() === '2027,2028,2029', 'next season starts with three tradeable years (' + openYears() + ')');
 console.log('ALL DONE');
