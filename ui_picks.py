@@ -2,7 +2,7 @@
 import sys
 from playwright.sync_api import sync_playwright
 errs = []
-URL = 'http://localhost:5070/'
+URL = 'http://localhost:5071/'
 with sync_playwright() as p:
     b = p.chromium.launch(); pg = b.new_context(viewport={'width': 1200, 'height': 1000}).new_page()
     pg.on('pageerror', lambda e: errs.append('PAGEERROR ' + str(e)))

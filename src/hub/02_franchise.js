@@ -1,5 +1,5 @@
 /* ---------- franchise UI (shared by the campaign and by league play) ---------- */
-const FR = { A: null, tab: 'home', to: null, give: [], get: [], offers: null, faPos: 'ALL', dpos: 'ALL', dq: '', rtid: null };
+const FR = { A: null, tab: 'home', to: null, give: [], get: [], offers: null, faPos: 'ALL', dpos: 'ALL', sview: 'season', dq: '', rtid: null };
 const TABS = [['home', 'Home'], ['sched', 'Schedule'], ['roster', 'Roster'], ['stand', 'Standings'], ['trades', 'Trades'], ['fa', 'Free agents'], ['stats', 'Stats']];
 const PL = (L, id) => L.players[id];
 const plLabel = (L, id) => {
@@ -180,10 +180,38 @@ FRV.fa = A => {
 ACT['fr-sign'] = async t => { const r = await FR.A.act('sign', { pid: t.dataset.id }); if (r && !r.ok) toast(r.msg); };
 
 /* stats */
+/* your own players: one game, the season so far, a past season, or a whole career */
+const STCOL = [
+  ['Passing', ['pc', 'C'], ['pa', 'Att'], ['pyd', 'Yds'], ['ptd', 'TD'], ['int', 'INT']],
+  ['Rushing', ['att', 'Att'], ['ryd', 'Yds'], ['rtd', 'TD']],
+  ['Receiving', ['rec', 'Rec'], ['recyd', 'Yds'], ['rectd', 'TD']],
+  ['Defense', ['sk', 'Sacks'], ['dint', 'INT'], ['pbu', 'PBU']]
+];
+function myStats(A) {
+  const L = A.L, tid = A.tid, games = LG.gameLog(L, tid);
+  const years = Array.from(new Set(Object.values(L.players).reduce((a, p) => a.concat((p.ss || []).filter(x => x.t === tid).map(x => x.y)), []))).sort((a, b) => b - a);
+  let view = FR.sview;
+  if (view.indexOf('g:') === 0 && !games.some(g => 'g:' + g.id === view)) view = FR.sview = 'season';
+  const opt = (v, label) => '<option value="' + v + '"' + (view === v ? ' selected' : '') + '>' + esc(label) + '</option>';
+  const gl = g => { const home = g.h === tid, opp = L.teams[home ? g.a : g.h], me = home ? g.sh : g.sa, th = home ? g.sa : g.sh; return (g.pl === 'po' ? 'Playoffs' : 'Week ' + g.w) + ' ' + (home ? 'vs ' : '@ ') + opp.abbr + ' · ' + (me > th ? 'W' : me < th ? 'L' : 'T') + ' ' + me + '-' + th; };
+  const rows = LG.teamStats(L, tid, view);
+  let h = '<div class="panel"><div class="row between"><h3>Your players</h3><select data-hc="sview" aria-label="Stat period">' +
+    opt('season', 'Season ' + L.season + ' · total') + games.slice().reverse().map(g => opt('g:' + g.id, gl(g))).join('') + years.map(y => opt('y:' + y, y + ' season')).join('') + opt('career', 'Career with this team') + '</select></div>';
+  if (!rows.length) return h + '<p class="hint">' + (view === 'season' ? 'No stats yet. They appear as your games are played.' : 'No stats recorded for this period.') + '</p></div>';
+  const num = v => v || 0;
+  STCOL.forEach(c => {
+    const cols = c.slice(1), sort = { Passing: 'pyd', Rushing: 'ryd', Receiving: 'recyd', Defense: 'sk' }[c[0]];
+    const list = rows.filter(r => cols.some(k => r.s[k[0]])).sort((a, b) => num(b.s[sort]) - num(a.s[sort]));
+    if (!list.length) return;
+    h += '<h4 class="pos-h">' + c[0] + '</h4>' + tbl(['Player'].concat(cols.map(k => k[1])), list.map(r => '<tr><td class="nm"><span class="pos">' + r.p.p + '</span> ' + esc(r.p.n) + (r.p.t !== tid ? ' <small>(' + (r.p.t >= 0 ? esc(L.teams[r.p.t].abbr) : 'FA') + ')</small>' : '') + '</td>' + cols.map(k => '<td>' + num(r.s[k[0]]) + '</td>').join('') + '</tr>').join(''));
+  });
+  return h + '</div>';
+}
 FRV.stats = A => {
   const L = A.L;
   const cats = [['pyd', 'Passing yards'], ['ptd', 'Passing TDs'], ['ryd', 'Rushing yards'], ['recyd', 'Receiving yards'], ['sk', 'Sacks'], ['dint', 'Interceptions']];
-  let h = '<div class="grid2">';
+  let h = A.tid >= 0 ? myStats(A) : '';
+  h += '<div class="grid2">';
   cats.forEach(c => {
     const top = LG.leaders(L, c[0], 6);
     h += '<div class="panel"><h3>' + c[1] + '</h3>' + (top.length ? '<ol class="leaders">' + top.map(x => { const t = L.teams[x.t]; return '<li class="' + (x.t === A.tid ? 'me' : '') + '"><span>' + esc(x.n) + ' <small>' + (t ? esc(t.abbr) : 'FA') + '</small></span><b>' + x.v + '</b></li>'; }).join('') + '</ol>' : '<p class="hint">No games played yet.</p>') + '</div>';
@@ -227,6 +255,7 @@ ACT['fr-dauto'] = async () => { const d = FR.A.L.draft, on = !(d.auto && d.auto[
 /* select and text changes */
 const CH = {
   rtid: el => { FR.rtid = +el.value; frShow(FR.A); },
+  sview: el => { FR.sview = el.value; frShow(FR.A); },
   trto: el => { FR.to = +el.value; FR.give = []; FR.get = []; frShow(FR.A); },
   fapos: el => { FR.faPos = el.value; frShow(FR.A); },
   dpos: el => { FR.dpos = el.value; frShow(FR.A); }

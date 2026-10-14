@@ -2461,23 +2461,27 @@ function teamRating(L, tid) {
 function gameSeed(L, g) { return E.hashStr(L.seed + ':' + L.season + ':' + g.id) % 2147483647; }
 function addGame(L, list, w, a, h, pl) { const g = { id: 'g' + list.length + '_' + (pl || 'r'), w, a, h, pl: pl || 'reg', done: false }; list.push(g); return g; }
 // real 2026 slate (week by week) or a generated 17-game NFL-style slate for later seasons
-function nflSchedule(L, real) {
+function nflSchedule(L, real, ranks) {
   const list = [];
   if (real && DATA.SCHED && L.season === 2026) {
     const T = abbr => L.teams.findIndex(t => t.abbr === abbr);
     DATA.SCHED.forEach(s => addGame(L, list, s[0], T(s[1]), T(s[2])));
     return list;
   }
-  const pairs = nflMatchups(L);
+  const pairs = nflMatchups(L, ranks);
   const wk = assignWeeks(rng(L, 'wk' + L.season), pairs, L.teams.length);
   wk.games.forEach(g => addGame(L, list, g.w, g.a, g.h));
   L.lastWeek = wk.weeks;
   return list;
 }
 // 17 games per team: 6 division, 4 intra-conference rotation, 4 inter-conference rotation, 2 same-rank, 1 extra inter-conference
-function nflMatchups(L) {
-  const y = L.season, byDiv = {}, rankOf = {};
-  Object.keys(DIV_NAMES).forEach(d => { byDiv[d] = L.teams.filter(t => t.div === d).sort((a, b) => a.id - b.id); byDiv[d].forEach((t, i) => { rankOf[t.id] = i; }); });
+// ranks (optional): each team's finish within its division last season, 0 = first. The same-rank games use it; without it the order of the data is used.
+function nflMatchups(L, ranks) {
+  const y = L.season, byDiv = {}, byRk = {}, rankOf = {};
+  Object.keys(DIV_NAMES).forEach(d => {
+    byDiv[d] = L.teams.filter(t => t.div === d).sort((a, b) => a.id - b.id); byDiv[d].forEach((t, i) => { rankOf[t.id] = i; });
+    byRk[d] = ranks ? byDiv[d].slice().sort((a, b) => (ranks[a.id] == null ? 9 : ranks[a.id]) - (ranks[b.id] == null ? 9 : ranks[b.id]) || a.id - b.id) : byDiv[d];
+  });
   const pairs = [], seen = {};
   const add = (a, b, homeFirst) => { pairs.push(homeFirst ? { h: a, a: b } : { h: b, a: a }); };
   // division home-and-home
@@ -2501,12 +2505,12 @@ function nflMatchups(L) {
     rot.forEach(pr => { skip.add(pr[0] + '-' + pr[1]); });
     for (let i = 0; i < 4; i++) {
       const opp = [0, 1, 2, 3].filter(j => j !== i && !rot.some(pr => (pr[0] === i && pr[1] === j) || (pr[1] === i && pr[0] === j)));
-      opp.forEach(j => { if (i < j) for (let rk = 0; rk < 4; rk++) add(byDiv[cd[i]][rk].id, byDiv[cd[j]][rk].id, (rk + y) % 2 === 0); });
+      opp.forEach(j => { if (i < j) for (let rk = 0; rk < 4; rk++) add(byRk[cd[i]][rk].id, byRk[cd[j]][rk].id, (rk + y) % 2 === 0); });
     }
   });
   // 17th game: same rank, other conference, a different division than the full pairing
   const sh2 = (y + 1) % 4 === sh ? (y + 2) % 4 : (y + 1) % 4;
-  for (let i = 0; i < 4; i++) for (let rk = 0; rk < 4; rk++) add(byDiv[confs[0][i]][rk].id, byDiv[confs[1][(i + sh2) % 4]][rk].id, y % 2 === 0);
+  for (let i = 0; i < 4; i++) for (let rk = 0; rk < 4; rk++) add(byRk[confs[0][i]][rk].id, byRk[confs[1][(i + sh2) % 4]][rk].id, y % 2 === 0);
   return pairs;
 }
 // give every game a week: randomized greedy with restarts
@@ -2597,22 +2601,48 @@ function bump(L, id, k, v) { if (!id) return; const s = L.stats[id] || (L.stats[
 function addStats(L, g, T, log) {
   const side = { a: g.h, b: g.a };   // engine side a = home
   const tm = { a: T.a, b: T.b };
+  // season totals for everyone; a game-by-game line (g.ps[team][player]) only for teams a person runs, so saves stay small
+  const B = (id, k, v) => {
+    bump(L, id, k, v);
+    const p = id && L.players[id];
+    if (p && p.t >= 0 && L.teams[p.t] && L.teams[p.t].owner) { const ps = g.ps || (g.ps = {}), t = ps[p.t] || (ps[p.t] = {}), l = t[id] || (t[id] = {}); l[k] = (l[k] || 0) + (v || 1); }
+  };
   log.forEach(e => {
     const O = tm[e.off], D = tm[e.off === 'a' ? 'b' : 'a'];
     const td = e.ev === 'td';
-    if (e.runId) { const id = E.idOf(O, e.runId); bump(L, id, 'att'); bump(L, id, 'ryd', e.yards || 0); if (td && e.anim === 'run') bump(L, id, 'rtd'); }
+    if (e.runId) { const id = E.idOf(O, e.runId); B(id, 'att'); B(id, 'ryd', e.yards || 0); if (td && e.anim === 'run') B(id, 'rtd'); }
     else if (e.recId) {
       const q = E.idOf(O, e.qbId), rc = E.idOf(O, e.recId);
-      bump(L, q, 'pa');
+      B(q, 'pa');
       if (e.ev === 'pass' || (td && e.anim === 'pass') || (e.ev === 'downs' && e.anim === 'pass') || (e.ev === 'fumble' && e.anim === 'pass')) {
-        bump(L, q, 'pc'); bump(L, q, 'pyd', e.yards || 0); bump(L, rc, 'rec'); bump(L, rc, 'recyd', e.yards || 0);
-        if (td) { bump(L, q, 'ptd'); bump(L, rc, 'rectd'); }
-      } else if (e.ev === 'int') { bump(L, q, 'int'); bump(L, E.idOf(D, e.defId), 'dint'); }
-      else if (e.ev === 'inc' && e.defId) bump(L, E.idOf(D, e.defId), 'pbu');
-      else if (e.ev === 'sack' || (e.ev === 'downs' && e.anim === 'sack') || (e.ev === 'fumble' && e.anim === 'sack')) { bump(L, E.idOf(D, e.defId), 'sk'); }
-    } else if (e.defId) { bump(L, E.idOf(D, e.defId), 'sk'); }
+        B(q, 'pc'); B(q, 'pyd', e.yards || 0); B(rc, 'rec'); B(rc, 'recyd', e.yards || 0);
+        if (td) { B(q, 'ptd'); B(rc, 'rectd'); }
+      } else if (e.ev === 'int') { B(q, 'int'); B(E.idOf(D, e.defId), 'dint'); }
+      else if (e.ev === 'inc' && e.defId) B(E.idOf(D, e.defId), 'pbu');
+      else if (e.ev === 'sack' || (e.ev === 'downs' && e.anim === 'sack') || (e.ev === 'fumble' && e.anim === 'sack')) { B(E.idOf(D, e.defId), 'sk'); }
+    } else if (e.defId) { B(E.idOf(D, e.defId), 'sk'); }
   });
   [g.h, g.a].forEach(tid => { rosterOf(L, tid).forEach(() => {}); });
+}
+// stat views for one team's players: this season, one game, or career
+const STAT_KEYS = ['att', 'ryd', 'rtd', 'pa', 'pc', 'pyd', 'ptd', 'int', 'rec', 'recyd', 'rectd', 'sk', 'dint', 'pbu'];
+function sumStats(list) { const o = {}; list.forEach(x => { if (x) STAT_KEYS.forEach(k => { if (x[k]) o[k] = (o[k] || 0) + x[k]; }); }); return o; }
+function gameLog(L, tid) {   // finished games of this season with a recorded stat line for the team
+  return L.sched.filter(g => g.done && g.ps && g.ps[tid] && (g.h === tid || g.a === tid)).sort((a, b) => a.w - b.w);
+}
+// view: 'season' | 'career' | 'g:<gameId>' | 'y:<year>'. Returns [{ p: player, s: stats }] for players with any stat.
+function teamStats(L, tid, view) {
+  const out = [], add = (p, st) => { if (p && st && STAT_KEYS.some(k => st[k])) out.push({ p, s: st }); };
+  if (view && view.indexOf('g:') === 0) {
+    const g = L.sched.find(x => x.id === view.slice(2)), ps = g && g.ps && g.ps[tid] || {};
+    Object.keys(ps).forEach(id => add(L.players[id], ps[id]));
+  } else if (view && view.indexOf('y:') === 0) {
+    const y = +view.slice(2);
+    Object.values(L.players).forEach(p => { const e = (p.ss || []).filter(x => x.y === y); if (e.length) add(p, sumStats(e)); });
+  } else if (view === 'career') {
+    Object.values(L.players).forEach(p => { if (p.t === tid || (p.ss || []).some(x => x.t === tid)) add(p, sumStats((p.ss || []).concat(p.t === tid ? [L.stats[p.i]] : []))); });
+  } else rosterOf(L, tid).forEach(p => add(p, L.stats[p.i]));
+  return out;
 }
 function weekGames(L) { return L.sched.filter(g => g.w === L.week && !g.done); }
 // sim every game of the current week that no human is waiting on; returns true when the week is complete
@@ -2672,6 +2702,13 @@ function standings(L) {
   L.teams.forEach(t => { const k = t.div || 'ALL'; (divs[k] = divs[k] || []).push(t.id); });
   Object.keys(divs).forEach(k => out.push({ div: k, name: DIV_NAMES[k] || (k === 'ALL' ? 'League' : k), rows: rank(R, divs[k]).map(id => R[id]) }));
   return { divs: out, R };
+}
+// each team's finish within its division this season (0 = first), from the regular-season record
+function divisionRanks(L) {
+  const R = records(L), out = {}, divs = {};
+  L.teams.forEach(t => { if (t.div) (divs[t.div] = divs[t.div] || []).push(t.id); });
+  Object.keys(divs).forEach(d => rank(R, divs[d]).forEach((id, i) => { out[id] = i; }));
+  return out;
 }
 function overallRank(L) { const R = records(L); return rank(R, L.teams.map(t => t.id)).map(id => R[id]); }
 
@@ -2815,6 +2852,12 @@ function finishSeason(L, champ, runner) {
 /* ---------------- progression ---------------- */
 function progress(L) {
   const r = rng(L, 'prog' + L.season), report = { up: [], down: [], retired: [] };
+  // keep each season's stat line for players on a team a person runs (career totals)
+  Object.keys(L.stats || {}).forEach(id => {
+    const p = L.players[id]; if (!p || p.t < 0 || !L.teams[p.t] || !L.teams[p.t].owner) return;
+    (p.ss = p.ss || []).push(Object.assign({ y: L.season, t: p.t }, L.stats[id]));
+    if (p.ss.length > 20) p.ss.shift();
+  });
   Object.values(L.players).forEach(p => {
     if (p.t === -2 || p.t === -3) return;
     p.h = (p.h || []).concat([p.o]).slice(-8);
@@ -2976,12 +3019,13 @@ function trimRoster(L, tid) {
   }
 }
 function startSeason(L) {
+  const prevRanks = L.sched && L.sched.some(g => g.done && g.pl === 'reg') ? divisionRanks(L) : null;   // last season's division standings set this season's schedule
   L.season++;
   L.week = 1; L.phase = 'regular'; L.po = null; L.draft = null;
   ensurePicks(L);   // the window rolls forward: a new year of picks appears
   L.teams.forEach(t => { if (!t.owner || L.cfg && L.cfg.autoTrim) trimRoster(L, t.id); });
   Object.values(L.players).forEach(p => { if (p.t === -1 && p.o < 48) delete L.players[p.i]; });
-  L.sched = L.cfg && L.cfg.kind === 'custom' ? customSchedule(L) : nflSchedule(L, false);
+  L.sched = L.cfg && L.cfg.kind === 'custom' ? customSchedule(L) : nflSchedule(L, false, prevRanks);
   if (!(L.cfg && L.cfg.kind === 'custom')) L.lastWeek = Math.max.apply(null, L.sched.map(g => g.w));
   // refresh free agents
   const r = rng(L, 'fa' + L.season);
@@ -3331,7 +3375,7 @@ const ROUND_NAMES = n => n === 1 ? 'Final' : n === 2 ? 'Semifinals' : n === 3 ? 
 const LG = {
   POS, POS_NAME, ROSTER_MAX, TRADE_DEADLINE, DIV_NAMES, CONF_DIVS, counts, MIN_DEPTH, COLORS, ROUND_NAMES,
   newNFL, rosterOf, posCount, lineup, squadOf, teamsFor, teamRating, gameSeed,
-  ensurePicks, picksOf, pickOf_, isPick, pickId, pickValue, pickProjection, pickLabel, assetValue, strengthFrac, pickOpen, simGame, forfeit, playVerified, weekGames, simWeek, advanceWeek, runUntilHuman, humanSides, checkFinal,
+  divisionRanks, nflMatchups, STAT_KEYS, sumStats, gameLog, teamStats, ensurePicks, picksOf, pickOf_, isPick, pickId, pickValue, pickProjection, pickLabel, assetValue, strengthFrac, pickOpen, simGame, forfeit, playVerified, weekGames, simWeek, advanceWeek, runUntilHuman, humanSides, checkFinal,
   records, standings, overallRank, rank, startPlayoffs, advancePlayoffs,
   progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, startSeason, trimRoster, fillDepth, finishDraft,
   playerValue, tradeCheck, cpuTrade, doTrade, canTrade, cpuOffers, signFA, release,
@@ -5491,7 +5535,7 @@ document.addEventListener('keydown', ev => {
 });
 
 /* ---------- franchise UI (shared by the campaign and by league play) ---------- */
-const FR = { A: null, tab: 'home', to: null, give: [], get: [], offers: null, faPos: 'ALL', dpos: 'ALL', dq: '', rtid: null };
+const FR = { A: null, tab: 'home', to: null, give: [], get: [], offers: null, faPos: 'ALL', dpos: 'ALL', sview: 'season', dq: '', rtid: null };
 const TABS = [['home', 'Home'], ['sched', 'Schedule'], ['roster', 'Roster'], ['stand', 'Standings'], ['trades', 'Trades'], ['fa', 'Free agents'], ['stats', 'Stats']];
 const PL = (L, id) => L.players[id];
 const plLabel = (L, id) => {
@@ -5672,10 +5716,38 @@ FRV.fa = A => {
 ACT['fr-sign'] = async t => { const r = await FR.A.act('sign', { pid: t.dataset.id }); if (r && !r.ok) toast(r.msg); };
 
 /* stats */
+/* your own players: one game, the season so far, a past season, or a whole career */
+const STCOL = [
+  ['Passing', ['pc', 'C'], ['pa', 'Att'], ['pyd', 'Yds'], ['ptd', 'TD'], ['int', 'INT']],
+  ['Rushing', ['att', 'Att'], ['ryd', 'Yds'], ['rtd', 'TD']],
+  ['Receiving', ['rec', 'Rec'], ['recyd', 'Yds'], ['rectd', 'TD']],
+  ['Defense', ['sk', 'Sacks'], ['dint', 'INT'], ['pbu', 'PBU']]
+];
+function myStats(A) {
+  const L = A.L, tid = A.tid, games = LG.gameLog(L, tid);
+  const years = Array.from(new Set(Object.values(L.players).reduce((a, p) => a.concat((p.ss || []).filter(x => x.t === tid).map(x => x.y)), []))).sort((a, b) => b - a);
+  let view = FR.sview;
+  if (view.indexOf('g:') === 0 && !games.some(g => 'g:' + g.id === view)) view = FR.sview = 'season';
+  const opt = (v, label) => '<option value="' + v + '"' + (view === v ? ' selected' : '') + '>' + esc(label) + '</option>';
+  const gl = g => { const home = g.h === tid, opp = L.teams[home ? g.a : g.h], me = home ? g.sh : g.sa, th = home ? g.sa : g.sh; return (g.pl === 'po' ? 'Playoffs' : 'Week ' + g.w) + ' ' + (home ? 'vs ' : '@ ') + opp.abbr + ' · ' + (me > th ? 'W' : me < th ? 'L' : 'T') + ' ' + me + '-' + th; };
+  const rows = LG.teamStats(L, tid, view);
+  let h = '<div class="panel"><div class="row between"><h3>Your players</h3><select data-hc="sview" aria-label="Stat period">' +
+    opt('season', 'Season ' + L.season + ' · total') + games.slice().reverse().map(g => opt('g:' + g.id, gl(g))).join('') + years.map(y => opt('y:' + y, y + ' season')).join('') + opt('career', 'Career with this team') + '</select></div>';
+  if (!rows.length) return h + '<p class="hint">' + (view === 'season' ? 'No stats yet. They appear as your games are played.' : 'No stats recorded for this period.') + '</p></div>';
+  const num = v => v || 0;
+  STCOL.forEach(c => {
+    const cols = c.slice(1), sort = { Passing: 'pyd', Rushing: 'ryd', Receiving: 'recyd', Defense: 'sk' }[c[0]];
+    const list = rows.filter(r => cols.some(k => r.s[k[0]])).sort((a, b) => num(b.s[sort]) - num(a.s[sort]));
+    if (!list.length) return;
+    h += '<h4 class="pos-h">' + c[0] + '</h4>' + tbl(['Player'].concat(cols.map(k => k[1])), list.map(r => '<tr><td class="nm"><span class="pos">' + r.p.p + '</span> ' + esc(r.p.n) + (r.p.t !== tid ? ' <small>(' + (r.p.t >= 0 ? esc(L.teams[r.p.t].abbr) : 'FA') + ')</small>' : '') + '</td>' + cols.map(k => '<td>' + num(r.s[k[0]]) + '</td>').join('') + '</tr>').join(''));
+  });
+  return h + '</div>';
+}
 FRV.stats = A => {
   const L = A.L;
   const cats = [['pyd', 'Passing yards'], ['ptd', 'Passing TDs'], ['ryd', 'Rushing yards'], ['recyd', 'Receiving yards'], ['sk', 'Sacks'], ['dint', 'Interceptions']];
-  let h = '<div class="grid2">';
+  let h = A.tid >= 0 ? myStats(A) : '';
+  h += '<div class="grid2">';
   cats.forEach(c => {
     const top = LG.leaders(L, c[0], 6);
     h += '<div class="panel"><h3>' + c[1] + '</h3>' + (top.length ? '<ol class="leaders">' + top.map(x => { const t = L.teams[x.t]; return '<li class="' + (x.t === A.tid ? 'me' : '') + '"><span>' + esc(x.n) + ' <small>' + (t ? esc(t.abbr) : 'FA') + '</small></span><b>' + x.v + '</b></li>'; }).join('') + '</ol>' : '<p class="hint">No games played yet.</p>') + '</div>';
@@ -5719,6 +5791,7 @@ ACT['fr-dauto'] = async () => { const d = FR.A.L.draft, on = !(d.auto && d.auto[
 /* select and text changes */
 const CH = {
   rtid: el => { FR.rtid = +el.value; frShow(FR.A); },
+  sview: el => { FR.sview = el.value; frShow(FR.A); },
   trto: el => { FR.to = +el.value; FR.give = []; FR.get = []; frShow(FR.A); },
   fapos: el => { FR.faPos = el.value; frShow(FR.A); },
   dpos: el => { FR.dpos = el.value; frShow(FR.A); }
