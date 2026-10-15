@@ -94,15 +94,17 @@ FRV.sched = A => {
 FRV.roster = A => {
   const L = A.L, tid = FR.rtid != null && L.teams[FR.rtid] ? FR.rtid : A.tid, ro = LG.rosterOf(L, tid), ln = LG.lineup(L, tid);
   const start = {}; POSN.forEach(p => ln[p].forEach(x => { start[x.i] = 1; }));
-  const mineT = tid === A.tid;
+  const mineT = tid === A.tid, blk = new Set(mineT ? LG.blockOf(L, tid) : []);
   let h = '<div class="panel"><div class="row between"><h3>' + esc(L.teams[tid].name) + ' · ' + ro.length + ' / ' + LG.ROSTER_MAX + '</h3><select data-hc="rtid" aria-label="Team">' + L.teams.map(x => '<option value="' + x.id + '"' + (x.id === tid ? ' selected' : '') + '>' + esc(x.name) + (x.owner ? ' (' + esc(x.owner === 'You' ? 'you' : x.owner) + ')' : '') + '</option>').join('') + '</select></div>';
   POSN.forEach(pos => {
     const list = ro.filter(p => p.p === pos).sort((a, b) => b.o - a.o);
     h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + '</small></h4>' +
-      tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && A.canEditRoster() ? '<button class="btn small ghost" data-h="fr-rel" data-id="' + p.i + '">Release</button>' : '')));
+      tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && blk.has(p.i) ? '<span class="blk" title="On the trading block">BLOCK</span> ' : '') +
+        (mineT && A.canEditRoster() ? (A.blockBids ? '<button class="btn small ghost" data-h="fr-blk" data-id="' + p.i + '" data-on="' + (blk.has(p.i) ? '' : '1') + '">' + (blk.has(p.i) ? 'Off block' : 'Shop') + '</button>' : '') + '<button class="btn small ghost" data-h="fr-rel" data-id="' + p.i + '">Release</button>' : '')));
   });
   return h + '</div>';
 };
+ACT['fr-blk'] = async t => { const r = await FR.A.act('block', { pid: t.dataset.id, on: !!t.dataset.on }); FR.bids = null; if (r && r.ok && t.dataset.on) toast('On the block. See bids on the Trades tab.'); };
 ACT['fr-rel'] = async t => { const p = PL(FR.A.L, t.dataset.id); if (!p || !confirm('Release ' + p.n + '?')) return; await FR.A.act('release', { pid: t.dataset.id }); };
 
 FRV.stand = A => {
@@ -150,6 +152,16 @@ FRV.trades = A => {
     '<div class="trcols"><div><h4>You send · value ' + valSum(FR.give) + '</h4>' + pkPick(L, tid, 'give') + '<div class="pklist">' + plPick(L, mine, 'give') + '</div></div><div><h4>' + esc(to.nick) + ' send · value ' + valSum(FR.get) + '</h4>' + pkPick(L, FR.to, 'get') + '<div class="pklist">' + plPick(L, theirs, 'get') + '</div></div></div>' +
     '<div class="row"><button class="btn primary" data-h="tr-prop">' + (to.owner ? 'Send offer to ' + esc(to.owner) : 'Propose to ' + esc(to.nick)) + '</button><button class="btn ghost" data-h="tr-clear">Clear</button></div>' +
     '<p class="hint">CPU teams judge by player value, age and what they need. Draft picks are worth more the earlier the round, the sooner the draft, and the worse the original team is projected to finish (hover a pick to see its expected overall slot; far-off picks are less certain and discounted). Dashed picks came from another team. Rosters must keep a full set of starters and stay at ' + LG.ROSTER_MAX + ' or fewer.</p></div>';
+  // trading block: your players up for trade and what CPU teams bid for them
+  if (A.blockBids) {
+    const blk = LG.blockOf(L, tid), bidsFor = id => (FR.bids || []).find(b => b.id === id);
+    h += '<div class="panel"><div class="row between"><h3>Trading block</h3>' + (blk.length ? '<button class="btn small" data-h="tr-bids">' + (FR.bids ? 'Refresh bids' : 'Get bids') + '</button>' : '') + '</div>' +
+      (!blk.length ? '<p class="hint">Nobody is on the block. Press Shop next to a player on the Roster tab (up to ' + LG.BLOCK_MAX + ') and CPU teams will bid for him.</p>' :
+        blk.map(id => { const b = bidsFor(id), p = PL(L, id);
+          return '<div class="blkrow"><div class="row between"><b>' + esc(plLabel(L, id)) + ' <small>value ' + valSum([id]) + ' · ' + p.a + 'y</small></b><button class="btn small ghost" data-h="fr-blk" data-id="' + id + '" data-on="">Take off block</button></div>' +
+            (!FR.bids ? '' : b && b.bids.length ? '<ul class="offers">' + b.bids.map((x, i) => '<li>' + esc(L.teams[x.t].name) + ' bid ' + x.get.map(g => esc(plLabel(L, g))).join(' + ') + ' <small>(value ' + valSum(x.get) + ')</small><span class="row"><button class="btn small primary" data-h="tr-bidacc" data-id="' + id + '" data-i="' + i + '">Accept</button></span></li>').join('') + '</ul>' : '<p class="hint">No CPU team wants him at a fair price right now.</p>') + '</div>';
+        }).join('') + (FR.bids ? '' : '<p class="hint">Get bids to see what each CPU team would give: its best offer of a player or pick (or two) that it still thinks is worth it.</p>')) + '</div>';
+  }
   const opos = FR.opos || 'ALL', posName = { QB: 'quarterback', HB: 'running back', WR: 'wide receiver', TE: 'tight end', OL: 'offensive lineman', DL: 'defensive lineman', LB: 'linebacker', CB: 'cornerback', S: 'safety', K: 'kicker', P: 'punter', KR: 'kick returner', PR: 'punt returner' };
   h += '<div class="panel"><div class="row between"><h3>CPU offers</h3><div class="row"><select data-hc="opos" aria-label="Position you want"><option value="ALL">Any position</option>' + POSN.map(p => '<option value="' + p + '"' + (p === opos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select><button class="btn small" data-h="tr-offers">Find offers</button></div></div>' +
     (FR.offers ? (FR.offers.length ? '<ul class="offers">' + FR.offers.map((o, i) => '<li>' + esc(L.teams[o.t].name) + ' would give ' + o.get.map(id => esc(plLabel(L, id))).join(', ') + ' for your ' + o.give.map(id => esc(plLabel(L, id))).join(', ') + ' <small>(value ' + valSum(o.get) + ' for ' + valSum(o.give) + ')</small><span class="row"><button class="btn small primary" data-h="tr-acc" data-i="' + i + '">Accept</button></span></li>').join('') + '</ul>'
@@ -167,6 +179,11 @@ ACT['tr-prop'] = async () => {
   frShow(FR.A);
 };
 ACT['tr-offers'] = async t => { const pos = FR.opos || 'ALL'; t.disabled = true; const o = await FR.A.cpuOffers(pos === 'ALL' ? null : pos); t.disabled = false; FR.offers = o; FR.offersPos = pos; frShow(FR.A); };
+ACT['tr-bids'] = async t => { t.disabled = true; const b = await FR.A.blockBids(); t.disabled = false; FR.bids = b || []; frShow(FR.A); };
+ACT['tr-bidacc'] = async t => {
+  const b = (FR.bids || []).find(x => x.id === t.dataset.id), x = b && b.bids[+t.dataset.i]; if (!x) return;
+  const r = await FR.A.act('trade', { to: x.t, give: [b.id], get: x.get }); if (r) toast(r.msg); FR.bids = null; frShow(FR.A);
+};
 ACT['tr-acc'] = async t => { const o = FR.offers[+t.dataset.i]; const r = await FR.A.act('trade', { to: o.t, give: o.give, get: o.get }); if (r) toast(r.msg); FR.offers = null; frShow(FR.A); };
 ACT['to-acc'] = async t => { const r = await FR.A.act('tradeop', { id: t.dataset.id, act: 'accept' }); if (r) toast(r.msg || 'Done.'); };
 ACT['to-dec'] = async t => { await FR.A.act('tradeop', { id: t.dataset.id, act: 'decline' }); };

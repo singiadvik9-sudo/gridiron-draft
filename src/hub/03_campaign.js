@@ -74,6 +74,7 @@ function campAdapter() {
     kind: 'campaign', L, tid, title: 'Campaign', canAdvance: true, canEditRoster: () => true, status: savedText(),
     headBtns: '<button class="btn small" data-h="camp-exit">Save &amp; exit</button>',
     cpuOffers: async pos => LG.cpuOffers(L, tid, pos),
+    blockBids: async () => LG.blockBids(L, tid),
     async act(op, a) {
       let r = { ok: true };
       if (op === 'trade') {
@@ -81,6 +82,7 @@ function campAdapter() {
         else { const x = LG.cpuTrade(L, tid, a.to, a.give, a.get); if (x.ok) LG.doTrade(L, tid, a.to, a.give, a.get); r = { ok: x.ok, msg: x.msg }; }
       } else if (op === 'sign') { const e = LG.signFA(L, tid, a.pid); r = { ok: !e, msg: e || 'Signed.' }; }
       else if (op === 'release') { const e = LG.release(L, tid, a.pid); r = { ok: !e, msg: e || 'Released.' }; }
+      else if (op === 'block') { const e = LG.setBlock(L, tid, a.pid, a.on); r = { ok: !e, msg: e }; }
       else if (op === 'draft') {
         if (!LG.draftPick(L, tid, a.pid)) r = { ok: false, msg: 'That pick is not allowed.' };
         else { LG.autoDraftToHuman(L); }

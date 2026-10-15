@@ -350,6 +350,9 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .pkc:hover { border-color: var(--mute); }
 .offers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .offers li { display: grid; gap: 6px; background: var(--panel2); border-radius: 8px; padding: 8px 10px; }
+.blk { font-size: 10px; letter-spacing: .08em; color: var(--ink); background: var(--flag); border-radius: 4px; padding: 1px 5px; }
+.blkrow { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); }
+.blkrow:first-of-type { border-top: 0; }
 .ordlist { margin: 0 0 8px; padding: 0 0 0 24px; display: grid; gap: 4px; }
 .ordlist li { padding: 2px 4px; }
 .ordlist li .row { float: right; gap: 4px; }

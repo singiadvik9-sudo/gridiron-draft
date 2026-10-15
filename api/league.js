@@ -111,6 +111,11 @@ module.exports = async function (req, res) {
       const t = myTeam(doc.L, me); if (!t || !LG.canTrade(doc.L)) return send(res, 200, { offers: [] });
       return send(res, 200, { offers: LG.cpuOffers(doc.L, t.id, LG.POS.indexOf(b.pos) >= 0 ? b.pos : null) });
     }
+    if (op === 'blockbids') {
+      const doc = await getZ(key(code)); if (!doc) return fail(res, 404, 'no_league');
+      const t = myTeam(doc.L, me); if (!t || !LG.canTrade(doc.L)) return send(res, 200, { bids: [] });
+      return send(res, 200, { bids: LG.blockBids(doc.L, t.id) });
+    }
 
     const r = await mutate(code, async doc => {
       const L = doc.L, c = L.cfg, mgr = isMgr(doc, me), t = myTeam(L, me);
@@ -272,6 +277,10 @@ module.exports = async function (req, res) {
         case 'sign': {
           if (!t) bad('You have no team.'); if (L.phase === 'setup' || L.phase === 'draft') bad('Not available right now.');
           const e = LG.signFA(L, t.id, String(b.pid)); if (e) bad(e); return { ok: true };
+        }
+        case 'block': {
+          if (!t) bad('You have no team.');
+          const e = LG.setBlock(L, t.id, String(b.pid), !!b.on); if (e) bad(e); return { ok: true };
         }
         case 'release': {
           if (!t) bad('You have no team.'); if (L.phase === 'setup' || L.phase === 'draft') bad('Not available right now.');
