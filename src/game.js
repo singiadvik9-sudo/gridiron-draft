@@ -683,7 +683,7 @@ async function sdPick(cid) {
   if (S.sd !== sd) return;
   sd.busy = false; sdAfter();
 }
-function sdBest() { const sd = S.sd; if (!sd || DR.isDone(sd.d) || DR.onClock(sd.d) !== sd.me) return; sdPick(DR.cpuPick(sd.d, sd.me)); }
+function sdBest() { const sd = S.sd; if (!sd || DR.isDone(sd.d) || DR.onClock(sd.d) !== sd.me) return; sdPick(DR.bestPick(sd.d, sd.me)); }   // plans the best lineup under the cap
 function sdAfter() {
   const sd = S.sd; if (!sd) return;
   if (DR.isDone(sd.d)) { sdFinish(); return; }
@@ -696,7 +696,7 @@ function sdStep() {
   if (sd.localCpu && sd.cpu[t]) {
     sd.timer = setTimeout(() => { sd.timer = 0; if (S.sd !== sd || DR.isDone(sd.d) || DR.onClock(sd.d) !== t) return; DR.apply(sd.d, t, DR.cpuPick(sd.d, t)); sdAfter(); }, 650);
   } else if (sd.auto && t === sd.me && !sd.busy) {
-    sd.timer = setTimeout(() => { sd.timer = 0; if (S.sd === sd && DR.onClock(sd.d) === sd.me) sdPick(DR.cpuPick(sd.d, sd.me)); }, 450);
+    sd.timer = setTimeout(() => { sd.timer = 0; if (S.sd === sd && DR.onClock(sd.d) === sd.me) sdPick(DR.bestPick(sd.d, sd.me)); }, 450);
   }
 }
 function sdPollLoop() {

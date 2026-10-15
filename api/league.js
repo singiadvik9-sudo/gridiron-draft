@@ -15,7 +15,9 @@ function cleanCfg(c, base) {
   if (c.nDivs != null) o.nDivs = num(c.nDivs, 2, 8, 2);
   if (c.games != null) o.games = num(c.games, 1, 31, 8);
   if (c.playoffs != null) o.playoffs = num(c.playoffs, 0, 16, 4);
-  if (c.rounds != null) o.rounds = num(c.rounds, 25, 34, 28);
+  // rounds: unit drafts (every league made from now on; base.units) need far fewer than the older player-by-player drafts
+  const units = base ? !!base.units : true;
+  if (c.rounds != null) o.rounds = units ? num(c.rounds, LG.UNIT_ROUNDS[0], LG.UNIT_ROUNDS[1], 16) : num(c.rounds, 25, 34, 28);
   if (c.rookieRounds != null) o.rookieRounds = num(c.rookieRounds, 1, 7, 3);
   if (c.cap != null) o.cap = [0, 285, 315, 350, 270, 300, 335].includes(+c.cap) ? +c.cap : 0;   // 270/300/335: the caps before the Madden 27 ratings, kept for older leagues
   if (c.deadline != null) o.deadline = num(c.deadline, 0, 20, 10);
@@ -240,6 +242,7 @@ module.exports = async function (req, res) {
         case 'draftskip': {   // manager makes the pick for whoever is on the clock
           needMgr(); if (L.phase !== 'draft') bad('Not drafting.');
           const tid = LG.onClock(L); if (tid == null) bad('bad_request');
+          if (L.draft.units) { const pid = LG.autoPickFor(L, tid); if (pid == null || !LG.draftPick(L, tid, pid)) { L.draft.pos++; LG.autoDraftToHuman(L); } return { ok: true }; }
           const pool = L.draft.kind === 'league' ? L.draft.pool.filter(id => LG.affordable(L, tid, L.players[id]) && LG.canDraftPos(L, tid, L.players[id].p)) : L.draft.pool;
           LG.draftPick(L, tid, LG.cpuPickFor(L, tid, pool.length ? pool : L.draft.pool)); return { ok: true };
         }
