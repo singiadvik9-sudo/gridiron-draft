@@ -2951,10 +2951,109 @@ function cpuPickFor(L, tid, pool) {
   });
   return best;
 }
+/* ---------------- unit league drafts ----------------
+   d.units[id] = { k: 'OL' | 'DEF', fr, ids, sch, name } for ids 'u:OL:<franchise>' / 'u:DEF:<franchise>'. A team takes exactly one of each;
+   its other starting spots (QB, HB, 2 WR, TE, K, P) and its depth come one player at a time. */
+const UNIT = 'u:', UNIT_POS = { OL: ['OL'], DEF: ['DL', 'LB', 'CB', 'S'] }, UNIT_ROUNDS = [12, 20], SOLO = { QB: 1, HB: 1, WR: 2, TE: 1, K: 1, P: 1 };
+const isUnitId = id => typeof id === 'string' && id.indexOf(UNIT) === 0;
+const unitOf = (L, id) => L.draft && L.draft.units && L.draft.units[id] || null;
+function unitRating(L, u) {   // the starters' average: the best 5 linemen, or the best 11 by the unit's scheme
+  const ps = u.ids.map(id => L.players[id]).sort((a, b) => b.o - a.o);
+  const top = u.k === 'OL' ? ps.slice(0, 5) : ['DL', 'LB', 'CB', 'S'].reduce((a, g) => a.concat(ps.filter(p => p.p === g).slice(0, counts(u.sch)[g])), []);
+  return top.length ? Math.round(top.reduce((t, p) => t + p.o, 0) / top.length) : 0;
+}
+const draftOvr = (L, id) => { const u = unitOf(L, id); return u ? unitRating(L, u) : L.players[id] ? L.players[id].o : 0; };
+const salOfId = (L, id) => { const u = unitOf(L, id); return u ? Math.round(u.ids.reduce((t, x) => t + salOf(L.players[x]), 0) * 10) / 10 : salOf(L.players[id]); };
+function draftLabel(L, id) { const u = unitOf(L, id); if (u) return u.name + ' (' + u.ids.length + ' players, ' + unitRating(L, u) + ')'; const p = L.players[id]; return p ? p.n + ' (' + p.p + ' ' + p.o + ')' : '?'; }
+// what a team still needs to fill its starting spots: its O-line and defense units, and players at the other starting spots
+function unitNeeds(L, tid) {
+  const d = L.draft, have = { OL: 0, DEF: 0 }, solo = Object.assign({}, SOLO);
+  d.picks.forEach(x => { if (x.t !== tid) return; const u = d.units[x.p]; if (u) have[u.k]++; else { const p = L.players[x.p]; if (p && solo[p.p] > 0) solo[p.p]--; } });
+  return { units: have, solo, short: (have.OL ? 0 : 1) + (have.DEF ? 0 : 1) + Object.values(solo).reduce((t, n) => t + n, 0) };
+}
+function canDraftId(L, tid, id) {
+  const d = L.draft, left = d.seq.slice(d.pos).filter(t => t === tid).length, nd = unitNeeds(L, tid), u = unitOf(L, id);
+  if (u && nd.units[u.k]) return false;   // one O-line and one defense each
+  const p = u ? null : L.players[id]; if (!u && !p) return false;
+  const fills = u ? true : (nd.solo[p.p] || 0) > 0;
+  return left - 1 >= nd.short - (fills ? 1 : 0);
+}
+// what each pick still to come will cost: the average of the cheapest players left, as many as there are picks to fill
+// (linemen and defenders come in units, so the cheap fringe players of a player draft are not there to fill the last rounds)
+function fillPrice(L) {
+  const d = L.draft;
+  const unitsLeft = L.teams.reduce((t, x) => { const nd = unitNeeds(L, x.id); return t + (nd.units.OL ? 0 : 1) + (nd.units.DEF ? 0 : 1); }, 0), n = Math.max(0, d.seq.length - d.pos - unitsLeft);
+  if (!n) return 0;
+  const cheap = d.pool.filter(id => !isUnitId(id)).map(id => salOf(L.players[id])).sort((a, b) => a - b).slice(0, n);
+  return cheap.length ? Math.max(CAP_FILL * 0.8, cheap.reduce((t, x) => t + x, 0) / cheap.length) : CAP_FILL;
+}
+function affordableId(L, tid, id, fp) {
+  const ci = capInfo(L, tid); if (!ci) return true;
+  return salOfId(L, id) + Math.max(0, ci.left - 1) * (fp == null ? fillPrice(L) : fp) <= ci.room + 1e-6;
+}
+// the computer's pick in a unit draft (CPU teams, and managers on auto-draft): the best starting lineup the cap still allows, worked out over
+// every open starting spot (each weighted by how much it moves the team rating, lib/draft.js W), then the planned pick that would be hardest to
+// replace if someone else took it. With every starting spot filled it picks depth: the best player it needs that it can afford.
+const PLAN_W = k => { const W = DRx().W; return { QB: W.QB, HB: W.HB, WR: W.WR, TE: W.TE, OL: W.OL, DEF: W.DEF, K: W.K, P: W.ST }[k]; };
+function unitPlan(L, tid, without) {
+  const d = L.draft, nd = unitNeeds(L, tid), ci = capInfo(L, tid), left = d.seq.slice(d.pos).filter(t => t === tid).length, fp = ci ? fillPrice(L) : 0;
+  const slots = ['OL', 'DEF'].filter(k => !nd.units[k]).map(k => [k, 1]).concat(Object.keys(nd.solo).filter(k => nd.solo[k] > 0).map(k => [k, nd.solo[k]]));
+  if (!slots.length) return null;
+  const pool = k => d.pool.filter(id => id !== without && (k === 'OL' || k === 'DEF' ? (unitOf(L, id) || {}).k === k : !isUnitId(id) && L.players[id].p === k) && affordableId(L, tid, id, fp))
+    .map(id => ({ id, k, ovr: draftOvr(L, id), sal: ci ? salOfId(L, id) : 0 }));
+  if (!ci) {
+    const pick = {}; let value = 0;
+    slots.forEach(([k, n]) => { pick[k] = pool(k).sort((a, b) => b.ovr - a.ovr).slice(0, n); pick[k].forEach(c => { value += PLAN_W(k) * c.ovr; }); });
+    return slots.every(([k, n]) => pick[k].length === n) ? { value, pick } : null;
+  }
+  const U10 = x => Math.round(x * 10), B = U10(ci.room - Math.max(0, left - slots.reduce((t, x) => t + x[1], 0)) * fp);
+  if (B < 0) return null;
+  const groups = slots.map(([k, n]) => {
+    const f = DRx().frontier(pool(k), n), opts = [];
+    if (n === 1) f.forEach(c => opts.push({ cost: U10(c.sal), val: PLAN_W(k) * c.ovr, cs: [c] }));
+    else for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) opts.push({ cost: U10(f[i].sal) + U10(f[j].sal), val: PLAN_W(k) * (f[i].ovr + f[j].ovr), cs: [f[i], f[j]] });
+    return { k, opts };
+  });
+  return DRx().knapsack(groups, B);
+}
+function hasLegalPick(L, tid) { const d = L.draft, fp = d.cap ? fillPrice(L) : 0; return d.pool.some(id => canDraftId(L, tid, id) && affordableId(L, tid, id, fp)); }
+function autoPickFor(L, tid) {
+  const d = L.draft, fp = d.cap ? fillPrice(L) : 0, ok = id => canDraftId(L, tid, id) && affordableId(L, tid, id, fp);
+  const plan = unitPlan(L, tid);
+  if (plan) {
+    const cand = Object.keys(plan.pick).map(k => {
+      const c = plan.pick[k].slice().sort((a, b) => b.ovr - a.ovr)[0], alt = unitPlan(L, tid, c.id);
+      return { c, loss: alt ? plan.value - alt.value : Infinity };
+    }).sort((a, b) => b.loss - a.loss || PLAN_W(b.c.k) - PLAN_W(a.c.k));
+    for (const x of cand) if (ok(x.c.id)) return x.c.id;
+  }
+  // depth: first the positions still under their minimum (a second quarterback, running back, four receivers, two tight ends),
+  // never a second kicker or punter, and no more than a sensible number at any spot; the best player that fits
+  const c = posCount(L, tid), most = { QB: 3, HB: 4, WR: 6, TE: 3, K: 1, P: 1, KR: 1, PR: 1 };
+  const solo = d.pool.filter(id => !isUnitId(id) && ok(id)).map(id => L.players[id]).filter(p => (c[p.p] || 0) < (most[p.p] || 2));
+  const short = solo.filter(p => (c[p.p] || 0) < MIN_DEPTH[p.p]);
+  const best = (short.length ? short : solo).sort((a, b) => b.o - a.o)[0];
+  if (best) return best.i;
+  // nothing within those limits fits the room left: the cheapest legal player at the position the team is thinnest at
+  const rest = d.pool.filter(id => !isUnitId(id) && ok(id)).map(id => L.players[id]).sort((a, b) => ((c[a.p] || 0) >= (most[a.p] || 2)) - ((c[b.p] || 0) >= (most[b.p] || 2)) || ((c[a.p] || 0) - (MIN_DEPTH[a.p] || 1)) - ((c[b.p] || 0) - (MIN_DEPTH[b.p] || 1)) || salOf(a) - salOf(b) || b.o - a.o);
+  // (a third punter helps nobody: when only players over those limits are left, the pick passes)
+  return rest.length && (c[rest[0].p] || 0) < (most[rest[0].p] || 2) ? rest[0].i : null;
+}
 function onClock(L) { const d = L.draft; return d && d.pos < d.seq.length ? d.seq[d.pos] : null; }
 function draftPick(L, tid, pid) {
   const d = L.draft; if (!d || onClock(L) !== tid) return false;
   const k = d.pool.indexOf(pid); if (k < 0) return false;
+  if (d.units) {   // a unit league: whole O-lines and defenses, players one by one for the rest
+    if (!canDraftId(L, tid, pid) || !affordableId(L, tid, pid)) return false;
+    if (d.cap) { d.spent = d.spent || {}; d.spent[tid] = Math.round(((d.spent[tid] || 0) + salOfId(L, pid)) * 10) / 10; }
+    d.pool.splice(k, 1); d.picks.push({ t: tid, p: pid, n: d.pos + 1 });
+    const u = d.units[pid];
+    if (u) { u.ids.forEach(id => { L.players[id].t = tid; }); if (u.k === 'DEF') L.teams[tid].sch = u.sch; }   // the defense brings its scheme
+    else L.players[pid].t = tid;
+    d.pos++;
+    if (d.pos >= d.seq.length) finishDraft(L);
+    return true;
+  }
   const p = L.players[pid];
   if (d.kind === 'league') { if (!canDraftPos(L, tid, p.p) || !affordable(L, tid, p)) return false; if (d.cap) { d.spent = d.spent || {}; d.spent[tid] = Math.round(((d.spent[tid] || 0) + salOf(p)) * 10) / 10; } }
   d.pool.splice(k, 1); d.picks.push({ t: tid, p: pid, n: d.pos + 1 });
@@ -2975,14 +3074,16 @@ function autoDraftToHuman(L) {
   const d = L.draft;
   while (d.pos < d.seq.length) {
     const tid = d.seq[d.pos];
+    if (d.units && !hasLegalPick(L, tid)) { d.passed = (d.passed || 0) + 1; d.pos++; if (d.pos >= d.seq.length) finishDraft(L); continue; }   // nothing it may take or afford: the pick passes
     if (L.teams[tid].owner && !d.auto) return false;
     if (L.teams[tid].owner && d.auto && d.auto[tid] !== true && d.auto.all !== true) return false;
     let pid = null;
-    if (d.kind === 'league') {
+    if (d.units) pid = autoPickFor(L, tid);
+    else if (d.kind === 'league') {
       const ok = d.pool.filter(id => affordable(L, tid, L.players[id]) && canDraftPos(L, tid, L.players[id].p));
       pid = cpuPickFor(L, tid, ok.length ? ok : d.pool);
     } else pid = cpuPickFor(L, tid, d.pool);
-    if (pid == null || !draftPick(L, tid, pid)) { d.pos++; }
+    if (pid == null || !draftPick(L, tid, pid)) { d.pos++; if (d.pos >= d.seq.length) finishDraft(L); }
     if (L.phase !== 'draft') return true;
   }
   return true;
@@ -3262,10 +3363,19 @@ function blockBids(L, tid) {
     return { id, bids: bids.sort((a, b) => b.v - a.v).slice(0, 4).map(x => ({ t: x.t, get: x.get })) };
   });
 }
+/* payroll: every player is paid his salary (rating and position, lib/draft.js), free agents too, and a team signs one only with room under the cap.
+   The cap is the league's own draft cap where it had one, else PAYROLL_CAP (a real 53-man roster costs $262M-$485M, median $384M). A team
+   over the cap (some real rosters start there) cannot add a free agent until it clears room; releasing a player frees his salary at once. */
+const PAYROLL_CAP = 450;
+const payrollCap = L => L.cfg && L.cfg.entry === 'draft' && L.cfg.cap ? L.cfg.cap : PAYROLL_CAP;
+const payroll = (L, tid) => Math.round(rosterOf(L, tid).reduce((t, p) => t + salOf(p), 0) * 10) / 10;
+const capRoom = (L, tid) => Math.round((payrollCap(L) - payroll(L, tid)) * 10) / 10;
 function signFA(L, tid, pid) {
   const p = L.players[pid];
   if (!p || p.t !== -1) return 'Player is not available.';
   if (rosterOf(L, tid).length >= ROSTER_MAX) return 'Roster is full (' + ROSTER_MAX + '). Release someone first.';
+  const cost = salOf(p), room = capRoom(L, tid);
+  if (cost > room + 1e-6) return p.n + ' costs $' + cost + 'M and you have $' + Math.max(0, room) + 'M under the $' + payrollCap(L) + 'M cap. Release someone first.';
   p.t = tid; return null;
 }
 function release(L, tid, pid) {
@@ -3279,7 +3389,8 @@ function release(L, tid, pid) {
 /* ---------------- custom leagues ---------------- */
 const COLORS = [['#c8102e', '#ffffff'], ['#0b3d91', '#ffb81c'], ['#046a38', '#ffffff'], ['#6f2dbd', '#f2c94c'], ['#e87722', '#111111'], ['#00a3b4', '#0b2a4a'], ['#7a1f3d', '#d9b36c'], ['#2f4858', '#f6ae2d'], ['#d62828', '#003049'], ['#1b998b', '#ffffff'], ['#8d99ae', '#2b2d42'], ['#f4d35e', '#0d3b66']];
 function newCustom(cfg, manager) {
-  const c = Object.assign({ kind: 'custom', name: 'My League', entry: 'nfl', divisions: false, nDivs: 2, cpus: true, games: 8, playoffs: 4, trades: true, rounds: 28, nTeams: 8, deadline: 10, autoTrim: true }, cfg || {});
+  // units: the draft takes O-lines and defenses as whole units (leagues made before this have no flag and keep drafting every player)
+  const c = Object.assign({ kind: 'custom', name: 'My League', entry: 'nfl', divisions: false, nDivs: 2, cpus: true, games: 8, playoffs: 4, trades: true, rounds: 16, nTeams: 8, deadline: 10, autoTrim: true, units: true }, cfg || {});
   const L = { v: 1, kind: 'custom', cfg: c, seed: Math.floor(Math.random() * 2147483647), nid: 0, season: 2026, week: 1, phase: 'setup', teams: [], players: {}, sched: [],
     hist: [], stats: {}, news: [], manager, user: null, real: false, lastWeek: 1 };
   return L;
@@ -3346,13 +3457,24 @@ function startCustom(L) {
   // draft entry: every NFL player goes into one pool, teams draft their rosters
   const base = newNFL({ seed: L.seed });
   L.nid = base.nid;
-  Object.values(base.players).forEach(p => { const q = Object.assign({}, p, { t: -1 }); L.players[q.i] = q; });
-  const rounds = clamp(c.rounds, 25, 34);
+  Object.values(base.players).forEach(p => { const q = Object.assign({}, p, { t: -1 }); if (p.t >= 0) q.fr = p.t; L.players[q.i] = q; });   // fr: the franchise he came from
+  const rounds = c.units ? clamp(c.rounds, UNIT_ROUNDS[0], UNIT_ROUNDS[1]) : clamp(c.rounds, 25, 34);
   let order = L.draftOrder && L.draftOrder.length === L.teams.length ? L.draftOrder.slice() : shuffle(rng(L, 'dord'), L.teams.map(t => t.id));
   const seq = [];
   for (let rd = 0; rd < rounds; rd++) (rd % 2 ? order.slice().reverse() : order).forEach(t => seq.push(t));
   L.draft = { kind: 'league', rounds, seq, pos: 0, picks: [], pool: Object.keys(L.players), auto: {}, cap: c.cap || 0, spent: {} };
-  L.draft.pool.sort((x, y) => L.players[y].o - L.players[x].o);
+  if (c.units) {
+    // every franchise's O-line (all its linemen) and defense (all its DL, LB, CB, S) is one pick; the rest are drafted one by one.
+    // Linemen and defenders nobody had (free agents) stay free agents.
+    const units = {};
+    DATA.TEAMS.forEach((T, fr) => ['OL', 'DEF'].forEach(k => {
+      const ids = Object.keys(L.players).filter(id => L.players[id].fr === fr && UNIT_POS[k].indexOf(L.players[id].p) >= 0);
+      if (ids.length) units[UNIT + k + ':' + fr] = { k, fr, ids, sch: (DATA.DFU[fr] || {}).scheme || '43', name: T.nick + (k === 'OL' ? ' O-Line' : ' Defense') };
+    }));
+    L.draft.units = units;
+    L.draft.pool = Object.keys(L.players).filter(id => UNIT_POS.OL.concat(UNIT_POS.DEF).indexOf(L.players[id].p) < 0).concat(Object.keys(units));
+  }
+  L.draft.pool.sort((x, y) => draftOvr(L, y) - draftOvr(L, x));
   L.phase = 'draft';
   autoDraftToHuman(L);
   return null;
@@ -3446,8 +3568,8 @@ const LG = {
   newNFL, rosterOf, posCount, lineup, squadOf, teamsFor, teamRating, gameSeed,
   divisionRanks, nflMatchups, STAT_KEYS, sumStats, gameLog, teamStats, ensurePicks, picksOf, pickOf_, isPick, pickId, pickValue, pickProjection, pickLabel, assetValue, strengthFrac, pickOpen, simGame, forfeit, playVerified, weekGames, simWeek, advanceWeek, runUntilHuman, humanSides, checkFinal,
   records, standings, overallRank, rank, startPlayoffs, advancePlayoffs,
-  progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, startSeason, trimRoster, fillDepth, finishDraft,
-  playerValue, tradeCheck, cpuTrade, doTrade, canTrade, cpuOffers, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
+  progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, UNIT_ROUNDS, fillPrice, hasLegalPick, isUnitId, unitOf, unitRating, draftOvr, salOfId, draftLabel, unitNeeds, canDraftId, affordableId, autoPickFor, startSeason, trimRoster, fillDepth, finishDraft,
+  playerValue, tradeCheck, cpuTrade, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
   newCustom, addTeam, removeTeam, assignDivisions, startCustom, finalizeLeagueDraft, customSchedule, ownerRecord, leaders, leagueTables,
   computeAwards, makeBracket, reportSeries, setSeries, bracketOrder, nflMatchups, assignWeeks, rrSchedule, mkPlayer, rng, shuffle
 };
@@ -3580,12 +3702,65 @@ function cpuPick(d, t, rnd) {
   const pick = opts.length > 1 && rnd() < 0.12 ? opts[1] : opts[0];
   return pick.c.id;
 }
+/* ---------- planning a whole lineup (Pick for me / Auto-draft) ----------
+   Works out the best lineup still possible: the open slots filled with players nobody has taken, as much team rating as possible
+   (each slot weighted by W, as cpuPick) for at most the cap room left. Then it takes the planned player who would be hardest to
+   replace: the one whose loss to a rival costs the plan the most. Without a cap the plan is simply the best player at every open slot. */
+const U = x => Math.round(x * 10);   // salaries in $0.1M units
+// players worth planning with at one position: for each salary, only those better than every cheaper one (keeping `need` of them)
+function frontier(list, need) {
+  const out = [];
+  list.slice().sort((a, b) => a.sal - b.sal || b.ovr - a.ovr).forEach(c => { if (out.filter(o => o.ovr >= c.ovr).length < need) out.push(c); });
+  return out;
+}
+function planLineup(d, t, without) {
+  const tk = taken(d), ids = teamIds(d, t), left = openKinds(ids), open = KINDS.filter(k => left[k] > 0);
+  const pool = k => CANDS.filter(c => c.k === k && !tk[c.id] && c.id !== without);
+  if (!d.cap) {
+    const pick = {}; let value = 0;
+    open.forEach(k => { pick[k] = pool(k).sort((a, b) => b.ovr - a.ovr).slice(0, left[k]); pick[k].forEach(c => { value += W[k] * c.ovr; }); });
+    return open.every(k => pick[k].length === left[k]) ? { value, pick } : null;
+  }
+  const B = U(d.cap) - U(spent(ids)); if (B < 0) return null;
+  // the options at each open position: one player, or every pair of players when two slots are open (receivers)
+  const groups = open.map(k => {
+    const f = frontier(pool(k), left[k]), opts = [];
+    if (left[k] === 1) f.forEach(c => opts.push({ cost: U(c.sal), val: W[k] * c.ovr, cs: [c] }));
+    else for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) opts.push({ cost: U(f[i].sal) + U(f[j].sal), val: W[k] * (f[i].ovr + f[j].ovr), cs: [f[i], f[j]] });
+    return { k, opts };
+  });
+  return knapsack(groups, B);
+}
+// groups: [{ k, opts: [{ cost (in $0.1M), val, cs }] }], one option taken from every group; the most val for at most B.
+// Returns { value, pick: { k: cs } } or null when nothing fits. (Also used by the custom league draft in lib/league.js.)
+function knapsack(groups, B) {
+  let best = new Float64Array(B + 1); const choice = [];
+  groups.forEach(g => {
+    const nb = new Float64Array(B + 1).fill(-Infinity), ch = new Int32Array(B + 1).fill(-1);
+    g.opts.forEach((o, oi) => { for (let b = o.cost; b <= B; b++) { const v = best[b - o.cost] + o.val; if (v > nb[b]) { nb[b] = v; ch[b] = oi; } } });
+    best = nb; choice.push(ch);
+  });
+  if (!(best[B] > -Infinity)) return null;
+  const pick = {}; let b = B;
+  for (let gi = groups.length - 1; gi >= 0; gi--) { const o = groups[gi].opts[choice[gi][b]]; pick[groups[gi].k] = o.cs; b -= o.cost; }
+  return { value: best[B], pick };
+}
+// the next pick for a person who lets the computer draft: from the best plan, the player who is hardest to replace
+function bestPick(d, t) {
+  const plan = planLineup(d, t); if (!plan) return cpuPick(d, t);
+  const cand = Object.keys(plan.pick).map(k => {
+    const c = plan.pick[k].slice().sort((a, b) => b.ovr - a.ovr)[0], alt = planLineup(d, t, c.id);
+    return { c, loss: alt ? plan.value - alt.value : Infinity };
+  }).sort((a, b) => b.loss - a.loss || W[b.c.k] - W[a.c.k]);
+  for (const x of cand) if (!legal(d, t, x.c.id)) return x.c.id;
+  return cpuPick(d, t);
+}
 function autoRun(d, caps) { // fill the whole draft with CPU picks (testing / auto-draft everyone)
   while (!isDone(d)) { const t = onClock(d); apply(d, t, cpuPick(d, t)); }
   return d;
 }
 const CAPS = { tight: 320, standard: 350, loose: 390 };   // raised with the Madden 27 ratings (rosters with their injured-reserve players): a real lineup costs about $265M
-const DR = { CAPS, CANDS, BY, KINDS, NEED, ROUNDS, W, SAL_MAX, salaryOfPos, snakeOrder, newDraft, onClock, isDone, teamIds, taken, openKinds, spent, legal, apply, toRoster, capLeft, cpuPick, autoRun, reserve };
+const DR = { CAPS, CANDS, BY, KINDS, NEED, ROUNDS, W, SAL_MAX, salaryOfPos, snakeOrder, newDraft, onClock, isDone, teamIds, taken, openKinds, spent, legal, apply, toRoster, capLeft, cpuPick, planLineup, bestPick, knapsack, frontier, autoRun, reserve };
 if (typeof module !== 'undefined' && module.exports) module.exports = DR; else root.DR = DR;
 })(typeof window !== 'undefined' ? window : globalThis);
 
@@ -4659,7 +4834,7 @@ async function sdPick(cid) {
   if (S.sd !== sd) return;
   sd.busy = false; sdAfter();
 }
-function sdBest() { const sd = S.sd; if (!sd || DR.isDone(sd.d) || DR.onClock(sd.d) !== sd.me) return; sdPick(DR.cpuPick(sd.d, sd.me)); }
+function sdBest() { const sd = S.sd; if (!sd || DR.isDone(sd.d) || DR.onClock(sd.d) !== sd.me) return; sdPick(DR.bestPick(sd.d, sd.me)); }   // plans the best lineup under the cap
 function sdAfter() {
   const sd = S.sd; if (!sd) return;
   if (DR.isDone(sd.d)) { sdFinish(); return; }
@@ -4672,7 +4847,7 @@ function sdStep() {
   if (sd.localCpu && sd.cpu[t]) {
     sd.timer = setTimeout(() => { sd.timer = 0; if (S.sd !== sd || DR.isDone(sd.d) || DR.onClock(sd.d) !== t) return; DR.apply(sd.d, t, DR.cpuPick(sd.d, t)); sdAfter(); }, 650);
   } else if (sd.auto && t === sd.me && !sd.busy) {
-    sd.timer = setTimeout(() => { sd.timer = 0; if (S.sd === sd && DR.onClock(sd.d) === sd.me) sdPick(DR.cpuPick(sd.d, sd.me)); }, 450);
+    sd.timer = setTimeout(() => { sd.timer = 0; if (S.sd === sd && DR.onClock(sd.d) === sd.me) sdPick(DR.bestPick(sd.d, sd.me)); }, 450);
   }
 }
 function sdPollLoop() {
@@ -5714,7 +5889,7 @@ FRV.roster = A => {
   const L = A.L, tid = FR.rtid != null && L.teams[FR.rtid] ? FR.rtid : A.tid, ro = LG.rosterOf(L, tid), ln = LG.lineup(L, tid);
   const start = {}; POSN.forEach(p => ln[p].forEach(x => { start[x.i] = 1; }));
   const mineT = tid === A.tid, blk = new Set(mineT ? LG.blockOf(L, tid) : []);
-  let h = '<div class="panel"><div class="row between"><h3>' + esc(L.teams[tid].name) + ' · ' + ro.length + ' / ' + LG.ROSTER_MAX + '</h3><select data-hc="rtid" aria-label="Team">' + L.teams.map(x => '<option value="' + x.id + '"' + (x.id === tid ? ' selected' : '') + '>' + esc(x.name) + (x.owner ? ' (' + esc(x.owner === 'You' ? 'you' : x.owner) + ')' : '') + '</option>').join('') + '</select></div>';
+  let h = '<div class="panel"><div class="row between"><h3>' + esc(L.teams[tid].name) + ' · ' + ro.length + ' / ' + LG.ROSTER_MAX + ' · $' + LG.payroll(L, tid) + 'M of $' + LG.payrollCap(L) + 'M</h3><select data-hc="rtid" aria-label="Team">' + L.teams.map(x => '<option value="' + x.id + '"' + (x.id === tid ? ' selected' : '') + '>' + esc(x.name) + (x.owner ? ' (' + esc(x.owner === 'You' ? 'you' : x.owner) + ')' : '') + '</option>').join('') + '</select></div>';
   POSN.forEach(pos => {
     const list = ro.filter(p => p.p === pos).sort((a, b) => b.o - a.o);
     h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + '</small></h4>' +
@@ -5812,9 +5987,10 @@ ACT['to-can'] = async t => { await FR.A.act('tradeop', { id: t.dataset.id, act: 
 FRV.fa = A => {
   const L = A.L;
   const fa = Object.values(L.players).filter(p => p.t === -1 && (FR.faPos === 'ALL' || p.p === FR.faPos)).sort((a, b) => b.o - a.o).slice(0, 40);
-  const n = LG.rosterOf(L, A.tid).length;
+  const n = LG.rosterOf(L, A.tid).length, room = LG.capRoom(L, A.tid), sal = p => LG.salOf(p);
   return '<div class="panel"><div class="row between"><h3>Free agents</h3><select data-hc="fapos" aria-label="Position"><option>ALL</option>' + POSN.map(p => '<option' + (p === FR.faPos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select></div>' +
-    '<p class="hint">Roster ' + n + ' / ' + LG.ROSTER_MAX + '.</p>' + tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, fa, p => A.canEditRoster() ? '<button class="btn small" data-h="fr-sign" data-id="' + p.i + '">Sign</button>' : '')) + '</div>';
+    '<p class="hint">Roster ' + n + ' / ' + LG.ROSTER_MAX + ' · payroll $' + LG.payroll(L, A.tid) + 'M of the $' + LG.payrollCap(L) + 'M cap · <b>' + (room >= 0 ? '$' + room + 'M room' : '$' + (-room) + 'M over the cap') + '</b>. Free agents are paid like everyone else (rating and position).</p>' +
+    tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, fa, p => A.canEditRoster() ? '<button class="btn small" data-h="fr-sign" data-id="' + p.i + '"' + (sal(p) > room + 1e-6 || n >= LG.ROSTER_MAX ? ' disabled title="' + (n >= LG.ROSTER_MAX ? 'Roster is full' : 'Not enough cap room') + '"' : '') + '>Sign · $' + sal(p) + 'M</button>' : '')) + '</div>';
 };
 ACT['fr-sign'] = async t => { const r = await FR.A.act('sign', { pid: t.dataset.id }); if (r && !r.ok) toast(r.msg); };
 
@@ -5877,20 +6053,30 @@ FRV.draft = A => {
   if (!d) return '<div class="panel"><p class="hint">No draft is running.</p></div>';
   const q = FR.dq.toLowerCase(), mineTurn = on === tid && tid >= 0;
   let pool = d.pool.map(id => PL(L, id)).filter(p => p && (FR.dpos === 'ALL' || p.p === FR.dpos) && (!q || p.n.toLowerCase().indexOf(q) >= 0));
+  const units = d.units ? d.pool.filter(id => LG.isUnitId(id)) : [], nd = d.units && tid >= 0 ? LG.unitNeeds(L, tid) : null;
   pool.sort((a, b) => (b.o + (d.kind === 'rookie' ? b.pt * 0.5 : 0)) - (a.o + (d.kind === 'rookie' ? a.pt * 0.5 : 0)));
   pool = pool.slice(0, 50);
   const auto = d.auto && (d.auto[tid] === true || d.auto.all === true);
-  const myPicks = d.picks.filter(x => x.t === tid).map(x => PL(L, x.p)).filter(Boolean);
+  const myPicks = d.picks.filter(x => x.t === tid && !LG.isUnitId(x.p)).map(x => PL(L, x.p)).filter(Boolean), myUnits = d.picks.filter(x => x.t === tid && LG.isUnitId(x.p)).map(x => LG.draftLabel(L, x.p));
   const left = d.seq.slice(d.pos).filter(t => t === tid).length;
   let h = '<div class="panel next"><span class="eyebrow">Pick ' + Math.min(d.pos + 1, d.seq.length) + ' of ' + d.seq.length + '</span><h2>' + (mineTurn ? 'You are on the clock' : on != null ? esc(L.teams[on].name) + ' are on the clock' : 'Draft complete') + '</h2>' +
-    '<p class="sub">You have ' + left + ' pick' + (left === 1 ? '' : 's') + ' left. ' + (d.kind === 'league' ? 'You must still be able to fill every starting spot.' : '') + '</p>' +
+    '<p class="sub">You have ' + left + ' pick' + (left === 1 ? '' : 's') + ' left. ' + (d.kind === 'league' ? (d.units ? 'Take one O-line and one defense, and a quarterback, running back, two receivers, tight end, kicker and punter. ' : '') + 'You must still be able to fill every starting spot.' : '') + '</p>' +
     (d.cap && tid >= 0 ? (ci => '<p class="sub">Salary cap $' + d.cap + 'M · spent <b>$' + Math.round(ci.spent * 10) / 10 + 'M</b> · room <b>$' + Math.round(ci.room * 10) / 10 + 'M</b>. Salaries follow rating and position: QBs and pass rushers cost the most, running backs and safeties the least.</p>')(LG.capInfo(L, tid)) : '') +
     '<div class="row">' + (tid >= 0 ? '<button class="btn' + (auto ? ' primary' : '') + '" data-h="fr-dauto">' + (auto ? 'Auto-draft is ON' : 'Auto-draft for me') + '</button>' : '') + (A.draftBtns ? A.draftBtns() : '') + '</div></div>';
-  h += '<div class="panel"><div class="row between"><h3>Available players</h3><span class="row"><input type="text" id="dq" placeholder="Search name" value="' + esc(FR.dq) + '" aria-label="Search"><select data-hc="dpos" aria-label="Position"><option>ALL</option>' + POSN.map(p => '<option' + (p === FR.dpos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select></span></div>' +
-    tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, pool, p => mineTurn ? '<button class="btn small primary" data-h="fr-draft" data-id="' + p.i + '"' + (d.kind === 'league' && (!LG.canDraftPos(L, tid, p.p) || !LG.affordable(L, tid, p)) ? ' disabled' : '') + '>Draft' + (d.cap ? ' · $' + Math.round(LG.salOf(p) * 10) / 10 + 'M' : '') + '</button>' : '')) + '</div>';
-  if (myPicks.length) h += '<div class="panel"><h3>Your picks</h3><ul class="news">' + myPicks.map(p => '<li>' + p.p + ' ' + esc(p.n) + ' <b>' + p.o + '</b></li>').join('') + '</ul></div>';
+  if (units.length) {   // unit drafts: every NFL team's whole O-line and whole defense is one pick
+    const kinds = ['OL', 'DEF'].filter(k => !nd || !nd.units[k]);
+    if (kinds.length) h += '<div class="panel"><h3>O-lines and defenses</h3><p class="sub">Each is one pick: the team\'s whole unit, starters and backups. Rating is the starters\' average.</p>' + kinds.map(k => {
+      const list = units.filter(id => LG.unitOf(L, id).k === k && (!q || LG.unitOf(L, id).name.toLowerCase().indexOf(q) >= 0)).sort((a, b) => LG.draftOvr(L, b) - LG.draftOvr(L, a));
+      return '<h4 class="pos-h">' + (k === 'OL' ? 'O-lines' : 'Defenses') + '</h4>' + tbl(['Unit', 'Players', 'OVR', ''], list.map(id => { const u = LG.unitOf(L, id), ok = mineTurn && LG.canDraftId(L, tid, id) && LG.affordableId(L, tid, id);
+        return '<tr><td class="nm">' + esc(u.name) + (k === 'DEF' ? ' <small>' + (u.sch === '34' ? '3-4' : '4-3') + '</small>' : '') + '</td><td>' + u.ids.length + '</td><td><b class="ov ' + gradeCls(LG.draftOvr(L, id)) + '">' + LG.draftOvr(L, id) + '</b></td><td class="act">' +
+          (mineTurn ? '<button class="btn small primary" data-h="fr-draft" data-id="' + id + '"' + (ok ? '' : ' disabled') + '>Draft' + (d.cap ? ' · $' + LG.salOfId(L, id) + 'M' : '') + '</button>' : (d.cap ? '$' + LG.salOfId(L, id) + 'M' : '')) + '</td></tr>'; }).join(''));
+    }).join('') + '</div>';
+  }
+  h += '<div class="panel"><div class="row between"><h3>Available players</h3><span class="row"><input type="text" id="dq" placeholder="Search name" value="' + esc(FR.dq) + '" aria-label="Search"><select data-hc="dpos" aria-label="Position"><option>ALL</option>' + (d.units ? POSN.filter(p => ['OL', 'DL', 'LB', 'CB', 'S'].indexOf(p) < 0) : POSN).map(p => '<option' + (p === FR.dpos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select></span></div>' +
+    tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, pool, p => mineTurn ? '<button class="btn small primary" data-h="fr-draft" data-id="' + p.i + '"' + ((d.units ? (!LG.canDraftId(L, tid, p.i) || !LG.affordableId(L, tid, p.i)) : d.kind === 'league' && (!LG.canDraftPos(L, tid, p.p) || !LG.affordable(L, tid, p))) ? ' disabled' : '') + '>Draft' + (d.cap ? ' · $' + Math.round(LG.salOf(p) * 10) / 10 + 'M' : '') + '</button>' : '')) + '</div>';
+  if (myPicks.length || myUnits.length) h += '<div class="panel"><h3>Your picks</h3><ul class="news">' + myUnits.map(x => '<li>' + esc(x) + '</li>').join('') + myPicks.map(p => '<li>' + p.p + ' ' + esc(p.n) + ' <b>' + p.o + '</b></li>').join('') + '</ul></div>';
   const recent = d.picks.slice(-8).reverse();
-  if (recent.length) h += '<div class="panel"><h3>Recent picks</h3><ul class="news">' + recent.map(x => '<li><span>#' + x.n + '</span> ' + esc(L.teams[x.t].nick) + ': ' + esc(plLabel(L, x.p)) + '</li>').join('') + '</ul></div>';
+  if (recent.length) h += '<div class="panel"><h3>Recent picks</h3><ul class="news">' + recent.map(x => '<li><span>#' + x.n + '</span> ' + esc(L.teams[x.t].nick) + ': ' + esc(LG.isUnitId(x.p) ? LG.draftLabel(L, x.p) : plLabel(L, x.p)) + '</li>').join('') + '</ul></div>';
   return h;
 };
 ACT['fr-draft'] = async t => { await FR.A.act('draft', { pid: t.dataset.id }); };
@@ -6029,7 +6215,7 @@ function campAdapter() {
 V.camphub = () => { if (!C.L) { go('camp'); return; } frShow(campAdapter()); };
 
 /* ---------- custom leagues (accounts only, shared through the server) ---------- */
-const NEWL = { name: 'My League', entry: 'nfl', divisions: false, nDivs: 2, cpus: true, games: 8, playoffs: 4, trades: true, deadline: 10, rounds: 28, rookieRounds: 3, cap: 0 };
+const NEWL = { name: 'My League', entry: 'nfl', divisions: false, nDivs: 2, cpus: true, games: 8, playoffs: 4, trades: true, deadline: 10, rounds: 16, rookieRounds: 3, cap: 0 };
 const LGS = { code: '', ver: 0, mgr: '', members: [], L: null, member: false };
 const parseV = v => v === 'true' ? true : v === 'false' ? false : (/^-?\d+$/.test(v) ? +v : v);
 
@@ -6057,7 +6243,7 @@ V.leaguenew = () => {
   setMain('<section class="panel narrow"><h2>Create a league</h2>' +
     '<label class="fld" for="nl-name">League name</label><input id="nl-name" type="text" maxlength="24" value="' + esc(n.name) + '">' +
     '<label class="fld">How do teams start?</label>' + seg('entry', n.entry, [['nfl', 'Pick an NFL team'], ['draft', 'Draft players']]) +
-    '<p class="hint">' + (n.entry === 'nfl' ? 'Each manager takes a real franchise with its real starters. Teams can still trade.' : 'Every NFL player goes into one pool and the managers snake-draft their rosters.') + '</p>' +
+    '<p class="hint">' + (n.entry === 'nfl' ? 'Each manager takes a real franchise with its real starters. Teams can still trade.' : 'Managers snake-draft their rosters: each team takes one NFL team\'s whole O-line and one whole defense (starters and backups), and its quarterback, backs, receivers, tight ends, kicker and punter one player at a time.') + '</p>' +
     (n.entry === 'draft' ? '<label class="fld">Salary cap</label>' + seg('cap', n.cap || 0, [[0, 'None'], [285, 'Tight $285M'], [315, '$315M'], [350, 'Loose $350M']]) + '<p class="hint">With a cap, every player has a salary from his rating and position, and your whole drafted roster has to fit under it.</p>' : '') +
     '<label class="fld">Divisions</label>' + seg('divisions', n.divisions, yn) +
     (n.divisions ? '<label class="fld">How many divisions</label>' + seg('nDivs', n.nDivs, [[2, '2'], [3, '3'], [4, '4']]) : '') +
@@ -6124,7 +6310,7 @@ function lgLobby() {
     '<div><label class="fld">Games each</label>' + seg('games', c.games, [[4, '4'], [8, '8'], [12, '12'], [16, '16']]) + '</div>' +
     '<div><label class="fld">Playoff teams</label>' + seg('playoffs', c.playoffs, [[0, 'None'], [2, '2'], [4, '4'], [8, '8']]) + '</div>' +
     '<div><label class="fld">Trading</label>' + seg('trades', c.trades, yn) + '</div>' +
-    (c.entry === 'draft' ? '<div><label class="fld">Draft rounds</label>' + seg('rounds', c.rounds, [[25, '25'], [28, '28'], [32, '32']]) + '</div><div><label class="fld">Salary cap</label>' + seg('cap', c.cap || 0, [[0, 'None'], [285, 'Tight $285M'], [315, '$315M'], [350, 'Loose $350M']]) + '</div>' : '') +
+    (c.entry === 'draft' ? '<div><label class="fld">Draft rounds</label>' + seg('rounds', c.rounds, c.units ? [[12, '12'], [16, '16'], [20, '20']] : [[25, '25'], [28, '28'], [32, '32']]) + '</div><div><label class="fld">Salary cap</label>' + seg('cap', c.cap || 0, [[0, 'None'], [285, 'Tight $285M'], [315, '$315M'], [350, 'Loose $350M']]) + '</div>' : '') +
     '</div>' : '<div class="chips">' + [c.entry === 'nfl' ? 'NFL teams' : 'Player draft', c.divisions ? c.nDivs + ' divisions' : 'No divisions', c.cpus ? 'CPU teams on' : 'No CPUs', c.games + ' games', c.playoffs ? c.playoffs + ' in playoffs' : 'No playoffs', c.trades ? 'Trading on' : 'No trading'].map(x => '<span class="chip">' + x + '</span>').join('') + '</div>';
   h += '<section class="panel"><h3>Settings' + (mgr ? '' : ' <small>(set by the manager)</small>') + '</h3>' + sett + '</section>';
   // teams

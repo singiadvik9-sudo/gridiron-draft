@@ -95,7 +95,7 @@ FRV.roster = A => {
   const L = A.L, tid = FR.rtid != null && L.teams[FR.rtid] ? FR.rtid : A.tid, ro = LG.rosterOf(L, tid), ln = LG.lineup(L, tid);
   const start = {}; POSN.forEach(p => ln[p].forEach(x => { start[x.i] = 1; }));
   const mineT = tid === A.tid, blk = new Set(mineT ? LG.blockOf(L, tid) : []);
-  let h = '<div class="panel"><div class="row between"><h3>' + esc(L.teams[tid].name) + ' · ' + ro.length + ' / ' + LG.ROSTER_MAX + '</h3><select data-hc="rtid" aria-label="Team">' + L.teams.map(x => '<option value="' + x.id + '"' + (x.id === tid ? ' selected' : '') + '>' + esc(x.name) + (x.owner ? ' (' + esc(x.owner === 'You' ? 'you' : x.owner) + ')' : '') + '</option>').join('') + '</select></div>';
+  let h = '<div class="panel"><div class="row between"><h3>' + esc(L.teams[tid].name) + ' · ' + ro.length + ' / ' + LG.ROSTER_MAX + ' · $' + LG.payroll(L, tid) + 'M of $' + LG.payrollCap(L) + 'M</h3><select data-hc="rtid" aria-label="Team">' + L.teams.map(x => '<option value="' + x.id + '"' + (x.id === tid ? ' selected' : '') + '>' + esc(x.name) + (x.owner ? ' (' + esc(x.owner === 'You' ? 'you' : x.owner) + ')' : '') + '</option>').join('') + '</select></div>';
   POSN.forEach(pos => {
     const list = ro.filter(p => p.p === pos).sort((a, b) => b.o - a.o);
     h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + '</small></h4>' +
@@ -193,9 +193,10 @@ ACT['to-can'] = async t => { await FR.A.act('tradeop', { id: t.dataset.id, act: 
 FRV.fa = A => {
   const L = A.L;
   const fa = Object.values(L.players).filter(p => p.t === -1 && (FR.faPos === 'ALL' || p.p === FR.faPos)).sort((a, b) => b.o - a.o).slice(0, 40);
-  const n = LG.rosterOf(L, A.tid).length;
+  const n = LG.rosterOf(L, A.tid).length, room = LG.capRoom(L, A.tid), sal = p => LG.salOf(p);
   return '<div class="panel"><div class="row between"><h3>Free agents</h3><select data-hc="fapos" aria-label="Position"><option>ALL</option>' + POSN.map(p => '<option' + (p === FR.faPos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select></div>' +
-    '<p class="hint">Roster ' + n + ' / ' + LG.ROSTER_MAX + '.</p>' + tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, fa, p => A.canEditRoster() ? '<button class="btn small" data-h="fr-sign" data-id="' + p.i + '">Sign</button>' : '')) + '</div>';
+    '<p class="hint">Roster ' + n + ' / ' + LG.ROSTER_MAX + ' · payroll $' + LG.payroll(L, A.tid) + 'M of the $' + LG.payrollCap(L) + 'M cap · <b>' + (room >= 0 ? '$' + room + 'M room' : '$' + (-room) + 'M over the cap') + '</b>. Free agents are paid like everyone else (rating and position).</p>' +
+    tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, fa, p => A.canEditRoster() ? '<button class="btn small" data-h="fr-sign" data-id="' + p.i + '"' + (sal(p) > room + 1e-6 || n >= LG.ROSTER_MAX ? ' disabled title="' + (n >= LG.ROSTER_MAX ? 'Roster is full' : 'Not enough cap room') + '"' : '') + '>Sign · $' + sal(p) + 'M</button>' : '')) + '</div>';
 };
 ACT['fr-sign'] = async t => { const r = await FR.A.act('sign', { pid: t.dataset.id }); if (r && !r.ok) toast(r.msg); };
 
@@ -258,20 +259,30 @@ FRV.draft = A => {
   if (!d) return '<div class="panel"><p class="hint">No draft is running.</p></div>';
   const q = FR.dq.toLowerCase(), mineTurn = on === tid && tid >= 0;
   let pool = d.pool.map(id => PL(L, id)).filter(p => p && (FR.dpos === 'ALL' || p.p === FR.dpos) && (!q || p.n.toLowerCase().indexOf(q) >= 0));
+  const units = d.units ? d.pool.filter(id => LG.isUnitId(id)) : [], nd = d.units && tid >= 0 ? LG.unitNeeds(L, tid) : null;
   pool.sort((a, b) => (b.o + (d.kind === 'rookie' ? b.pt * 0.5 : 0)) - (a.o + (d.kind === 'rookie' ? a.pt * 0.5 : 0)));
   pool = pool.slice(0, 50);
   const auto = d.auto && (d.auto[tid] === true || d.auto.all === true);
-  const myPicks = d.picks.filter(x => x.t === tid).map(x => PL(L, x.p)).filter(Boolean);
+  const myPicks = d.picks.filter(x => x.t === tid && !LG.isUnitId(x.p)).map(x => PL(L, x.p)).filter(Boolean), myUnits = d.picks.filter(x => x.t === tid && LG.isUnitId(x.p)).map(x => LG.draftLabel(L, x.p));
   const left = d.seq.slice(d.pos).filter(t => t === tid).length;
   let h = '<div class="panel next"><span class="eyebrow">Pick ' + Math.min(d.pos + 1, d.seq.length) + ' of ' + d.seq.length + '</span><h2>' + (mineTurn ? 'You are on the clock' : on != null ? esc(L.teams[on].name) + ' are on the clock' : 'Draft complete') + '</h2>' +
-    '<p class="sub">You have ' + left + ' pick' + (left === 1 ? '' : 's') + ' left. ' + (d.kind === 'league' ? 'You must still be able to fill every starting spot.' : '') + '</p>' +
+    '<p class="sub">You have ' + left + ' pick' + (left === 1 ? '' : 's') + ' left. ' + (d.kind === 'league' ? (d.units ? 'Take one O-line and one defense, and a quarterback, running back, two receivers, tight end, kicker and punter. ' : '') + 'You must still be able to fill every starting spot.' : '') + '</p>' +
     (d.cap && tid >= 0 ? (ci => '<p class="sub">Salary cap $' + d.cap + 'M · spent <b>$' + Math.round(ci.spent * 10) / 10 + 'M</b> · room <b>$' + Math.round(ci.room * 10) / 10 + 'M</b>. Salaries follow rating and position: QBs and pass rushers cost the most, running backs and safeties the least.</p>')(LG.capInfo(L, tid)) : '') +
     '<div class="row">' + (tid >= 0 ? '<button class="btn' + (auto ? ' primary' : '') + '" data-h="fr-dauto">' + (auto ? 'Auto-draft is ON' : 'Auto-draft for me') + '</button>' : '') + (A.draftBtns ? A.draftBtns() : '') + '</div></div>';
-  h += '<div class="panel"><div class="row between"><h3>Available players</h3><span class="row"><input type="text" id="dq" placeholder="Search name" value="' + esc(FR.dq) + '" aria-label="Search"><select data-hc="dpos" aria-label="Position"><option>ALL</option>' + POSN.map(p => '<option' + (p === FR.dpos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select></span></div>' +
-    tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, pool, p => mineTurn ? '<button class="btn small primary" data-h="fr-draft" data-id="' + p.i + '"' + (d.kind === 'league' && (!LG.canDraftPos(L, tid, p.p) || !LG.affordable(L, tid, p)) ? ' disabled' : '') + '>Draft' + (d.cap ? ' · $' + Math.round(LG.salOf(p) * 10) / 10 + 'M' : '') + '</button>' : '')) + '</div>';
-  if (myPicks.length) h += '<div class="panel"><h3>Your picks</h3><ul class="news">' + myPicks.map(p => '<li>' + p.p + ' ' + esc(p.n) + ' <b>' + p.o + '</b></li>').join('') + '</ul></div>';
+  if (units.length) {   // unit drafts: every NFL team's whole O-line and whole defense is one pick
+    const kinds = ['OL', 'DEF'].filter(k => !nd || !nd.units[k]);
+    if (kinds.length) h += '<div class="panel"><h3>O-lines and defenses</h3><p class="sub">Each is one pick: the team\'s whole unit, starters and backups. Rating is the starters\' average.</p>' + kinds.map(k => {
+      const list = units.filter(id => LG.unitOf(L, id).k === k && (!q || LG.unitOf(L, id).name.toLowerCase().indexOf(q) >= 0)).sort((a, b) => LG.draftOvr(L, b) - LG.draftOvr(L, a));
+      return '<h4 class="pos-h">' + (k === 'OL' ? 'O-lines' : 'Defenses') + '</h4>' + tbl(['Unit', 'Players', 'OVR', ''], list.map(id => { const u = LG.unitOf(L, id), ok = mineTurn && LG.canDraftId(L, tid, id) && LG.affordableId(L, tid, id);
+        return '<tr><td class="nm">' + esc(u.name) + (k === 'DEF' ? ' <small>' + (u.sch === '34' ? '3-4' : '4-3') + '</small>' : '') + '</td><td>' + u.ids.length + '</td><td><b class="ov ' + gradeCls(LG.draftOvr(L, id)) + '">' + LG.draftOvr(L, id) + '</b></td><td class="act">' +
+          (mineTurn ? '<button class="btn small primary" data-h="fr-draft" data-id="' + id + '"' + (ok ? '' : ' disabled') + '>Draft' + (d.cap ? ' · $' + LG.salOfId(L, id) + 'M' : '') + '</button>' : (d.cap ? '$' + LG.salOfId(L, id) + 'M' : '')) + '</td></tr>'; }).join(''));
+    }).join('') + '</div>';
+  }
+  h += '<div class="panel"><div class="row between"><h3>Available players</h3><span class="row"><input type="text" id="dq" placeholder="Search name" value="' + esc(FR.dq) + '" aria-label="Search"><select data-hc="dpos" aria-label="Position"><option>ALL</option>' + (d.units ? POSN.filter(p => ['OL', 'DL', 'LB', 'CB', 'S'].indexOf(p) < 0) : POSN).map(p => '<option' + (p === FR.dpos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select></span></div>' +
+    tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, pool, p => mineTurn ? '<button class="btn small primary" data-h="fr-draft" data-id="' + p.i + '"' + ((d.units ? (!LG.canDraftId(L, tid, p.i) || !LG.affordableId(L, tid, p.i)) : d.kind === 'league' && (!LG.canDraftPos(L, tid, p.p) || !LG.affordable(L, tid, p))) ? ' disabled' : '') + '>Draft' + (d.cap ? ' · $' + Math.round(LG.salOf(p) * 10) / 10 + 'M' : '') + '</button>' : '')) + '</div>';
+  if (myPicks.length || myUnits.length) h += '<div class="panel"><h3>Your picks</h3><ul class="news">' + myUnits.map(x => '<li>' + esc(x) + '</li>').join('') + myPicks.map(p => '<li>' + p.p + ' ' + esc(p.n) + ' <b>' + p.o + '</b></li>').join('') + '</ul></div>';
   const recent = d.picks.slice(-8).reverse();
-  if (recent.length) h += '<div class="panel"><h3>Recent picks</h3><ul class="news">' + recent.map(x => '<li><span>#' + x.n + '</span> ' + esc(L.teams[x.t].nick) + ': ' + esc(plLabel(L, x.p)) + '</li>').join('') + '</ul></div>';
+  if (recent.length) h += '<div class="panel"><h3>Recent picks</h3><ul class="news">' + recent.map(x => '<li><span>#' + x.n + '</span> ' + esc(L.teams[x.t].nick) + ': ' + esc(LG.isUnitId(x.p) ? LG.draftLabel(L, x.p) : plLabel(L, x.p)) + '</li>').join('') + '</ul></div>';
   return h;
 };
 ACT['fr-draft'] = async t => { await FR.A.act('draft', { pid: t.dataset.id }); };

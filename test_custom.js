@@ -5,7 +5,7 @@ function run(entry, n, divs, games, playoffs){
   const err=LG.startCustom(L); if(err) throw new Error(err);
   let g=0;
   if(L.phase==='draft'){
-    while(L.phase==='draft' && g++<2000){ const tid=LG.onClock(L); if(tid==null) break; if(L.teams[tid].owner){ const ok=L.draft.pool.filter(id=>LG.canDraftPos(L,tid,L.players[id].p)); const pid=LG.cpuPickFor(L,tid,ok.length?ok:L.draft.pool); if(!LG.draftPick(L,tid,pid)) throw new Error('pick fail'); } LG.autoDraftToHuman(L); }
+    while(L.phase==='draft' && g++<2000){ const tid=LG.onClock(L); if(tid==null) break; if(L.teams[tid].owner){ const pid=L.draft.units?LG.autoPickFor(L,tid):LG.cpuPickFor(L,tid,L.draft.pool.filter(id=>LG.canDraftPos(L,tid,L.players[id].p))); if(!LG.draftPick(L,tid,pid)) throw new Error('pick fail'); } LG.autoDraftToHuman(L); }
     LG.finalizeLeagueDraft(L);
   }
   console.log(entry,'teams',L.teams.length,'phase',L.phase,'roster',LG.rosterOf(L,0).length,'sched',L.sched.length,'lastWeek',L.lastWeek,'perTeam',Array.from(new Set(L.teams.map(t=>L.sched.filter(x=>x.a===t.id||x.h===t.id).length))));
