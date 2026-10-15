@@ -3064,6 +3064,8 @@ function picksOf(L, tid) { ensurePicks(L); return L.picks.filter(k => k.t === ti
 // can a pick still be traded? (a draft that has started is locked)
 function pickYearLocked(L) { return L.phase === 'draft' || L.phase === 'preseason' || !!(L.draft && L.draft.done && L.draft.kind === 'rookie'); }
 function pickOpen(L, k) { return !(k.y === L.season && pickYearLocked(L)); }
+// how many drafts away a pick is: 0 for the next draft still to be held (next year's once this year's has started)
+function draftsAhead(L, k) { return Math.max(0, k.y - L.season - (pickYearLocked(L) ? 1 : 0)); }
 // how strong a team looks: its lineup rating, blended with its record as the season goes on. Returns 0 (worst) .. 1 (best) per team id,
 // plus .ovr: the lineup rating alone, which is what picks for later drafts go by (this season's record says little about them)
 function strengthFrac(L) {
@@ -3080,9 +3082,9 @@ function strengthFrac(L) {
 }
 // where a pick is expected to land: overall slot (1 = first pick) and the fraction through its round
 function pickProjection(L, k, fr) {
-  const n = L.teams.length, rounds = pickRounds(L), ahead = k.y - L.season;
+  const n = L.teams.length, rounds = pickRounds(L), ahead = draftsAhead(L, k);
   let frac;   // 0 = the team picks first in the round, 1 = last
-  const known = ahead === 0 && (L.phase === 'offseason' || L.phase === 'draft');   // the order is set once the season is over
+  const known = k.y === L.season && (L.phase === 'offseason' || L.phase === 'draft');   // the order is set once the season is over
   if (known) { const ord = draftOrder(L); frac = n > 1 ? ord.indexOf(k.o) / (n - 1) : 0.5; }
   else {
     fr = fr || strengthFrac(L);
@@ -3098,8 +3100,7 @@ function pickValue(L, k, fr) {
   const q = Math.min(1, pj.overall / pool);
   const o = Math.max(44, 80 - 28 * Math.pow(q, 0.8));
   const base = Math.pow(Math.max(0, o - 48), 1.9) * 0.08 * 0.85 * 1.15 * (1 + (10 - q * 6) * 0.02);
-  const ahead = Math.max(0, k.y - L.season);
-  return (base * 0.8 + 0.5) * Math.pow(0.88, ahead);
+  return (base * 0.8 + 0.5) * Math.pow(0.88, draftsAhead(L, k));
 }
 function pickLabel(L, k) {
   const own = k.o === k.t ? '' : ' (' + L.teams[k.o].abbr + ')';

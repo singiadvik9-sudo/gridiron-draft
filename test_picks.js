@@ -16,6 +16,8 @@ ok(mono, 'earlier rounds are worth more: ' + [1, 2, 3, 4, 5, 6, 7].map(r => V(pk
 // projected finish
 ok(V(pk(worst, 2026, 1)) > V(pk(best, 2026, 1)), 'a bad team\'s first-rounder beats a good team\'s (' + V(pk(worst, 2026, 1)).toFixed(1) + ' vs ' + V(pk(best, 2026, 1)).toFixed(1) + ')');
 // recency
+const r1Max = y => Math.max(...L.picks.filter(k => k.y === y && k.r === 1).map(k => LG.pickValue(L, k, LG.strengthFrac(L))));
+const firstMax = r1Max(2026);
 ok(V(pk(mid, 2026, 1)) > V(pk(mid, 2027, 1)) && V(pk(mid, 2027, 1)) > V(pk(mid, 2028, 1)), 'nearer drafts are worth more than later ones');
 // later drafts go by the team's overall rating: the lowest-rated team's future picks project first in the round, the highest-rated last
 const byOvr = L.teams.map(t => t.id).sort((a, b) => LG.teamRating(L, a).ovr - LG.teamRating(L, b).ovr || a - b);
@@ -60,9 +62,11 @@ ok(LG.tradeCheck(L, me, cpu, [LG.pickId(pk(me, 2027, 5))], []) === null, 'next y
 const openYears = () => [...new Set(LG.picksOf(L, me).filter(k => LG.pickOpen(L, k)).map(k => k.y))].sort().join(',');
 ok(openYears() === '2027,2028,2029', 'during the draft three later years can be traded (' + openYears() + ')');
 ok(LG.tradeCheck(L, me, cpu, [LG.pickId(pk(me, 2029, 1))], []) === null, 'the new third year can be offered');
+ok(r1Max(2027) > firstMax * 0.95, 'once this draft starts, next year\'s first-rounders are the nearest picks and keep full value (' + r1Max(2027).toFixed(1) + ' vs ' + firstMax.toFixed(1) + ')');
 LG.autoDraftToHuman(L); g = 0; while (L.phase === 'draft' && g++ < 400) { const t = LG.onClock(L); LG.draftPick(L, t, LG.cpuPickFor(L, t, L.draft.pool)); }
 ok(L.phase === 'preseason' && !L.picks.some(k => k.y === 2026), 'draft done, 2026 picks are spent');
 ok(openYears() === '2027,2028,2029', 'after the draft three years can still be traded (' + openYears() + ')');
+ok(r1Max(2027) > firstMax * 0.95 && r1Max(2028) < r1Max(2027) * 0.9, 'in the preseason only the later years are discounted (' + r1Max(2027).toFixed(1) + ', ' + r1Max(2028).toFixed(1) + ')');
 LG.startSeason(L);
 ok(L.season === 2027 && L.picks.some(k => k.y === 2029) && !L.picks.some(k => k.y === 2026), 'a new year of picks appears each season');
 ok(L.picks.length === n * 7 * 3, 'always three drafts of picks (' + L.picks.length + ')');
