@@ -14,6 +14,10 @@ const VIEWS = [
 ];
 const YBW = 7.4;          // half the playing width (YB in lib/live.js)
 const FIELD_Z = 12.4;     // half the width of the painted grass
+// a thrown ball, f = 0 (release) .. 1 (arrival), arc = height of the throw's arc above the straight line: it leaves the passer's raised
+// hand above his helmet and comes down to a catcher's hands, so it clears the defenders between them (a player's helmet tops out near 2.2)
+const PASS_REL = 2.05, PASS_CATCH = 1.35;
+const passY = (f, arc) => { const y = PASS_REL + (PASS_CATCH - PASS_REL) * f + arc; return f < 0.06 ? 1.2 + (y - 1.2) * f / 0.06 : y; };   // the first frames ease up from where the ball was carried (1.2)
 const Field3D = {
   ready: false, active: false, host: null, gl: null, ren: null, scene: null, camera: null, loading: null, raf: 0,
   figs: new Map(), cx: 50, cpos: null, clook: null, snap: true, lastT: 0, tkey: '', fieldTex: null, fieldMesh: null, ball: null, lines: null, mode: 'side',
@@ -314,10 +318,18 @@ const Field3D = {
     const items = this.itemsFor(F, dirW);
     // ball
     let bx, bz = 0, by, carried = false, carrier = null;
-    if (live) { bx = live.ball.wx; bz = live.ball.wz || 0; carried = !!live.ball.carried; by = carried ? 1.2 : 0.35 + (live.ball.h || 0); }
-    else {
+    if (live) {
+      bx = live.ball.wx; bz = live.ball.wz || 0; carried = !!live.ball.carried;
+      // a thrown ball leaves the passer's hand and arrives at the catcher's hands, with the sim's arc on top (the sim measures it from the ground)
+      by = carried ? 1.2 : live.ball.f >= 0 ? passY(live.ball.f, live.ball.h || 0) : 0.35 + (live.ball.h || 0);
+    } else {
       const a = F.anim, held = a && F.ballX != null && (a.kind === 'run' || a.kind === 'sack');
       bx = F.ballX == null ? los - dirW * 0.2 : F.ballX; by = F.ballX == null ? 0.22 : 0.4 + (F.ballLift / 20) * 2.4; carried = !!held; if (held) by = 1.15;
+      if (a && F.ballX != null && (a.kind === 'pass' || a.kind === 'int' || a.kind === 'inc')) {
+        // same arc as a live throw: higher for longer passes instead of one fixed height for every pass
+        const d = Math.abs(a.endX - a.startX), f = Math.max(0, Math.min(1, (F.ballX - a.startX) / ((a.endX - a.startX) || 1)));
+        by = passY(f, 4 * Math.min(5, Math.max(0.8, d * 0.13)) * f * (1 - f));
+      }
     }
     // smooth camera follow
     const tx = bx;
