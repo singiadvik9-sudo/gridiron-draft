@@ -89,7 +89,7 @@ const LV = {
     m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
   },
   rebuild(m) { m.target = Math.max(m.target, m.sim.t); this.build(m); m.acc = 0; },
-  snapshot(m) { return { p: m.sim.P.map(p => [p.x, p.y]), b: [m.sim.ball.x, m.sim.ball.y, m.sim.ball.z] }; },
+  snapshot(m) { const B = m.sim.ball; return { p: m.sim.P.map(p => [p.x, p.y]), b: [B.x, B.y, B.z], f: B.st === 'air' && B.air ? B.air.k / B.air.n : -1 }; },   // f: how far through its flight a thrown ball is
   stop() {
     cancelAnimationFrame(this.raf); this.raf = 0; clearInterval(this.netT); this.netT = 0;
     this.on = null; this.held = {}; if (Field.live) { Field.live = null; Field.flash = null; }
@@ -268,7 +268,8 @@ const LV = {
     const bx = lerp(pv.b[0], cu.b[0]), by = lerp(pv.b[1], cu.b[1]), bz = lerp(pv.b[2], cu.b[2]);
     const carried = sim.ball.car != null, car = carried ? sim.by[sim.ball.car] : null;
     L.items = items; L.los = los; L.dir = dir;
-    L.ball = { wx: los + dir * bx, sy: mid + by * dir * RL, wz: by * dir, h: bz, carried, lift: carried ? 11 : bz * 9 };
+    const fl = cu.f >= 0 ? (pv.f >= 0 ? lerp(pv.f, cu.f) : cu.f) : -1;
+    L.ball = { wx: los + dir * bx, sy: mid + by * dir * RL, wz: by * dir, h: bz, carried, lift: carried ? 11 : bz * 9, f: fl };
     L.mine = items.some(i => i.mine); L.meOff = m.me === m.off;
     L.hud = null;
     if (m.myCtl && !m.handed && !sim.out && performance.now() >= m.readyAt) {
