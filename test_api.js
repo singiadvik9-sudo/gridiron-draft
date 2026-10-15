@@ -98,6 +98,11 @@ function playSide(info,live){
   const L2=g.L,tid=L2.teams.findIndex(t=>t.owner==='alice');
   const off=await call('league',{op:'cpuoffers',code},ta);console.log('cpu offers',off.offers&&off.offers.length);
   const offQ=await call('league',{op:'cpuoffers',code,pos:'QB'},ta);ok(Array.isArray(offQ.offers),'cpu offers for one position come back ('+(offQ.offers||[]).length+')');
+  { const Lg=(await call('league',{op:'get',code},ta)).L, mine=Lg.teams.find(x=>x.owner&&LG.rosterOf(Lg,x.id).length&&true), pid=LG.rosterOf(Lg,mine.id).sort((p,q)=>q.o-p.o)[3].i;
+    const bl=await call('league',{op:'block',code,pid,on:true},ta);
+    const bids=await call('league',{op:'blockbids',code},ta);
+    ok(bl.ok!==false&&Array.isArray(bids.bids),'trading block over the API: put a player up and get bids ('+(bids.bids||[]).map(b=>b.bids.length).join(',')+')');
+    const off=await call('league',{op:'block',code,pid,on:false},ta); ok(off.ok!==false,'and take him off again'); }
   // tournament
   r=await call('tourney',{op:'create',cfg:{name:'Cup',teamMode:'nfl',semi:3,final:5}},ta);ok(r.code,'tourney '+r.code);const tc=r.code;
   await call('tourney',{op:'join',code:tc},ta);await call('tourney',{op:'join',code:tc},tb);

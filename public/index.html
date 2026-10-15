@@ -355,6 +355,9 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .pkc:hover { border-color: var(--mute); }
 .offers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .offers li { display: grid; gap: 6px; background: var(--panel2); border-radius: 8px; padding: 8px 10px; }
+.blk { font-size: 10px; letter-spacing: .08em; color: var(--ink); background: var(--flag); border-radius: 4px; padding: 1px 5px; }
+.blkrow { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); }
+.blkrow:first-of-type { border-top: 0; }
 .ordlist { margin: 0 0 8px; padding: 0 0 0 24px; display: grid; gap: 4px; }
 .ordlist li { padding: 2px 4px; }
 .ordlist li .row { float: right; gap: 4px; }
@@ -3128,9 +3131,9 @@ function tradeCheck(L, ta, tb, give, get) {
   if (!sim(tb, get, give)) return L.teams[tb].nick + ' would be short of starters at a position.';
   return null;
 }
-function tradeWorth(L, tid, receive, send) {
+function tradeWorth(L, tid, receive, send, fr) {
   // how much a team values what it receives minus what it sends, counting how it changes the lineup
-  const fr = strengthFrac(L), val = ids => ids.reduce((t, id) => t + assetValue(L, id, fr), 0);
+  fr = fr || strengthFrac(L); const val = ids => ids.reduce((t, id) => t + assetValue(L, id, fr), 0);
   const rp = receive.filter(id => !isPick(id)), sp = send.filter(id => !isPick(id));
   const before = lineupScore(L, tid);
   const snap = {}; rp.concat(sp).forEach(id => { snap[id] = L.players[id].t; });
@@ -3144,12 +3147,13 @@ function lineupScore(L, tid) {
   POS.forEach(p => ln[p].forEach(x => { s += playerValue(x) * 0.5; }));
   return s;
 }
-// CPU decides on a user proposal. Returns { ok, msg, margin }
-function cpuTrade(L, userTid, cpuTid, give, get) {
+// CPU decides on a user proposal. Returns { ok, msg, margin }. fr: strengthFrac(L), when the caller already has it (it is slow to work out)
+function cpuTrade(L, userTid, cpuTid, give, get, fr) {
   const bad = tradeCheck(L, userTid, cpuTid, give, get);
   if (bad) return { ok: false, msg: bad };
-  const w = tradeWorth(L, cpuTid, give, get);
-  const fr = strengthFrac(L), need = Math.max(2, 0.06 * give.concat(get).reduce((t, id) => t + assetValue(L, id, fr), 0));
+  fr = fr || strengthFrac(L);
+  const w = tradeWorth(L, cpuTid, give, get, fr);
+  const need = Math.max(2, 0.06 * give.concat(get).reduce((t, id) => t + assetValue(L, id, fr), 0));
   if (w >= need) return { ok: true, msg: L.teams[cpuTid].nick + ' accept the trade.', margin: w };
   return { ok: false, msg: w > 0 ? L.teams[cpuTid].nick + ' want a little more.' : L.teams[cpuTid].nick + ' turn it down.', margin: w };
 }
@@ -3198,7 +3202,7 @@ function cpuOffersFor(L, userTid, pos) {
     if (t.id === userTid || t.owner) return;
     const c = rosterOf(L, t.id).filter(p => p.p === pos && p.o > floor - 3).sort((a, b) => b.o - a.o)[0];
     if (!c) return;
-    const want = av(c.i), ok = give => cpuTrade(L, userTid, t.id, give, [c.i]).ok;
+    const want = av(c.i), ok = give => cpuTrade(L, userTid, t.id, give, [c.i], fr).ok;
     // one asset worth about as much, cheapest first; then two smaller ones that add up. Nothing that overpays by much: the point is a fair deal
     let give = null;
     for (const m of mine.filter(m => m.v >= want * 0.7 && m.v <= want * 1.35).slice(0, 8)) if (ok([m.id])) { give = [m.id]; break; }
@@ -3211,6 +3215,46 @@ function cpuOffersFor(L, userTid, pos) {
     if (give) out.push({ t: t.id, give, get: [c.i], o: c.o });
   });
   return out.sort((a, b) => b.o - a.o).slice(0, 6).map(x => ({ t: x.t, give: x.give, get: x.get }));
+}
+/* ---------------- trading block ----------------
+   A team puts players up for trade (L.block[team] = [player ids]); CPU teams then bid for each one. Players who leave the
+   roster drop off the block by themselves. */
+const BLOCK_MAX = 8;
+function blockOf(L, tid) {
+  const a = (L.block && L.block[tid] || []).filter(id => L.players[id] && L.players[id].t === tid);
+  if (L.block && L.block[tid] && a.length !== L.block[tid].length) L.block[tid] = a;
+  return a;
+}
+function setBlock(L, tid, pid, on) {
+  const p = L.players[pid];
+  if (!p || p.t !== tid) return 'Not on your roster.';
+  L.block = L.block || {};
+  const a = blockOf(L, tid).filter(id => id !== pid);
+  if (on) { if (a.length >= BLOCK_MAX) return 'At most ' + BLOCK_MAX + ' players on the block.'; a.push(pid); }
+  L.block[tid] = a;
+  return null;
+}
+// what CPU teams would give for each player on the block: per team the most valuable package (one player or pick, else two)
+// that it still accepts, at most 1.3x the player's value. Returns [{ id, bids: [{ t, get }] }], best bids first.
+function blockBids(L, tid) {
+  const fr = strengthFrac(L), av = id => assetValue(L, id, fr);
+  return blockOf(L, tid).map(id => {
+    const v = av(id), bids = [];
+    L.teams.forEach(t => {
+      if (t.id === tid || t.owner) return;
+      const ok = get => cpuTrade(L, tid, t.id, [id], get, fr).ok;
+      const theirs = rosterOf(L, t.id).map(p => p.i).concat(picksOf(L, t.id).filter(k => pickOpen(L, k)).map(pickId))
+        .map(x => ({ id: x, v: av(x) })).filter(x => x.v <= v * 1.3).sort((a, b) => b.v - a.v);
+      let get = null, best = 0;
+      for (const x of theirs.slice(0, 8)) if (ok([x.id])) { get = [x.id]; best = x.v; break; }
+      const small = theirs.filter(x => x.v < v).slice(0, 10), pairs = [];
+      for (let i = 0; i < small.length; i++) for (let j = i + 1; j < small.length; j++) { const sv = small[i].v + small[j].v; if (sv > best && sv <= v * 1.3) pairs.push([small[i], small[j], sv]); }
+      pairs.sort((x, y) => y[2] - x[2]);
+      for (const pr of pairs.slice(0, 8)) if (ok([pr[0].id, pr[1].id])) { get = [pr[0].id, pr[1].id]; best = pr[2]; break; }
+      if (get) bids.push({ t: t.id, get, v: best });
+    });
+    return { id, bids: bids.sort((a, b) => b.v - a.v).slice(0, 4).map(x => ({ t: x.t, get: x.get })) };
+  });
 }
 function signFA(L, tid, pid) {
   const p = L.players[pid];
@@ -3397,7 +3441,7 @@ const LG = {
   divisionRanks, nflMatchups, STAT_KEYS, sumStats, gameLog, teamStats, ensurePicks, picksOf, pickOf_, isPick, pickId, pickValue, pickProjection, pickLabel, assetValue, strengthFrac, pickOpen, simGame, forfeit, playVerified, weekGames, simWeek, advanceWeek, runUntilHuman, humanSides, checkFinal,
   records, standings, overallRank, rank, startPlayoffs, advancePlayoffs,
   progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, startSeason, trimRoster, fillDepth, finishDraft,
-  playerValue, tradeCheck, cpuTrade, doTrade, canTrade, cpuOffers, signFA, release,
+  playerValue, tradeCheck, cpuTrade, doTrade, canTrade, cpuOffers, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
   newCustom, addTeam, removeTeam, assignDivisions, startCustom, finalizeLeagueDraft, customSchedule, ownerRecord, leaders, leagueTables,
   computeAwards, makeBracket, reportSeries, setSeries, bracketOrder, nflMatchups, assignWeeks, rrSchedule, mkPlayer, rng, shuffle
 };
@@ -5662,15 +5706,17 @@ FRV.sched = A => {
 FRV.roster = A => {
   const L = A.L, tid = FR.rtid != null && L.teams[FR.rtid] ? FR.rtid : A.tid, ro = LG.rosterOf(L, tid), ln = LG.lineup(L, tid);
   const start = {}; POSN.forEach(p => ln[p].forEach(x => { start[x.i] = 1; }));
-  const mineT = tid === A.tid;
+  const mineT = tid === A.tid, blk = new Set(mineT ? LG.blockOf(L, tid) : []);
   let h = '<div class="panel"><div class="row between"><h3>' + esc(L.teams[tid].name) + ' · ' + ro.length + ' / ' + LG.ROSTER_MAX + '</h3><select data-hc="rtid" aria-label="Team">' + L.teams.map(x => '<option value="' + x.id + '"' + (x.id === tid ? ' selected' : '') + '>' + esc(x.name) + (x.owner ? ' (' + esc(x.owner === 'You' ? 'you' : x.owner) + ')' : '') + '</option>').join('') + '</select></div>';
   POSN.forEach(pos => {
     const list = ro.filter(p => p.p === pos).sort((a, b) => b.o - a.o);
     h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + '</small></h4>' +
-      tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && A.canEditRoster() ? '<button class="btn small ghost" data-h="fr-rel" data-id="' + p.i + '">Release</button>' : '')));
+      tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && blk.has(p.i) ? '<span class="blk" title="On the trading block">BLOCK</span> ' : '') +
+        (mineT && A.canEditRoster() ? (A.blockBids ? '<button class="btn small ghost" data-h="fr-blk" data-id="' + p.i + '" data-on="' + (blk.has(p.i) ? '' : '1') + '">' + (blk.has(p.i) ? 'Off block' : 'Shop') + '</button>' : '') + '<button class="btn small ghost" data-h="fr-rel" data-id="' + p.i + '">Release</button>' : '')));
   });
   return h + '</div>';
 };
+ACT['fr-blk'] = async t => { const r = await FR.A.act('block', { pid: t.dataset.id, on: !!t.dataset.on }); FR.bids = null; if (r && r.ok && t.dataset.on) toast('On the block. See bids on the Trades tab.'); };
 ACT['fr-rel'] = async t => { const p = PL(FR.A.L, t.dataset.id); if (!p || !confirm('Release ' + p.n + '?')) return; await FR.A.act('release', { pid: t.dataset.id }); };
 
 FRV.stand = A => {
@@ -5718,6 +5764,16 @@ FRV.trades = A => {
     '<div class="trcols"><div><h4>You send · value ' + valSum(FR.give) + '</h4>' + pkPick(L, tid, 'give') + '<div class="pklist">' + plPick(L, mine, 'give') + '</div></div><div><h4>' + esc(to.nick) + ' send · value ' + valSum(FR.get) + '</h4>' + pkPick(L, FR.to, 'get') + '<div class="pklist">' + plPick(L, theirs, 'get') + '</div></div></div>' +
     '<div class="row"><button class="btn primary" data-h="tr-prop">' + (to.owner ? 'Send offer to ' + esc(to.owner) : 'Propose to ' + esc(to.nick)) + '</button><button class="btn ghost" data-h="tr-clear">Clear</button></div>' +
     '<p class="hint">CPU teams judge by player value, age and what they need. Draft picks are worth more the earlier the round, the sooner the draft, and the worse the original team is projected to finish (hover a pick to see its expected overall slot; far-off picks are less certain and discounted). Dashed picks came from another team. Rosters must keep a full set of starters and stay at ' + LG.ROSTER_MAX + ' or fewer.</p></div>';
+  // trading block: your players up for trade and what CPU teams bid for them
+  if (A.blockBids) {
+    const blk = LG.blockOf(L, tid), bidsFor = id => (FR.bids || []).find(b => b.id === id);
+    h += '<div class="panel"><div class="row between"><h3>Trading block</h3>' + (blk.length ? '<button class="btn small" data-h="tr-bids">' + (FR.bids ? 'Refresh bids' : 'Get bids') + '</button>' : '') + '</div>' +
+      (!blk.length ? '<p class="hint">Nobody is on the block. Press Shop next to a player on the Roster tab (up to ' + LG.BLOCK_MAX + ') and CPU teams will bid for him.</p>' :
+        blk.map(id => { const b = bidsFor(id), p = PL(L, id);
+          return '<div class="blkrow"><div class="row between"><b>' + esc(plLabel(L, id)) + ' <small>value ' + valSum([id]) + ' · ' + p.a + 'y</small></b><button class="btn small ghost" data-h="fr-blk" data-id="' + id + '" data-on="">Take off block</button></div>' +
+            (!FR.bids ? '' : b && b.bids.length ? '<ul class="offers">' + b.bids.map((x, i) => '<li>' + esc(L.teams[x.t].name) + ' bid ' + x.get.map(g => esc(plLabel(L, g))).join(' + ') + ' <small>(value ' + valSum(x.get) + ')</small><span class="row"><button class="btn small primary" data-h="tr-bidacc" data-id="' + id + '" data-i="' + i + '">Accept</button></span></li>').join('') + '</ul>' : '<p class="hint">No CPU team wants him at a fair price right now.</p>') + '</div>';
+        }).join('') + (FR.bids ? '' : '<p class="hint">Get bids to see what each CPU team would give: its best offer of a player or pick (or two) that it still thinks is worth it.</p>')) + '</div>';
+  }
   const opos = FR.opos || 'ALL', posName = { QB: 'quarterback', HB: 'running back', WR: 'wide receiver', TE: 'tight end', OL: 'offensive lineman', DL: 'defensive lineman', LB: 'linebacker', CB: 'cornerback', S: 'safety', K: 'kicker', P: 'punter', KR: 'kick returner', PR: 'punt returner' };
   h += '<div class="panel"><div class="row between"><h3>CPU offers</h3><div class="row"><select data-hc="opos" aria-label="Position you want"><option value="ALL">Any position</option>' + POSN.map(p => '<option value="' + p + '"' + (p === opos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select><button class="btn small" data-h="tr-offers">Find offers</button></div></div>' +
     (FR.offers ? (FR.offers.length ? '<ul class="offers">' + FR.offers.map((o, i) => '<li>' + esc(L.teams[o.t].name) + ' would give ' + o.get.map(id => esc(plLabel(L, id))).join(', ') + ' for your ' + o.give.map(id => esc(plLabel(L, id))).join(', ') + ' <small>(value ' + valSum(o.get) + ' for ' + valSum(o.give) + ')</small><span class="row"><button class="btn small primary" data-h="tr-acc" data-i="' + i + '">Accept</button></span></li>').join('') + '</ul>'
@@ -5735,6 +5791,11 @@ ACT['tr-prop'] = async () => {
   frShow(FR.A);
 };
 ACT['tr-offers'] = async t => { const pos = FR.opos || 'ALL'; t.disabled = true; const o = await FR.A.cpuOffers(pos === 'ALL' ? null : pos); t.disabled = false; FR.offers = o; FR.offersPos = pos; frShow(FR.A); };
+ACT['tr-bids'] = async t => { t.disabled = true; const b = await FR.A.blockBids(); t.disabled = false; FR.bids = b || []; frShow(FR.A); };
+ACT['tr-bidacc'] = async t => {
+  const b = (FR.bids || []).find(x => x.id === t.dataset.id), x = b && b.bids[+t.dataset.i]; if (!x) return;
+  const r = await FR.A.act('trade', { to: x.t, give: [b.id], get: x.get }); if (r) toast(r.msg); FR.bids = null; frShow(FR.A);
+};
 ACT['tr-acc'] = async t => { const o = FR.offers[+t.dataset.i]; const r = await FR.A.act('trade', { to: o.t, give: o.give, get: o.get }); if (r) toast(r.msg); FR.offers = null; frShow(FR.A); };
 ACT['to-acc'] = async t => { const r = await FR.A.act('tradeop', { id: t.dataset.id, act: 'accept' }); if (r) toast(r.msg || 'Done.'); };
 ACT['to-dec'] = async t => { await FR.A.act('tradeop', { id: t.dataset.id, act: 'decline' }); };
@@ -5923,6 +5984,7 @@ function campAdapter() {
     kind: 'campaign', L, tid, title: 'Campaign', canAdvance: true, canEditRoster: () => true, status: savedText(),
     headBtns: '<button class="btn small" data-h="camp-exit">Save &amp; exit</button>',
     cpuOffers: async pos => LG.cpuOffers(L, tid, pos),
+    blockBids: async () => LG.blockBids(L, tid),
     async act(op, a) {
       let r = { ok: true };
       if (op === 'trade') {
@@ -5930,6 +5992,7 @@ function campAdapter() {
         else { const x = LG.cpuTrade(L, tid, a.to, a.give, a.get); if (x.ok) LG.doTrade(L, tid, a.to, a.give, a.get); r = { ok: x.ok, msg: x.msg }; }
       } else if (op === 'sign') { const e = LG.signFA(L, tid, a.pid); r = { ok: !e, msg: e || 'Signed.' }; }
       else if (op === 'release') { const e = LG.release(L, tid, a.pid); r = { ok: !e, msg: e || 'Released.' }; }
+      else if (op === 'block') { const e = LG.setBlock(L, tid, a.pid, a.on); r = { ok: !e, msg: e }; }
       else if (op === 'draft') {
         if (!LG.draftPick(L, tid, a.pid)) r = { ok: false, msg: 'That pick is not allowed.' };
         else { LG.autoDraftToHuman(L); }
@@ -6117,6 +6180,7 @@ function lgAdapter() {
     headBtns: '<button class="btn small" data-h="copy" data-code="' + LGS.code + '">Code ' + LGS.code + '</button><button class="btn small" data-h="leagues">All leagues</button>',
     tabs: [{ id: 'lg', label: 'League', html: () => lgPanel(A) }],
     cpuOffers: async pos => { const r = await run(() => call('league', { op: 'cpuoffers', code: LGS.code, pos })); return r ? r.offers : []; },
+    blockBids: async () => { const r = await run(() => call('league', { op: 'blockbids', code: LGS.code })); return r ? r.bids : []; },
     act: (op, a) => lgOp(op, a),
     go: async op => { await lgOp(op); if (op === 'offseason') FR.tab = 'draft'; if (op === 'season') FR.tab = 'home'; },
     sim: gid => lgOp('simme', { gid }),
