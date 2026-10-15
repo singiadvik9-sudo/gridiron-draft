@@ -97,6 +97,7 @@ function playSide(info,live){
   // trade with CPU
   const L2=g.L,tid=L2.teams.findIndex(t=>t.owner==='alice');
   const off=await call('league',{op:'cpuoffers',code},ta);console.log('cpu offers',off.offers&&off.offers.length);
+  const offQ=await call('league',{op:'cpuoffers',code,pos:'QB'},ta);ok(Array.isArray(offQ.offers),'cpu offers for one position come back ('+(offQ.offers||[]).length+')');
   // tournament
   r=await call('tourney',{op:'create',cfg:{name:'Cup',teamMode:'nfl',semi:3,final:5}},ta);ok(r.code,'tourney '+r.code);const tc=r.code;
   await call('tourney',{op:'join',code:tc},ta);await call('tourney',{op:'join',code:tc},tb);
