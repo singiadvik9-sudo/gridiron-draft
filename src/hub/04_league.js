@@ -156,7 +156,7 @@ function lgAdapter() {
     waitMsg: 'Waiting on the other managers\' games.',
     headBtns: '<button class="btn small" data-h="copy" data-code="' + LGS.code + '">Code ' + LGS.code + '</button><button class="btn small" data-h="leagues">All leagues</button>',
     tabs: [{ id: 'lg', label: 'League', html: () => lgPanel(A) }],
-    cpuOffers: async () => { const r = await run(() => call('league', { op: 'cpuoffers', code: LGS.code })); return r ? r.offers : []; },
+    cpuOffers: async pos => { const r = await run(() => call('league', { op: 'cpuoffers', code: LGS.code, pos })); return r ? r.offers : []; },
     act: (op, a) => lgOp(op, a),
     go: async op => { await lgOp(op); if (op === 'offseason') FR.tab = 'draft'; if (op === 'season') FR.tab = 'home'; },
     sim: gid => lgOp('simme', { gid }),

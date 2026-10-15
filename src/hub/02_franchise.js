@@ -150,8 +150,11 @@ FRV.trades = A => {
     '<div class="trcols"><div><h4>You send · value ' + valSum(FR.give) + '</h4>' + pkPick(L, tid, 'give') + '<div class="pklist">' + plPick(L, mine, 'give') + '</div></div><div><h4>' + esc(to.nick) + ' send · value ' + valSum(FR.get) + '</h4>' + pkPick(L, FR.to, 'get') + '<div class="pklist">' + plPick(L, theirs, 'get') + '</div></div></div>' +
     '<div class="row"><button class="btn primary" data-h="tr-prop">' + (to.owner ? 'Send offer to ' + esc(to.owner) : 'Propose to ' + esc(to.nick)) + '</button><button class="btn ghost" data-h="tr-clear">Clear</button></div>' +
     '<p class="hint">CPU teams judge by player value, age and what they need. Draft picks are worth more the earlier the round, the sooner the draft, and the worse the original team is projected to finish (hover a pick to see its expected overall slot; far-off picks are less certain and discounted). Dashed picks came from another team. Rosters must keep a full set of starters and stay at ' + LG.ROSTER_MAX + ' or fewer.</p></div>';
-  h += '<div class="panel"><div class="row between"><h3>CPU offers</h3><button class="btn small" data-h="tr-offers">Find offers</button></div>' +
-    (FR.offers ? (FR.offers.length ? '<ul class="offers">' + FR.offers.map((o, i) => '<li>' + esc(L.teams[o.t].name) + ' would give ' + o.get.map(id => esc(plLabel(L, id))).join(', ') + ' for your ' + o.give.map(id => esc(plLabel(L, id))).join(', ') + '<span class="row"><button class="btn small primary" data-h="tr-acc" data-i="' + i + '">Accept</button></span></li>').join('') + '</ul>' : '<p class="hint">No teams are interested right now.</p>') : '<p class="hint">Ask around to see which CPU teams would make a deal.</p>') + '</div>';
+  const opos = FR.opos || 'ALL', posName = { QB: 'quarterback', HB: 'running back', WR: 'wide receiver', TE: 'tight end', OL: 'offensive lineman', DL: 'defensive lineman', LB: 'linebacker', CB: 'cornerback', S: 'safety', K: 'kicker', P: 'punter', KR: 'kick returner', PR: 'punt returner' };
+  h += '<div class="panel"><div class="row between"><h3>CPU offers</h3><div class="row"><select data-hc="opos" aria-label="Position you want"><option value="ALL">Any position</option>' + POSN.map(p => '<option value="' + p + '"' + (p === opos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select><button class="btn small" data-h="tr-offers">Find offers</button></div></div>' +
+    (FR.offers ? (FR.offers.length ? '<ul class="offers">' + FR.offers.map((o, i) => '<li>' + esc(L.teams[o.t].name) + ' would give ' + o.get.map(id => esc(plLabel(L, id))).join(', ') + ' for your ' + o.give.map(id => esc(plLabel(L, id))).join(', ') + ' <small>(value ' + valSum(o.get) + ' for ' + valSum(o.give) + ')</small><span class="row"><button class="btn small primary" data-h="tr-acc" data-i="' + i + '">Accept</button></span></li>').join('') + '</ul>'
+      : '<p class="hint">' + (FR.offersPos && FR.offersPos !== 'ALL' ? 'No CPU team has a ' + posName[FR.offersPos] + ' who would help your lineup that they would trade for a fair price right now.' : 'No teams are interested right now.') + '</p>')
+      : '<p class="hint">Ask around to see which CPU teams would make a deal. Pick a position to shop for a player there: each team offers its best one who would start for you (or come close), for the cheapest package of your players and picks it would accept.</p>') + '</div>';
   return h;
 };
 ACT['tr-tog'] = t => { const a = FR[t.dataset.side], i = a.indexOf(t.dataset.id); if (t.checked && i < 0) a.push(t.dataset.id); else if (!t.checked && i >= 0) a.splice(i, 1); frShow(FR.A); };
@@ -163,7 +166,7 @@ ACT['tr-prop'] = async () => {
   if (r) toast(r.msg || (r.ok ? 'Done.' : 'No deal.'));
   frShow(FR.A);
 };
-ACT['tr-offers'] = async () => { FR.offers = await FR.A.cpuOffers(); frShow(FR.A); };
+ACT['tr-offers'] = async t => { const pos = FR.opos || 'ALL'; t.disabled = true; const o = await FR.A.cpuOffers(pos === 'ALL' ? null : pos); t.disabled = false; FR.offers = o; FR.offersPos = pos; frShow(FR.A); };
 ACT['tr-acc'] = async t => { const o = FR.offers[+t.dataset.i]; const r = await FR.A.act('trade', { to: o.t, give: o.give, get: o.get }); if (r) toast(r.msg); FR.offers = null; frShow(FR.A); };
 ACT['to-acc'] = async t => { const r = await FR.A.act('tradeop', { id: t.dataset.id, act: 'accept' }); if (r) toast(r.msg || 'Done.'); };
 ACT['to-dec'] = async t => { await FR.A.act('tradeop', { id: t.dataset.id, act: 'decline' }); };
@@ -264,6 +267,7 @@ const CH = {
   stid: el => { FR.stid = +el.value; FR.sview = 'season'; frShow(FR.A); },
   trto: el => { FR.to = +el.value; FR.give = []; FR.get = []; frShow(FR.A); },
   fapos: el => { FR.faPos = el.value; frShow(FR.A); },
+  opos: el => { FR.opos = el.value; frShow(FR.A); },
   dpos: el => { FR.dpos = el.value; frShow(FR.A); }
 };
 document.addEventListener('change', ev => { const k = ev.target && ev.target.dataset && ev.target.dataset.hc; if (k && CH[k]) CH[k](ev.target); });

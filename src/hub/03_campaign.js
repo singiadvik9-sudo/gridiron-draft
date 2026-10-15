@@ -73,7 +73,7 @@ function campAdapter() {
   return {
     kind: 'campaign', L, tid, title: 'Campaign', canAdvance: true, canEditRoster: () => true, status: savedText(),
     headBtns: '<button class="btn small" data-h="camp-exit">Save &amp; exit</button>',
-    cpuOffers: async () => LG.cpuOffers(L, tid),
+    cpuOffers: async pos => LG.cpuOffers(L, tid, pos),
     async act(op, a) {
       let r = { ok: true };
       if (op === 'trade') {
