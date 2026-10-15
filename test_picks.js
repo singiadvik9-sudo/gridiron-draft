@@ -26,6 +26,12 @@ ok([2027, 2028].every(y => LG.pickProjection(L, pk(byOvr[0], y, 1), fr).slot ===
 ok([2027, 2028].every(y => V(pk(byOvr[0], y, 1)) > V(pk(byOvr[n - 1], y, 1))), 'a weak team\'s future first is worth more than a strong team\'s');
 // trading
 const me = 0, cpu = L.teams.find(t => !t.owner && t.id !== me).id;
+// rosters start full at 53: taking a player for picks needs a free spot, and the CPU cuts someone when it takes more players than it sends
+const mine1 = pk(me, 2026, 1), fringe = LG.rosterOf(L, me).filter(p => p.o < 70).sort((a, b) => a.o - b.o);
+ok(LG.rosterOf(L, me).length === 53 && /over 53 players\. Release someone first/.test(LG.tradeCheck(L, me, cpu, [LG.pickId(mine1)], [LG.rosterOf(L, cpu)[0].i]) || ''), 'with a full roster you have to release someone before taking a player for picks');
+ok(LG.release(L, me, fringe[0].i) === null && LG.release(L, me, fringe[1].i) === null, 'releasing two players makes room');
+const two = LG.rosterOf(L, me).filter(p => p.o < 72).sort((a, b) => a.o - b.o).slice(0, 2).map(p => p.i);
+ok(LG.tradeCheck(L, me, cpu, two, [LG.rosterOf(L, cpu).sort((a, b) => a.o - b.o)[0].i]) === null, 'a CPU team may take two players for one');
 const mine = pk(me, 2026, 1), id1 = LG.pickId(mine);
 ok(LG.tradeCheck(L, me, cpu, [id1], []) === null, 'a pick can be offered alone');
 ok(LG.tradeCheck(L, me, cpu, [LG.pickId(pk(cpu, 2026, 1))], []) !== null, 'cannot give a pick you do not own');
