@@ -25,6 +25,11 @@ LG.startSeason(L);
 ok(L.season === 2027 && L.sched.length === 272, 'season two has 272 games');
 const per = {}; L.sched.forEach(x => { per[x.a] = (per[x.a] || 0) + 1; per[x.h] = (per[x.h] || 0) + 1; });
 ok(L.teams.every(t => per[t.id] === 17), 'every team plays 17');
+// division games are spread through the season, not bunched at the start
+const divWeeks = tid => L.sched.filter(x => (x.h === tid || x.a === tid) && L.teams[x.h].div === L.teams[x.a].div).map(x => x.w).sort((p, q) => p - q);
+ok(L.teams.every(t => { const w = L.sched.filter(x => x.h === t.id || x.a === t.id).map(x => x.w); return new Set(w).size === w.length; }), 'nobody plays twice in a week');
+ok(L.teams.every(t => divWeeks(t.id).length === 6 && divWeeks(t.id).every((w, i, a) => i === 0 || w - a[i - 1] >= 2)), 'division games are never in back-to-back weeks (' + divWeeks(0).join(',') + ')');
+ok(L.teams.every(t => divWeeks(t.id).join() !== '1,2,3,4,5,6' && divWeeks(t.id)[5] - divWeeks(t.id)[0] >= 8), 'division games are spread across the season');
 // the two same-rank games and the 17th game match teams that finished in the same place last year
 const same = {}; L.sched.forEach(x => { if (L.teams[x.a].div !== L.teams[x.h].div && ranks[x.a] === ranks[x.h]) { same[x.a] = (same[x.a] || 0) + 1; same[x.h] = (same[x.h] || 0) + 1; } });
 ok(L.teams.every(t => same[t.id] === 5), 'every team plays 5 non-division opponents who finished in the same spot (' + [...new Set(L.teams.map(t => same[t.id]))] + ')');
