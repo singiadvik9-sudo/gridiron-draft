@@ -1,4 +1,4 @@
-// Draft picks as trade assets: ownership, value (round / recency / projected finish), CPU trades, and use in the rookie draft.
+// Draft picks as trade assets: ownership, value (round / projected finish, no discount for later drafts), CPU trades, and use in the rookie draft.
 const LG = require('./lib/league.js');
 function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) process.exitCode = 1; }
 const L = LG.newNFL({ user: 0, seed: 7 }); L.teams[0].owner = 'You'; LG.runUntilHuman(L, 60);
@@ -15,10 +15,11 @@ let mono = true; for (let r = 1; r < 7; r++) if (!(V(pk(mid, 2026, r)) > V(pk(mi
 ok(mono, 'earlier rounds are worth more: ' + [1, 2, 3, 4, 5, 6, 7].map(r => V(pk(mid, 2026, r)).toFixed(1)).join(' > '));
 // projected finish
 ok(V(pk(worst, 2026, 1)) > V(pk(best, 2026, 1)), 'a bad team\'s first-rounder beats a good team\'s (' + V(pk(worst, 2026, 1)).toFixed(1) + ' vs ' + V(pk(best, 2026, 1)).toFixed(1) + ')');
-// recency
+// no decay: later drafts are not discounted, a pick is worth what its projected slot is worth
 const r1Max = y => Math.max(...L.picks.filter(k => k.y === y && k.r === 1).map(k => LG.pickValue(L, k, LG.strengthFrac(L))));
 const firstMax = r1Max(2026);
-ok(V(pk(mid, 2026, 1)) > V(pk(mid, 2027, 1)) && V(pk(mid, 2027, 1)) > V(pk(mid, 2028, 1)), 'nearer drafts are worth more than later ones');
+ok(L.teams.every(t => [1, 4, 7].every(r => Math.abs(V(pk(t.id, 2027, r)) - V(pk(t.id, 2028, r))) < 1e-9)), 'a team\'s picks are worth the same in every later draft');
+ok(L.teams.every(t => LG.pickProjection(L, pk(t.id, 2026, 1), fr).slot !== LG.pickProjection(L, pk(t.id, 2027, 1), fr).slot || Math.abs(V(pk(t.id, 2026, 1)) - V(pk(t.id, 2027, 1))) < 1e-9), 'a pick for a later draft is worth the same as this year\'s pick in the same slot');
 // later drafts go by the team's overall rating: the lowest-rated team's future picks project first in the round, the highest-rated last
 const byOvr = L.teams.map(t => t.id).sort((a, b) => LG.teamRating(L, a).ovr - LG.teamRating(L, b).ovr || a - b);
 ok([2027, 2028].every(y => LG.pickProjection(L, pk(byOvr[0], y, 1), fr).slot === 1 && LG.pickProjection(L, pk(byOvr[n - 1], y, 1), fr).slot === n), 'future picks project from the overall rating (slot 1 for the weakest team, ' + n + ' for the strongest)');
@@ -66,7 +67,7 @@ ok(r1Max(2027) > firstMax * 0.95, 'once this draft starts, next year\'s first-ro
 LG.autoDraftToHuman(L); g = 0; while (L.phase === 'draft' && g++ < 400) { const t = LG.onClock(L); LG.draftPick(L, t, LG.cpuPickFor(L, t, L.draft.pool)); }
 ok(L.phase === 'preseason' && !L.picks.some(k => k.y === 2026), 'draft done, 2026 picks are spent');
 ok(openYears() === '2027,2028,2029', 'after the draft three years can still be traded (' + openYears() + ')');
-ok(r1Max(2027) > firstMax * 0.95 && r1Max(2028) < r1Max(2027) * 0.9, 'in the preseason only the later years are discounted (' + r1Max(2027).toFixed(1) + ', ' + r1Max(2028).toFixed(1) + ')');
+ok(r1Max(2027) > firstMax * 0.95 && Math.abs(r1Max(2028) - r1Max(2027)) < 1e-9 && Math.abs(r1Max(2029) - r1Max(2027)) < 1e-9, 'in the preseason no year is discounted (' + [2027, 2028, 2029].map(y => r1Max(y).toFixed(1)).join(', ') + ')');
 LG.startSeason(L);
 ok(L.season === 2027 && L.picks.some(k => k.y === 2029) && !L.picks.some(k => k.y === 2026), 'a new year of picks appears each season');
 ok(L.picks.length === n * 7 * 3, 'always three drafts of picks (' + L.picks.length + ')');
