@@ -3085,13 +3085,14 @@ function pickProjection(L, k, fr) {
   const slot = Math.round(frac * (n - 1)) + 1, overall = (k.r - 1) * n + slot;
   return { frac, slot, overall, known };
 }
-// value in the same units as playerValue: what a rookie taken in that slot is expected to be worth, discounted for risk and for waiting
+// value in the same units as playerValue: what a rookie taken in that slot is expected to be worth, discounted for risk.
+// How far away the draft is does not matter: a pick for a later draft is worth what its projected slot (from the team's rating) is worth
 function pickValue(L, k, fr) {
   const n = L.teams.length, pool = n * pickRounds(L) + 20, pj = pickProjection(L, k, fr);
   const q = Math.min(1, pj.overall / pool);
   const o = Math.max(44, 80 - 28 * Math.pow(q, 0.8));
   const base = Math.pow(Math.max(0, o - 48), 1.9) * 0.08 * 0.85 * 1.15 * (1 + (10 - q * 6) * 0.02);
-  return (base * 0.8 + 0.5) * Math.pow(0.88, draftsAhead(L, k));
+  return base * 0.8 + 0.5;
 }
 function pickLabel(L, k) {
   const own = k.o === k.t ? '' : ' (' + L.teams[k.o].abbr + ')';
@@ -5763,7 +5764,7 @@ FRV.trades = A => {
   h += '<div class="panel"><div class="row between"><h3>Propose a trade</h3><select data-hc="trto" aria-label="Trade partner">' + others.map(t => '<option value="' + t.id + '"' + (t.id === FR.to ? ' selected' : '') + '>' + esc(t.name) + (t.owner ? ' (' + esc(t.owner) + ')' : '') + '</option>').join('') + '</select></div>' +
     '<div class="trcols"><div><h4>You send · value ' + valSum(FR.give) + '</h4>' + pkPick(L, tid, 'give') + '<div class="pklist">' + plPick(L, mine, 'give') + '</div></div><div><h4>' + esc(to.nick) + ' send · value ' + valSum(FR.get) + '</h4>' + pkPick(L, FR.to, 'get') + '<div class="pklist">' + plPick(L, theirs, 'get') + '</div></div></div>' +
     '<div class="row"><button class="btn primary" data-h="tr-prop">' + (to.owner ? 'Send offer to ' + esc(to.owner) : 'Propose to ' + esc(to.nick)) + '</button><button class="btn ghost" data-h="tr-clear">Clear</button></div>' +
-    '<p class="hint">CPU teams judge by player value, age and what they need. Draft picks are worth more the earlier the round, the sooner the draft, and the worse the original team is projected to finish (hover a pick to see its expected overall slot; far-off picks are less certain and discounted). Dashed picks came from another team. Rosters must keep a full set of starters and stay at ' + LG.ROSTER_MAX + ' or fewer.</p></div>';
+    '<p class="hint">CPU teams judge by player value, age and what they need. Draft picks are worth more the earlier the round and the worse the original team is projected to finish: by its record and rating this season, by its overall rating for later drafts (hover a pick to see its expected overall slot). A pick keeps its value however far away its draft is. Dashed picks came from another team. Rosters must keep a full set of starters and stay at ' + LG.ROSTER_MAX + ' or fewer.</p></div>';
   // trading block: your players up for trade and what CPU teams bid for them
   if (A.blockBids) {
     const blk = LG.blockOf(L, tid), bidsFor = id => (FR.bids || []).find(b => b.id === id);
