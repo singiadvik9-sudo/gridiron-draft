@@ -191,5 +191,5 @@ ACT['tn-play'] = async t => {
 window.HUB = {
   get token() { return H.token; }, get user() { return H.user; },
   boot, show, renderHeader,
-  ready() { G.resume(); }
+  ready() { G.resume(); whatsNew(); }
 };

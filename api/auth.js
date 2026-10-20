@@ -24,7 +24,11 @@ module.exports = async function (req, res) {
     }
     const u = await userFrom(req);
     if (!u) return fail(res, 401, 'auth');
-    if (b.op === 'me') return send(res, 200, { name: u.name, hist: u.hist || [] });
+    if (b.op === 'me') return send(res, 200, { name: u.name, hist: u.hist || [], seen: u.seen || null, created: u.created || 0 });
+    if (b.op === 'seen') {   // the newest change-log release this account has seen (What's new)
+      await withLock('user:' + u.name.toLowerCase(), async () => { const cur = await getJ(uKey(u.name)); cur.seen = clean(b.v, 20); await setJ(uKey(u.name), cur); });
+      return send(res, 200, { ok: true });
+    }
     if (b.op === 'logout') { const t = req.headers['x-token']; await cmd(['DEL', 'gd:s:' + t]); return send(res, 200, { ok: true }); }
     if (b.op === 'delhist') {
       await withLock('user:' + u.name.toLowerCase(), async () => {

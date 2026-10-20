@@ -127,6 +127,8 @@ function playSide(info,live){
   }
   tg=(await call('tourney',{op:'get',code:tc},ta)).T;ok(tg.phase==='done','tourney done champ '+(tg.ent.find(e=>e.id===tg.champ)||{}).name);
   const me2=await call('auth',{op:'me'},tb);console.log('bob hist',me2.hist.map(h=>h.kind+':'+(h.place||h.lname)));
+  ok(me2.seen===null&&me2.created>0,'a new account has seen no change-log release yet');
+  await call('auth',{op:'seen',v:'2026-10-19'},tb); const me3=await call('auth',{op:'me'},tb); ok(me3.seen==='2026-10-19','the account remembers the newest release it has seen (What\'s new shows once, on any device)');
   // draft-mode tourney: snake draft with a cap, humans pick, CPUs auto-pick
   const DR=require('./lib/draft.js');
   r=await call('tourney',{op:'create',cfg:{teamMode:'draft',cap:360,max:64}},ta);const c3=r.code;
