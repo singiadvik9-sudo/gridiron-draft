@@ -749,6 +749,10 @@ function squadListHTML(team) {
   const row = (pos, key, name, ovr, tag) => '<li><span class="r-pos">' + pos + '</span>' + spCanvas(key, 2) + '<span class="r-name">' + esc(name) + '</span><span class="r-type">' + esc(tag || '') + '</span><span class="r-fit">' + ovr + '</span><span class="grade g-' + E.grade(ovr) + '">' + E.grade(ovr) + '</span></li>';
   let h = '';
   [['QB', q.qb], ['HB', q.hb], ['WR', q.wr[0]], ['WR', q.wr[1]], ['TE', q.te]].forEach(r => { h += row(r[0], sk(r[1]), r[1].n, r[1].o, r[1].tm); });
+  if (q.rot) {   // the rotation and how fresh each one is right now (fatigue: tired players come out more and play a little worse)
+    const st = S.G && S.G.state, en = p => Math.round(100 * E.energy(st || {}, p.i));
+    ['HB', 'WR', 'TE'].forEach(pos => (q.rot[pos] || []).forEach(p => { h += '<li class="rotl"><span class="r-pos">' + pos + '</span><span class="r-name">' + esc(p.n) + '</span><span class="r-type">use ' + p.u + '% · energy ' + en(p) + '%</span><span class="r-fit">' + p.o + '</span></li>'; }));
+  }
   const gk = n => fieldKey(genericKey({ abbr: q.ol.tm, c1: '#222222', c2: '#222222' }, 'OL', n), side);
   q.ol.p.forEach((p, n) => { h += row('OL', gk(n), p[0], p[1], ''); });
   q.df.p.forEach((p, n) => { h += row(p[0], fieldKey(genericKey({ abbr: q.df.tm, c1: '#222222', c2: '#222222' }, 'DEF', n), side), p[2], p[3], ''); });
