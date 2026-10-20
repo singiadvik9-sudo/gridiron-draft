@@ -2,6 +2,9 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-19-2', title: 'Gentler fatigue', items: [
+    'Tired players sit less than before: a back worn down to 30% energy still plays about half his usual snaps (it was about a third). Tired players still play a little below their rating.'
+  ] },
   { id: '2026-10-19', title: 'Real salaries, usage, injuries, fatigue and your own starters', items: [
     'Real salaries: every player is paid his real contract. Players without one, and anyone whose contract runs out, are paid the real market rate for his position and rating. Payroll cap $375M; quick-game caps $330M / $360M / $400M; draft-league caps $200M / $230M / $260M.',
     'Returners: no more kick and punt returner positions. Each team names one of its backs, receivers or corners (Roster tab). The quick game is 9 picks and you choose your returner under your lineup.',

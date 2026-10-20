@@ -9,7 +9,7 @@ ok(E.energy(st, hb.i) === 1, 'everyone starts fresh');
 const tired = Object.assign({}, st, { fat: { [hb.i]: 0.3 } });
 const share = s => { let c = 0; for (let n = 0; n < 3000; n++) { if (E.personnel(sq, Object.assign({}, s, { playNo: n }), 'RUN_IN', 9, 'a').hb.i === hb.i) c++; } return c / 3000; };
 const fresh = share(st), worn = share(tired);
-ok(worn < fresh - 0.2, 'a tired back comes out more (' + Math.round(fresh * 100) + '% of snaps fresh, ' + Math.round(worn * 100) + '% at 30% energy)');
+ok(worn < fresh - 0.08 && worn > 0.42, 'a tired back sits a little more often, but still plays plenty (' + Math.round(fresh * 100) + '% of snaps fresh, ' + Math.round(worn * 100) + '% at 30% energy)');
 let seen = null; for (let n = 0; n < 200 && !seen; n++) { const ps = E.personnel(sq, Object.assign({}, tired, { playNo: n }), 'RUN_IN', 9, 'a'); if (ps.hb.i === hb.i) seen = ps.hb; }
 ok(seen && seen.o === Math.round(hb.o - 0.7 * E.FAT_DROP) && seen.e === 30, 'and plays below his rating when he is in (' + hb.o + ' -> ' + seen.o + ')');
 // over a game: energy drops on the field, comes back off it; the log says how fresh each one was
