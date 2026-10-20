@@ -122,10 +122,12 @@ FRV.roster = A => {
     if ((pos === 'KR' || pos === 'PR') && !list.length) return;   // no returner position any more (older saves may still list some)
     h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + '</small></h4>' +
       tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => injCell(L, tid, p, mineT && A.canEditRoster()) + useCell(L, tid, p, mineT && A.canEditRoster()) + (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && blk.has(p.i) ? '<span class="blk" title="On the trading block">BLOCK</span> ' : '') +
+        (mineT && A.canEditRoster() && LG.counts(L.teams[tid].sch)[p.p] ? (p.st ? '<button class="btn small" data-h="fr-st" data-id="' + p.i + '" data-on="" title="You named him a starter">Starter ✓</button>' : !start[p.i] && LG.healthy(p) ? '<button class="btn small ghost" data-h="fr-st" data-id="' + p.i + '" data-on="1">Start</button>' : '') : '') +
         (mineT && A.canEditRoster() ? (A.blockBids ? '<button class="btn small ghost" data-h="fr-blk" data-id="' + p.i + '" data-on="' + (blk.has(p.i) ? '' : '1') + '">' + (blk.has(p.i) ? 'Off block' : 'Shop') + '</button>' : '') + '<button class="btn small ghost" data-h="fr-rel" data-id="' + p.i + '">Release</button>' : '')));
   });
   return h + '</div>';
 };
+ACT['fr-st'] = async t => { const r = await FR.A.act('starter', { pid: t.dataset.id, on: !!t.dataset.on }); if (r && !r.ok && r.msg) toast(r.msg); };
 ACT['fr-ir'] = async t => { const r = await FR.A.act('ir', { pid: t.dataset.id }); if (r && !r.ok && r.msg) toast(r.msg); };
 ACT['fr-act'] = async t => { const r = await FR.A.act('activate', { pid: t.dataset.id }); if (r && !r.ok && r.msg) toast(r.msg); };
 ACT['fr-blk'] = async t => { const r = await FR.A.act('block', { pid: t.dataset.id, on: !!t.dataset.on }); FR.bids = null; if (r && r.ok && t.dataset.on) toast('On the block. See bids on the Trades tab.'); };

@@ -2497,11 +2497,25 @@ function fillDepth(L, tid, r, jitter) {
 }
 
 /* ---------------- lineups and squads ---------------- */
+/* starters: the coach can name who starts at any position (p.st, e.g. a rookie to develop); they go ahead of better-rated players in the
+   lineup, and for backs, receivers and tight ends the default usage follows that order. A starter he no longer has stops counting. */
+const depthOrder = (a, b) => (b.st ? 1 : 0) - (a.st ? 1 : 0) || b.o - a.o || (a.i < b.i ? -1 : 1);
+function setStarter(L, tid, pid, on) {
+  const p = L.players[pid];
+  if (!p || p.t !== tid) return 'Not on your roster.';
+  if (p.p === 'KR' || p.p === 'PR') return 'Name returners with the returner choice.';
+  if (!on) { delete p.st; return null; }
+  if (!healthy(p)) return p.n + ' is hurt.';
+  // one more starter than the position has: the lowest-rated of the others the coach named goes back to the bench
+  const need = counts(L.teams[tid].sch)[p.p], named = rosterOf(L, tid).filter(x => x.p === p.p && x.st && x !== p).sort((a, b) => b.o - a.o);
+  if (named.length >= need) delete named[named.length - 1].st;
+  p.st = true; return null;
+}
 function lineup(L, tid) {
   const T = L.teams[tid], need = counts(T.sch), by = {};
   POS.forEach(p => { by[p] = []; });
   rosterOf(L, tid).forEach(p => { if (healthy(p)) by[p.p].push(p); });   // the injured sit
-  POS.forEach(p => by[p].sort((a, b) => b.o - a.o));
+  POS.forEach(p => by[p].sort(depthOrder));   // the coach's starters first, then by rating
   const out = {};
   POS.forEach(p => { out[p] = by[p].slice(0, need[p]); });
   // the returner the team designated (else its best): he returns kicks and punts
@@ -2558,7 +2572,7 @@ function squadOf(L, tid) {
    ones who fit it best are a little likelier, and on passing downs a receiver can take the TE spot (the slot). */
 const USE_DEFAULT = { HB: [65, 30, 5], WR: [95, 80, 20, 5], TE: [85, 15] };   // each group adds up to its spots (1 HB, 2 WR, 1 TE)
 function usageList(L, tid, pos) {
-  const ps = rosterOf(L, tid).filter(p => p.p === pos && healthy(p)).sort((a, b) => b.o - a.o || (a.i < b.i ? -1 : 1));
+  const ps = rosterOf(L, tid).filter(p => p.p === pos && healthy(p)).sort(depthOrder);
   return ps.map((p, k) => ({ p, u: p.use != null ? p.use : (USE_DEFAULT[pos][k] || 0), set: p.use != null }));
 }
 function setUsage(L, tid, pid, v) {
@@ -3478,6 +3492,7 @@ function cpuTrade(L, userTid, cpuTid, give, get, fr) {
 function doTrade(L, ta, tb, give, get) {
   const mv = (id, to) => { if (isPick(id)) pickOf_(L, id).t = to; else L.players[id].t = to; };
   give.forEach(id => mv(id, tb)); get.forEach(id => mv(id, ta));
+  give.concat(get).forEach(id => { if (L.players[id]) delete L.players[id].st; });   // the new team decides who starts
   [ta, tb].forEach(tid => { if (!L.teams[tid].owner) trimRoster(L, tid); });   // a CPU team over 53 cuts its least valuable player
   const np = give.concat(get).filter(isPick).length, nm = give.length + get.length - np;
   L.news.unshift({ s: L.season, t: L.teams[ta].nick + ' and ' + L.teams[tb].nick + ' complete a trade (' + [nm ? nm + ' player' + (nm > 1 ? 's' : '') : '', np ? np + ' pick' + (np > 1 ? 's' : '') : ''].filter(Boolean).join(' and ') + ').' });
@@ -3596,7 +3611,7 @@ function release(L, tid, pid) {
   if (!p || p.t !== tid) return 'Not on your roster.';
   const left = posCount(L, tid); left[p.p]--;
   if (left[p.p] < counts(L.teams[tid].sch)[p.p]) return 'You need a starter at ' + p.p + '.';
-  p.t = -1; return null;
+  p.t = -1; delete p.st; return null;
 }
 
 /* ---------------- custom leagues ---------------- */
@@ -3781,6 +3796,7 @@ const LG = {
   newNFL, rosterOf, posCount, lineup, squadOf, teamsFor, teamRating, gameSeed,
   divisionRanks, nflMatchups, STAT_KEYS, sumStats, gameLog, teamStats, ensurePicks, picksOf, pickOf_, isPick, pickId, pickValue, pickProjection, pickLabel, assetValue, strengthFrac, pickOpen, simGame, forfeit, playVerified, weekGames, simWeek, advanceWeek, runUntilHuman, humanSides, checkFinal,
   records, standings, overallRank, rank, startPlayoffs, advancePlayoffs,
+  depthOrder, setStarter,
   INJ_RATE, IR_MIN, SEASON_OUT, activeRoster, healthy, injuries, injuryWeek, placeIR, activateIR,
   RET_POS, retRating, returnerCands, returnerOf, setReturner,
   USE_DEFAULT, usageList, setUsage, snapShare,
@@ -6157,10 +6173,12 @@ FRV.roster = A => {
     if ((pos === 'KR' || pos === 'PR') && !list.length) return;   // no returner position any more (older saves may still list some)
     h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + '</small></h4>' +
       tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => injCell(L, tid, p, mineT && A.canEditRoster()) + useCell(L, tid, p, mineT && A.canEditRoster()) + (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && blk.has(p.i) ? '<span class="blk" title="On the trading block">BLOCK</span> ' : '') +
+        (mineT && A.canEditRoster() && LG.counts(L.teams[tid].sch)[p.p] ? (p.st ? '<button class="btn small" data-h="fr-st" data-id="' + p.i + '" data-on="" title="You named him a starter">Starter ✓</button>' : !start[p.i] && LG.healthy(p) ? '<button class="btn small ghost" data-h="fr-st" data-id="' + p.i + '" data-on="1">Start</button>' : '') : '') +
         (mineT && A.canEditRoster() ? (A.blockBids ? '<button class="btn small ghost" data-h="fr-blk" data-id="' + p.i + '" data-on="' + (blk.has(p.i) ? '' : '1') + '">' + (blk.has(p.i) ? 'Off block' : 'Shop') + '</button>' : '') + '<button class="btn small ghost" data-h="fr-rel" data-id="' + p.i + '">Release</button>' : '')));
   });
   return h + '</div>';
 };
+ACT['fr-st'] = async t => { const r = await FR.A.act('starter', { pid: t.dataset.id, on: !!t.dataset.on }); if (r && !r.ok && r.msg) toast(r.msg); };
 ACT['fr-ir'] = async t => { const r = await FR.A.act('ir', { pid: t.dataset.id }); if (r && !r.ok && r.msg) toast(r.msg); };
 ACT['fr-act'] = async t => { const r = await FR.A.act('activate', { pid: t.dataset.id }); if (r && !r.ok && r.msg) toast(r.msg); };
 ACT['fr-blk'] = async t => { const r = await FR.A.act('block', { pid: t.dataset.id, on: !!t.dataset.on }); FR.bids = null; if (r && r.ok && t.dataset.on) toast('On the block. See bids on the Trades tab.'); };
@@ -6453,6 +6471,7 @@ function campAdapter() {
       } else if (op === 'sign') { const e = LG.signFA(L, tid, a.pid); r = { ok: !e, msg: e || 'Signed.' }; }
       else if (op === 'release') { const e = LG.release(L, tid, a.pid); r = { ok: !e, msg: e || 'Released.' }; }
       else if (op === 'block') { const e = LG.setBlock(L, tid, a.pid, a.on); r = { ok: !e, msg: e }; }
+      else if (op === 'starter') { const e = LG.setStarter(L, tid, a.pid, a.on); r = { ok: !e, msg: e }; }
       else if (op === 'ir') { const e = LG.placeIR(L, tid, a.pid); r = { ok: !e, msg: e }; }
       else if (op === 'activate') { const e = LG.activateIR(L, tid, a.pid); r = { ok: !e, msg: e }; }
       else if (op === 'use') { const e = LG.setUsage(L, tid, a.pid, a.v); r = { ok: !e, msg: e }; }

@@ -281,6 +281,10 @@ module.exports = async function (req, res) {
           if (!t) bad('You have no team.'); if (L.phase === 'setup' || L.phase === 'draft') bad('Not available right now.');
           const e = LG.signFA(L, t.id, String(b.pid)); if (e) bad(e); return { ok: true };
         }
+        case 'starter': {   // name (or stop naming) a starter
+          if (!t) bad('You have no team.');
+          const e = LG.setStarter(L, t.id, String(b.pid), !!b.on); if (e) bad(e); return { ok: true };
+        }
         case 'ir': {   // put an injured player on injured reserve
           if (!t) bad('You have no team.');
           const e = LG.placeIR(L, t.id, String(b.pid)); if (e) bad(e); return { ok: true };
