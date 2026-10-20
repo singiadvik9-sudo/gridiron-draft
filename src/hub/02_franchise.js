@@ -93,11 +93,16 @@ FRV.sched = A => {
 
 FRV.roster = A => {
   const L = A.L, tid = FR.rtid != null && L.teams[FR.rtid] ? FR.rtid : A.tid, ro = LG.rosterOf(L, tid), ln = LG.lineup(L, tid);
-  const start = {}; POSN.forEach(p => ln[p].forEach(x => { start[x.i] = 1; }));
+  const start = {}; POSN.forEach(p => { if (p !== 'KR' && p !== 'PR') ln[p].forEach(x => { start[x.i] = 1; }); });
   const mineT = tid === A.tid, blk = new Set(mineT ? LG.blockOf(L, tid) : []);
   let h = '<div class="panel"><div class="row between"><h3>' + esc(L.teams[tid].name) + ' · ' + ro.length + ' / ' + LG.ROSTER_MAX + ' · $' + LG.payroll(L, tid) + 'M of $' + LG.payrollCap(L) + 'M</h3><select data-hc="rtid" aria-label="Team">' + L.teams.map(x => '<option value="' + x.id + '"' + (x.id === tid ? ' selected' : '') + '>' + esc(x.name) + (x.owner ? ' (' + esc(x.owner === 'You' ? 'you' : x.owner) + ')' : '') + '</option>').join('') + '</select></div>';
+  // the returner: one of the team's backs, receivers or corners, the best unless the coach picks someone
+  const rc = LG.returnerCands(L, tid), cur = LG.returnerOf(L, tid), chosen = L.teams[tid].ret && cur && cur.i === L.teams[tid].ret;
+  h += '<div class="row"><b>Returner (kicks and punts)</b>' + (mineT && A.canEditRoster() ? '<select data-hc="ret" aria-label="Returner"><option value="">Best available' + (!chosen && cur ? ': ' + esc(cur.n) + ' · ' + LG.retRating(cur) : '') + '</option>' +
+    rc.map(p => '<option value="' + p.i + '"' + (chosen && p.i === cur.i ? ' selected' : '') + '>' + p.p + ' ' + esc(p.n) + ' · ' + LG.retRating(p) + '</option>').join('') + '</select>' : '<span>' + (cur ? cur.p + ' ' + esc(cur.n) + ' · ' + LG.retRating(cur) : 'none') + '</span>') + '</div>';
   POSN.forEach(pos => {
     const list = ro.filter(p => p.p === pos).sort((a, b) => b.o - a.o);
+    if ((pos === 'KR' || pos === 'PR') && !list.length) return;   // no returner position any more (older saves may still list some)
     h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + '</small></h4>' +
       tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && blk.has(p.i) ? '<span class="blk" title="On the trading block">BLOCK</span> ' : '') +
         (mineT && A.canEditRoster() ? (A.blockBids ? '<button class="btn small ghost" data-h="fr-blk" data-id="' + p.i + '" data-on="' + (blk.has(p.i) ? '' : '1') + '">' + (blk.has(p.i) ? 'Off block' : 'Shop') + '</button>' : '') + '<button class="btn small ghost" data-h="fr-rel" data-id="' + p.i + '">Release</button>' : '')));
@@ -295,6 +300,7 @@ const CH = {
   stid: el => { FR.stid = +el.value; FR.sview = 'season'; frShow(FR.A); },
   trto: el => { FR.to = +el.value; FR.give = []; FR.get = []; frShow(FR.A); },
   fapos: el => { FR.faPos = el.value; frShow(FR.A); },
+  ret: async el => { const r = await FR.A.act('ret', { pid: el.value }); if (r && !r.ok && r.msg) toast(r.msg); },
   opos: el => { FR.opos = el.value; frShow(FR.A); },
   dpos: el => { FR.dpos = el.value; frShow(FR.A); }
 };

@@ -146,7 +146,7 @@ function playSide(info,live){
     tt=(await call('tourney',{op:'get',code:c3},ta)).T;
   }
   ok(tt.phase==='setup'&&tt.drafted&&tt.ent.every(e=>e.squad),'draft finished, everyone has a squad');
-  const seen={};let uniq=true;tt.dr.d.picks.forEach(p=>{if(seen[p.id])uniq=false;seen[p.id]=1});ok(uniq&&tt.dr.d.picks.length===44,'44 unique picks');
+  const seen={};let uniq=true;tt.dr.d.picks.forEach(p=>{if(seen[p.id])uniq=false;seen[p.id]=1});ok(uniq&&tt.dr.d.picks.length===4*DR.ROUNDS,(4*DR.ROUNDS)+' unique picks');
   ok(tt.ent.every((e,i)=>DR.spent(DR.teamIds(tt.dr.d,tt.dr.order.indexOf(e.id)))<=360+1e-6),'every team under the cap');
   ok((await call('tourney',{op:'start',code:c3},ta)).ok,'tournament starts after the draft');
   // quick room with a salary cap

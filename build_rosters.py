@@ -3,6 +3,7 @@
   python3 build_rosters.py fetch DIR      downloads the inputs into DIR (nflverse roster file, EA ratings pages)
   python3 build_rosters.py build DIR      rewrites PLAYERS, OLU, DFU, KICK, KR, PR, STU, DEPTH and FA in lib/data.json (then runs salaries)
   python3 build_rosters.py salaries DIR   gives every player in lib/data.json his real salary, and writes the salary curve (SAL)
+  python3 build_rosters.py returners DIR  gives every running back, receiver and corner a returner rating (and corners a speed)
 
 Each team's pool is its roster plus its injured-reserve list (nflverse status ACT, INA or RES), with injuries ignored. Every player
 gets his Madden NFL 27 rating (ea.com ratings database, matched by name, then team and birth date; nicknames by birth date and last
@@ -308,7 +309,44 @@ def salaries(d):
     json.dump(D, open(OUT, 'w'), separators=(',', ':'))
     print('salaries:', real, 'real contracts of', len(people), 'players; the rest priced from the curve. Top of the curve:', {g: SAL[g][-1] for g in SAL_POS})
 
+# ---------------------------------------------------------------- returners
+# There is no returner position: a team designates one of its backs, receivers or corners (lib/league.js, lib/draft.js). Each gets rt,
+# the returner rating from his Madden speed, agility and change of direction (retr, as before), and corners also get a speed.
+def returners(d):
+    D = json.load(open(OUT))
+    M = json.load(open(os.path.join(d, 'madden27.json')))
+    label = {t['city'] + ' ' + t['nick']: t['abbr'] for t in D['TEAMS']}
+    label.update({'NY Giants': 'NYG', 'NY Jets': 'NYJ', 'Los Angeles Rams': 'LA', 'Los Angeles Chargers': 'LAC', 'Las Vegas Raiders': 'LV'})
+    byname = collections.defaultdict(list)
+    for m in M: byname[norm(m['name'])].append(m)
+    def look(name, team, spd):
+        c = byname.get(norm(name), [])
+        c = [m for m in c if label.get(m['team']) == team] or (c if len(c) == 1 else [])
+        if c and c[0]['spd']: m = c[0]; return retr(m['spd'], m['agi'] or m['spd'] - 3, m['cod'] or m['spd'] - 3), m['spd']
+        s0 = spd or 88   # not in Madden 27: from his speed
+        return retr(s0, s0 - 3, s0 - 3), s0
+    n = 0
+    for p in D['PLAYERS']:
+        if p['pos'] in ('HB', 'WR'): p['rt'] = look(p['name'], p['team'], p['spd'])[0]; n += 1
+    for u in D['DFU']:
+        for q in u['players']:
+            if q[1] == 'CB':
+                rt, sp = look(q[2], u['team'], None)
+                while len(q) < 10: q.append(None)
+                q[8], q[9] = rt, sp; n += 1                         # [slot, group, name, ovr, est, age, salary, end, rt, spd]
+    for lst, team in [(u['players'], u['team']) for u in D['DEPTH']] + [(D['FA'], None)]:
+        for q in lst:
+            if q[0] not in ('HB', 'WR', 'CB'): continue
+            rt, sp = look(q[1], team, q[4])
+            while len(q) < 8: q.append(None)
+            if q[4] is None: q[4] = sp
+            q[7] = rt; n += 1                                      # [pos, name, ovr, age, spd, salary, end, rt]
+    json.dump(D, open(OUT, 'w'), separators=(',', ':'))
+    print('returner ratings for', n, 'backs, receivers and corners')
+
 if __name__ == '__main__':
-    if len(sys.argv) != 3 or sys.argv[1] not in ('fetch', 'build', 'salaries'): sys.exit(__doc__)
-    {'fetch': fetch, 'build': build, 'salaries': salaries}[sys.argv[1]](sys.argv[2])
-    if sys.argv[1] == 'build' and os.path.exists(os.path.join(sys.argv[2], 'contracts.json')): salaries(sys.argv[2])
+    if len(sys.argv) != 3 or sys.argv[1] not in ('fetch', 'build', 'salaries', 'returners'): sys.exit(__doc__)
+    {'fetch': fetch, 'build': build, 'salaries': salaries, 'returners': returners}[sys.argv[1]](sys.argv[2])
+    if sys.argv[1] == 'build':
+        if os.path.exists(os.path.join(sys.argv[2], 'contracts.json')): salaries(sys.argv[2])
+        returners(sys.argv[2])

@@ -281,6 +281,10 @@ module.exports = async function (req, res) {
           if (!t) bad('You have no team.'); if (L.phase === 'setup' || L.phase === 'draft') bad('Not available right now.');
           const e = LG.signFA(L, t.id, String(b.pid)); if (e) bad(e); return { ok: true };
         }
+        case 'ret': {   // the team's kick and punt returner (empty: the best one)
+          if (!t) bad('You have no team.');
+          const e = LG.setReturner(L, t.id, b.pid ? String(b.pid) : null); if (e) bad(e); return { ok: true };
+        }
         case 'block': {
           if (!t) bad('You have no team.');
           const e = LG.setBlock(L, t.id, String(b.pid), !!b.on); if (e) bad(e); return { ok: true };
