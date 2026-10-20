@@ -18,7 +18,7 @@ const cost = t => DR.KINDS.reduce((s, k) => s + (real[t][k] || []).slice(0, DR.N
 const costs = Object.keys(real).map(cost);
 ok(Math.max(...costs) <= DR.CAPS.loose, 'every real team\'s lineup fits under the loose cap (most expensive $' + Math.round(Math.max(...costs)) + 'M)');
 const gar = DR.CANDS.find(c => c.k === 'DEF' && c.tm === 'LA'), slb = D.DFU.find(u => u.team === 'LA').players.find(p => p[2] === 'Myles Garrett');
-ok(gar && slb && DR.salaryOfPos('DL', 99) > DR.salaryOfPos('LB', 99), 'an edge rusher is paid more than an off-ball linebacker of the same rating');
+ok(gar && slb && slb[6] === 40, 'Myles Garrett is paid his real contract ($' + (slb && slb[6]) + 'M) whatever spot he lines up at');
 // a CPU team that takes two players for one cuts its least valuable player, so it stays at 53
 const C = LG.newNFL({ user: 0, seed: 7 }); C.teams[0].owner = 'You';
 LG.release(C, 0, LG.rosterOf(C, 0).sort((a, b) => a.o - b.o)[0].i);

@@ -129,12 +129,12 @@ function playSide(info,live){
   const me2=await call('auth',{op:'me'},tb);console.log('bob hist',me2.hist.map(h=>h.kind+':'+(h.place||h.lname)));
   // draft-mode tourney: snake draft with a cap, humans pick, CPUs auto-pick
   const DR=require('./lib/draft.js');
-  r=await call('tourney',{op:'create',cfg:{teamMode:'draft',cap:350,max:64}},ta);const c3=r.code;
+  r=await call('tourney',{op:'create',cfg:{teamMode:'draft',cap:360,max:64}},ta);const c3=r.code;
   await call('tourney',{op:'join',code:c3},ta);await call('tourney',{op:'join',code:c3},tb);await call('tourney',{op:'addcpu',code:c3,n:2},ta);
   ok((await call('tourney',{op:'start',code:c3},ta)).error,'start blocked until the draft is done');
   ok((await call('tourney',{op:'startdraft',code:c3},tb)).error,'only the manager starts the draft');
   ok((await call('tourney',{op:'startdraft',code:c3},ta)).ok,'draft started');
-  let tt=(await call('tourney',{op:'get',code:c3},ta)).T;ok(tt.phase==='drafting'&&tt.cfg.cap===350&&tt.cfg.max===16,'drafting, cap kept, max clamped to 16');
+  let tt=(await call('tourney',{op:'get',code:c3},ta)).T;ok(tt.phase==='drafting'&&tt.cfg.cap===360&&tt.cfg.max===16,'drafting, cap kept, max clamped to 16');
   let guard=0;
   while(tt.phase==='drafting'&&guard++<60){
     const d=tt.dr.d,t=DR.onClock(d),ent=tt.ent.find(e=>e.id===tt.dr.order[t]);
@@ -147,13 +147,13 @@ function playSide(info,live){
   }
   ok(tt.phase==='setup'&&tt.drafted&&tt.ent.every(e=>e.squad),'draft finished, everyone has a squad');
   const seen={};let uniq=true;tt.dr.d.picks.forEach(p=>{if(seen[p.id])uniq=false;seen[p.id]=1});ok(uniq&&tt.dr.d.picks.length===44,'44 unique picks');
-  ok(tt.ent.every((e,i)=>DR.spent(DR.teamIds(tt.dr.d,tt.dr.order.indexOf(e.id)))<=350+1e-6),'every team under the cap');
+  ok(tt.ent.every((e,i)=>DR.spent(DR.teamIds(tt.dr.d,tt.dr.order.indexOf(e.id)))<=360+1e-6),'every team under the cap');
   ok((await call('tourney',{op:'start',code:c3},ta)).ok,'tournament starts after the draft');
   // quick room with a salary cap
-  const ra=await call('room',{op:'create',pid:'pa',name:'Ann',cap:320});ok(ra.code&&ra.seat==='a','room created');
+  const ra=await call('room',{op:'create',pid:'pa',name:'Ann',cap:330});ok(ra.code&&ra.seat==='a','room created');
   ok(!(await call('room',{op:'state',code:ra.code})).dr,'no draft until the second player joins');
   const rb=await call('room',{op:'join',code:ra.code,pid:'pb',name:'Ben'});ok(rb.seat==='b','second player joined');
-  let st=await call('room',{op:'state',code:ra.code});ok(st.dr&&st.dr.cap===320&&st.dr.picks.length===0,'draft created with cap');
+  let st=await call('room',{op:'state',code:ra.code});ok(st.dr&&st.dr.cap===330&&st.dr.picks.length===0,'draft created with cap');
   const who=t=>t===0?{pid:'pa',seat:'a'}:{pid:'pb',seat:'b'};
   const first=DR.onClock(st.dr),sec=1-first;
   const c1=DR.cpuPick(st.dr,first);
@@ -163,7 +163,7 @@ function playSide(info,live){
   guard=0;while(guard++<40){st=await call('room',{op:'state',code:ra.code});if(DR.isDone(st.dr))break;const t=DR.onClock(st.dr);const rr=await call('room',Object.assign({op:'pick',code:ra.code,id:DR.cpuPick(st.dr,t)},who(t)));if(rr.error){console.log('room pick err',rr);break}}
   st=await call('room',{op:'state',code:ra.code});
   ok(DR.isDone(st.dr)&&st.seats.a.status==='ready'&&st.seats.b.status==='ready'&&E.validRoster(st.seats.a.roster)&&E.validRoster(st.seats.b.roster),'room draft completes into ready seats');
-  ok(DR.spent(DR.teamIds(st.dr,0))<=320+1e-6&&DR.spent(DR.teamIds(st.dr,1))<=320+1e-6,'room teams under the cap');
+  ok(DR.spent(DR.teamIds(st.dr,0))<=330+1e-6&&DR.spent(DR.teamIds(st.dr,1))<=330+1e-6,'room teams under the cap');
   // custom league draft with a cap
   const lc=await call('league',{op:'create',cfg:{name:'CapL',entry:'draft',cap:300,rounds:21,cpus:true}},ta);ok(lc.code,'cap league');
   await call('league',{op:'join',code:lc.code},tb);await call('league',{op:'claim',code:lc.code,name:'Aces'},ta);await call('league',{op:'claim',code:lc.code,name:'Bees'},tb);

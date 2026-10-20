@@ -19,7 +19,7 @@ function cleanCfg(c, base) {
   const units = base ? !!base.units : true;
   if (c.rounds != null) o.rounds = units ? num(c.rounds, LG.UNIT_ROUNDS[0], LG.UNIT_ROUNDS[1], 16) : num(c.rounds, 25, 34, 28);
   if (c.rookieRounds != null) o.rookieRounds = num(c.rookieRounds, 1, 7, 3);
-  if (c.cap != null) o.cap = [0, 285, 315, 350, 270, 300, 335].includes(+c.cap) ? +c.cap : 0;   // 270/300/335: the caps before the Madden 27 ratings, kept for older leagues
+  if (c.cap != null) o.cap = [0, 200, 230, 260, 285, 315, 350, 270, 300, 335].includes(+c.cap) ? +c.cap : 0;   // 200/230/260 with real salaries; the older caps are kept for older leagues
   if (c.deadline != null) o.deadline = num(c.deadline, 0, 20, 10);
   return o;
 }

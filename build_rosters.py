@@ -1,7 +1,8 @@
 """Rebuilds every team in lib/data.json from the real 2026 rosters and the current Madden NFL 27 ratings.
 
   python3 build_rosters.py fetch DIR      downloads the inputs into DIR (nflverse roster file, EA ratings pages)
-  python3 build_rosters.py build DIR      rewrites PLAYERS, OLU, DFU, KICK, KR, PR, STU, DEPTH and FA in lib/data.json
+  python3 build_rosters.py build DIR      rewrites PLAYERS, OLU, DFU, KICK, KR, PR, STU, DEPTH and FA in lib/data.json (then runs salaries)
+  python3 build_rosters.py salaries DIR   gives every player in lib/data.json his real salary, and writes the salary curve (SAL)
 
 Each team's pool is its roster plus its injured-reserve list (nflverse status ACT, INA or RES), with injuries ignored. Every player
 gets his Madden NFL 27 rating (ea.com ratings database, matched by name, then team and birth date; nicknames by birth date and last
@@ -10,8 +11,12 @@ same database); anyone in neither is estimated from his draft slot and experienc
 at every position (MIN), then the highest rated up to each position's cap (MAX). The rest are dropped and join the free agents.
 Fullbacks only fill a running back minimum: the game has no fullback spot and Madden rates them on a scale of their own.
 The starters, the O-line and defense units, the kicker, punter, coverage unit and returners are then picked from those 53, and the
-other players become the backups (DEPTH). TEAMS, SCHED, schemes and appearance colours are kept. Salaries need no edit: they come
-from rating and position (salaryOfPos in lib/draft.js)."""
+other players become the backups (DEPTH). TEAMS, SCHED, schemes and appearance colours are kept.
+
+Salaries are real: each player's current contract, its average per year (APY, $M) and its last season, from OverTheCap's contract data
+(nflverse historical_contracts.parquet, matched by NFL player id through the roster file; fetch turns it into contracts.json, which
+needs pyarrow). The few without one, and everyone the game makes up or re-signs later, are paid from SAL: the real market by position
+and rating, the median APY of the real players at that position within 3 points of that rating, never falling as the rating rises."""
 import csv, json, os, re, sys, datetime, hashlib, zlib, unicodedata, urllib.request, collections
 
 def norm(n):   # same as lib.py (which needs the old build inputs to import)
@@ -23,6 +28,7 @@ def norm(n):   # same as lib.py (which needs the old build inputs to import)
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib', 'data.json')
 ROSTER_URL = 'https://github.com/nflverse/nflverse-data/releases/download/rosters/roster_2026.csv'
 RATINGS_URL = 'https://www.ea.com/games/madden-nfl/ratings?page=%d'
+CONTRACTS_URL = 'https://github.com/nflverse/nflverse-data/releases/download/contracts/historical_contracts.parquet'
 ROSTERED = ('ACT', 'INA', 'RES')        # active, inactive, injured reserve
 NOW = datetime.date(2026, 10, 14)
 
@@ -55,6 +61,14 @@ def fetch(d):
         old += [slim(i) for i in items]; off += 100
     json.dump(old, open(os.path.join(d, 'madden26.json'), 'w'), separators=(',', ':'))
     print('roster file,', len(out), 'Madden 27 ratings (' + out[0]['it'] + ') and', len(old), 'Madden 26 ratings saved in', d)
+    # real contracts: the latest active one per player
+    urllib.request.urlretrieve(CONTRACTS_URL, os.path.join(d, 'historical_contracts.parquet'))
+    import pyarrow.parquet as pq   # pip install pyarrow
+    best = {}
+    for r in pq.read_table(os.path.join(d, 'historical_contracts.parquet'), columns=['player', 'is_active', 'year_signed', 'years', 'apy', 'gsis_id']).to_pylist():
+        if r['is_active'] and r['gsis_id'] and (r['gsis_id'] not in best or (r['year_signed'] or 0) > (best[r['gsis_id']]['year_signed'] or 0)): best[r['gsis_id']] = r
+    json.dump({k: [round(r['apy'], 3), r['year_signed'], r['years'], r['player']] for k, r in best.items()}, open(os.path.join(d, 'contracts.json'), 'w'), separators=(',', ':'))
+    print(len(best), 'contracts saved')
 
 # ---------------------------------------------------------------- building
 # the game's position groups; edge rushers are linemen in a 4-3 and outside linebackers in a 3-4
@@ -236,6 +250,65 @@ def build(d):
     print(len(fell_back), 'players not in Madden 27 use their Madden 26 rating:', ', '.join(sorted(fell_back)))
     print('per team', sorted({len(rosters[t]) for t in TEAMS}), 'backups', sorted({len(x['players']) for x in DEPTH}), 'free agents', len(D['FA']))
 
+# ---------------------------------------------------------------- salaries
+SAL_POS = ('QB', 'HB', 'WR', 'TE', 'OL', 'DL', 'LB', 'CB', 'S', 'K', 'P')
+LEAGUE_MIN = 0.9   # about the 2026 league minimum salary, $M
+def salaries(d):
+    D = json.load(open(OUT))
+    C = json.load(open(os.path.join(d, 'contracts.json')))
+    rows = list(csv.DictReader(open(os.path.join(d, 'roster_2026.csv'))))
+    byteam, byname = {}, collections.defaultdict(list)
+    for r in rows:
+        if r['gsis_id'] in C: byteam[(norm(r['full_name']), r['team'])] = r['gsis_id']; byname[norm(r['full_name'])].append(r['gsis_id'])
+    def contract(name, team):   # (apy, last season) or None
+        g = byteam.get((norm(name), team)) if team else None
+        if not g:
+            ids = list(dict.fromkeys(byname.get(norm(name), [])))
+            g = ids[0] if len(ids) == 1 else None
+        if not g: return None
+        apy, ys, yrs, _ = C[g]
+        return round(max(LEAGUE_MIN, apy), 2), (ys or 2026) + max(1, yrs or 1) - 1   # a mid-season deal shows only its prorated part
+    # every player in the data as (group, rating, contract, where to write [salary, last contract season]); the curve is fitted first
+    people = []
+    def add(g, o, name, team, put): people.append([g, o, contract(name, team), put])
+    def at(q, i):   # writes [salary, end] into list q at index i (padding with None)
+        def put(v): q[:] = q[:i] + [None] * max(0, i - len(q)) + v + q[i + 2:]
+        return put
+    def key(d):
+        return lambda v: d.update(sal=v[0], cx=v[1])
+    for p in D['PLAYERS']: add(p['pos'], p['ovr'], p['name'], p['team'], key(p))
+    for u in D['OLU']:
+        for q in u['players']: add('OL', q[1], q[0], u['team'], at(q, 4))          # [name, ovr, est, age, salary, end]
+    for u in D['DFU']:
+        for q in u['players']: add(q[1], q[3], q[2], u['team'], at(q, 6))          # [slot, group, name, ovr, est, age, salary, end]
+    for k in D['KICK']: add('K', k['ovr'], k['name'], k['team'], key(k))
+    for u in D['STU']: q = u['players'][0]; add('P', q[2], q[1], u['team'], at(q, 4))   # the punter: [P, name, ovr, est, salary, end]
+    for lst, team in [(u['players'], u['team']) for u in D['DEPTH']] + [(D['FA'], None)]:
+        for q in lst: add(q[0], q[2], q[1], team, at(q, 5))                        # [pos, name, ovr, age, spd or None, salary, end]
+    for lst in (D['KR'], D['PR']):
+        for k in lst: add('WR', k['ovr'], k['name'], k['team'], key(k))
+    # the curve: for each position and rating 40..99, the median APY of the real players there within 3 points, never falling as ratings rise
+    SAL = {}
+    for g in SAL_POS:
+        pts = [(o, c[0]) for gg, o, c, _ in people if gg == g and c]
+        row = []
+        for o in range(40, 100):
+            near = sorted(v for oo, v in pts if abs(oo - o) <= 3)
+            row.append(near[len(near) // 2] if len(near) >= 3 else None)
+        last = LEAGUE_MIN
+        for i, v in enumerate(row):
+            last = max(last, v if v is not None else last); row[i] = round(last, 2)
+        SAL[g] = row
+    curve = lambda g, o: SAL.get(g, SAL['S'])[min(99, max(40, o)) - 40]
+    real = 0
+    for g, o, c, put in people:
+        if c: real += 1; put([c[0], c[1]])
+        else: put([curve(g, o), 2027])   # no contract: a market deal through next season
+    D['SAL'] = SAL
+    json.dump(D, open(OUT, 'w'), separators=(',', ':'))
+    print('salaries:', real, 'real contracts of', len(people), 'players; the rest priced from the curve. Top of the curve:', {g: SAL[g][-1] for g in SAL_POS})
+
 if __name__ == '__main__':
-    if len(sys.argv) != 3 or sys.argv[1] not in ('fetch', 'build'): sys.exit(__doc__)
-    (fetch if sys.argv[1] == 'fetch' else build)(sys.argv[2])
+    if len(sys.argv) != 3 or sys.argv[1] not in ('fetch', 'build', 'salaries'): sys.exit(__doc__)
+    {'fetch': fetch, 'build': build, 'salaries': salaries}[sys.argv[1]](sys.argv[2])
+    if sys.argv[1] == 'build' and os.path.exists(os.path.join(sys.argv[2], 'contracts.json')): salaries(sys.argv[2])

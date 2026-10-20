@@ -462,7 +462,7 @@ function updateLobbyHints() {
   create.disabled = !S.api; join.disabled = !S.api;
   hint.textContent = !S.ready ? 'Connecting…' : S.api ? 'Create a room and send the code to a friend.' : 'Online rooms are unavailable right now. Practice vs CPU still works.';
 }
-const CAP_OPTS = [['0', 'No cap'], ['tight', 'Tight · $320M'], ['standard', 'Standard · $350M'], ['loose', 'Loose · $390M']];
+const CAP_OPTS = [['0', 'No cap'], ['tight', 'Tight · $330M'], ['standard', 'Standard · $360M'], ['loose', 'Loose · $400M']];
 function readCap() {
   const el = $('#cap'), v = el ? el.value : (lsGet('gd_cap') || '0');
   lsSet('gd_cap', v); return DR.CAPS[v] || 0;
