@@ -195,7 +195,7 @@ FRV.fa = A => {
   const fa = Object.values(L.players).filter(p => p.t === -1 && (FR.faPos === 'ALL' || p.p === FR.faPos)).sort((a, b) => b.o - a.o).slice(0, 40);
   const n = LG.rosterOf(L, A.tid).length, room = LG.capRoom(L, A.tid), sal = p => LG.salOf(p);
   return '<div class="panel"><div class="row between"><h3>Free agents</h3><select data-hc="fapos" aria-label="Position"><option>ALL</option>' + POSN.map(p => '<option' + (p === FR.faPos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select></div>' +
-    '<p class="hint">Roster ' + n + ' / ' + LG.ROSTER_MAX + ' · payroll $' + LG.payroll(L, A.tid) + 'M of the $' + LG.payrollCap(L) + 'M cap · <b>' + (room >= 0 ? '$' + room + 'M room' : '$' + (-room) + 'M over the cap') + '</b>. Free agents are paid like everyone else (rating and position).</p>' +
+    '<p class="hint">Roster ' + n + ' / ' + LG.ROSTER_MAX + ' · payroll $' + LG.payroll(L, A.tid) + 'M of the $' + LG.payrollCap(L) + 'M cap · <b>' + (room >= 0 ? '$' + room + 'M room' : '$' + (-room) + 'M over the cap') + '</b>. Free agents are paid like everyone else: their real contract, or the market price for their position and rating.</p>' +
     tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, fa, p => A.canEditRoster() ? '<button class="btn small" data-h="fr-sign" data-id="' + p.i + '"' + (sal(p) > room + 1e-6 || n >= LG.ROSTER_MAX ? ' disabled title="' + (n >= LG.ROSTER_MAX ? 'Roster is full' : 'Not enough cap room') + '"' : '') + '>Sign · $' + sal(p) + 'M</button>' : '')) + '</div>';
 };
 ACT['fr-sign'] = async t => { const r = await FR.A.act('sign', { pid: t.dataset.id }); if (r && !r.ok) toast(r.msg); };

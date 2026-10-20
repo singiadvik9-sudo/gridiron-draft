@@ -1,6 +1,6 @@
 /* ---------- tournaments (accounts only) ---------- */
 const NEWT = { name: 'The Pixels Bowl', teamMode: 'draft', early: 1, semi: 1, final: 1, max: 16, open: true, cap: 0 };
-const CAPSEG = [[0, 'No cap'], [320, 'Tight $320M'], [350, 'Standard $350M'], [390, 'Loose $390M']];
+const CAPSEG = [[0, 'No cap'], [330, 'Tight $330M'], [360, 'Standard $360M'], [400, 'Loose $400M']];
 const maxSeg = mode => mode === 'draft' ? [[4, '4'], [8, '8'], [16, '16']] : [[8, '8'], [16, '16'], [32, '32'], [64, '64']];
 const TNS = { code: '', ver: 0, T: null, tname: '' };
 const BOS = [[1, 'Single game'], [3, 'Best of 3'], [5, 'Best of 5']];
