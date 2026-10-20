@@ -57,6 +57,9 @@ Games are deterministic: every client and the server replay `seed + squads + pic
 ## Costs / limits
 Leagues and tournaments poll a tiny version key every 5 s while open. Free-tier Upstash (10k commands/day) is enough for casual groups; raise `ms` in `poll()` (`src/hub/01_core.js`) if you hit it. League documents are stored gzipped (~100-300 KB).
 
+## Change log
+Every update gets an entry at the top of `CHANGELOG` in `src/hub/00_changelog.js` (newest first; the id is the date, with -2, -3 for more releases the same day; written for players). The first time someone visits after an update they see **What's new** with every release since the one they last saw: an account remembers it on the server (`op: 'seen'` in `api/auth.js`, so it shows once on any device), a guest in the browser. A brand-new visitor is not shown the history; someone who played before the change log existed sees the latest release. The whole log is under What's new at the top. The releases so far were written from the git history.
+
 ## Develop
 ```
 python3 build.py          # inlines lib/ + src/ into public/index.html

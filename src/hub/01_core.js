@@ -41,7 +41,7 @@ function poll(fn, ms) {   // call fn repeatedly while the current view stays the
 }
 function renderHeader() {
   const el = $('#hdr-right'); if (!el) return;
-  el.innerHTML = '<button class="btn small" data-h="home">Menu</button>' +
+  el.innerHTML = '<button class="btn small ghost" data-h="changes">What\'s new</button><button class="btn small" data-h="home">Menu</button>' +
     (H.user ? '<button class="btn small" data-h="account">' + esc(H.user) + '</button>' : '<button class="btn small primary" data-h="auth">Sign in</button>');
 }
 
@@ -53,7 +53,7 @@ function signOut(silent) {
 }
 async function boot() {
   if (H.token) {
-    try { const r = await G.api({ op: 'me' }, 'auth'); H.user = r.name; lsSet('gd_user', r.name); }
+    try { const r = await G.api({ op: 'me' }, 'auth'); H.user = r.name; H.seen = r.seen; H.created = r.created; lsSet('gd_user', r.name); }
     catch (e) { if (e.status === 401) { H.token = ''; H.user = ''; lsSet('gd_tok', null); lsSet('gd_user', null); } }
   }
 }
@@ -139,3 +139,30 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Enter' && ev.target && (ev.target.id === 'au-p' || ev.target.id === 'au-n')) ACT['auth-go']();
   if (ev.key === 'Enter' && ev.target && ev.target.id === 'jn-code') ACT['join-code']();
 });
+
+/* ---------- What's new ----------
+   The first visit after an update shows every change-log release since the last one this person saw: for an account that is kept on
+   the account (any device), for a guest in this browser. A brand-new visitor is not shown the history; someone who played before the
+   change log existed (an account made before it, or saved data here) sees the latest release. */
+const seenKey = () => H.user ? H.seen : lsGet('gd_seen');
+function unseen() {
+  const seen = seenKey(), newest = CHANGELOG[0].id;
+  if (seen === newest) return [];
+  if (seen) return CHANGELOG.filter(r => r.id > seen);
+  const played = H.user ? (H.created || 0) < Date.parse(CHANGELOG[0].id.slice(0, 10)) : ['gd_cm1', 'gd_cm2', 'gd_cm3', 'gd_view', 'gd_user', 'gd_tok'].some(k => lsGet(k) != null);
+  return played ? CHANGELOG.slice(0, 1) : [];
+}
+function markSeen() {
+  const v = CHANGELOG[0].id;
+  lsSet('gd_seen', v);
+  if (H.user && H.seen !== v) { H.seen = v; call('auth', { op: 'seen', v }).catch(() => {}); }
+}
+const releaseHTML = r => '<div class="rel"><h4 class="pos-h">' + esc(r.title) + ' <small>' + esc(r.id.slice(0, 10)) + '</small></h4><ul class="news">' + r.items.map(t => '<li>' + esc(t) + '</li>').join('') + '</ul></div>';
+function whatsNew() {
+  const list = unseen();
+  if (!list.length) { if (!seenKey()) markSeen(); return; }
+  G.openModal('<h3>What\'s new</h3>' + list.map(releaseHTML).join('') + '<p class="hint">The full change log is under What\'s new at the top.</p>');
+  markSeen();
+}
+V.changes = () => { markSeen(); setMain('<section class="panel"><h2>What\'s new</h2><p class="sub">Every update to 4th and Pixels, newest first.</p>' + CHANGELOG.map(releaseHTML).join('') + '</section>'); };
+ACT.changes = () => go('changes');

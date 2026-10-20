@@ -542,3 +542,5 @@ body.ingame.fs.gover .mast { display: flex; }
 .use small { opacity: .75; }
 .inj { font-size: 10px; letter-spacing: .06em; color: #fff; background: #b3261e; border-radius: 4px; padding: 1px 5px; }
 .rotl { opacity: .85; }
+.rel { display: grid; gap: 6px; }
+.rel .news li { line-height: 1.4; }

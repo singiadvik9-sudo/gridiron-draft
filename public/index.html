@@ -547,6 +547,8 @@ body.ingame.fs.gover .mast { display: flex; }
 .use small { opacity: .75; }
 .inj { font-size: 10px; letter-spacing: .06em; color: #fff; background: #b3261e; border-radius: 4px; padding: 1px 5px; }
 .rotl { opacity: .85; }
+.rel { display: grid; gap: 6px; }
+.rel .news li { line-height: 1.4; }
 
 </style>
 <div class="wrap">
@@ -5938,6 +5940,48 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
 <script>
 (function(){
 'use strict';
+/* ---------- change log ----------
+   Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
+   shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
+const CHANGELOG = [
+  { id: '2026-10-19', title: 'Real salaries, usage, injuries, fatigue and your own starters', items: [
+    'Real salaries: every player is paid his real contract. Players without one, and anyone whose contract runs out, are paid the real market rate for his position and rating. Payroll cap $375M; quick-game caps $330M / $360M / $400M; draft-league caps $200M / $230M / $260M.',
+    'Returners: no more kick and punt returner positions. Each team names one of its backs, receivers or corners (Roster tab). The quick game is 9 picks and you choose your returner under your lineup.',
+    'Usage: every back, receiver and tight end has a usage, his share of snaps, that you set on the Roster tab. Who plays changes snap by snap with the play: fast receivers on deep shots, a third receiver in the slot on passing downs. Stats go to whoever was on the field.',
+    'Development follows playing time: young players who play grow faster, veterans who play hold on a little longer.',
+    'Injuries: about 1.5 per team per game, most for a week or two. Injured reserve frees a spot on the 53 (at least 4 weeks). CPU teams manage their own. Everyone is healthy again in the offseason.',
+    'Set your own starters: on the Roster tab pick who starts at every position (start a rookie to develop him). Players grow with the snaps they play.',
+    'Fatigue: players tire as they stay on the field and play a little worse when tired, so backs, receivers and tight ends rotate more as a drive goes on. Rest brings them back.',
+    'This change log: the first time you visit after an update you see what is new. Open it any time from What\'s new at the top.'
+  ] },
+  { id: '2026-10-14', title: 'Real 53-man rosters, smarter drafts and trades', items: [
+    'Every team is its real 53-man roster with Madden NFL 27 ratings, players on injured reserve included (Myles Garrett is a Ram).',
+    'Free agents cost salary and need cap room to sign.',
+    'Quick game: Pick for me and Auto-draft plan the best lineup the salary cap allows.',
+    'New draft leagues take whole O-lines and defenses as one pick each; the CPU plans the best roster under the cap.',
+    'Trades: shop CPU offers for one position, and put players on the trading block to get bids.',
+    'Draft picks: always three years tradeable, valued by the team\'s rating, and no longer worth less for being further away.',
+    'Schedules spread division games through the season.',
+    'Stats tab: look up any team\'s player stats.',
+    '3D views: passes arc over defenders instead of through them.'
+  ] },
+  { id: '2026-10-13', title: 'Kickoffs, box scores and 3D cameras', items: [
+    'Kickoff choice after every score, with onside kicks; more fumbles and pass breakups; defenders contest the ball in the air.',
+    'A box score at the end of every game.',
+    'The game fits one screen with the play calls always in view, and has a full-screen mode.',
+    'Six camera angles, five of them in 3D (press V).',
+    'League managers can make a team forfeit an open game.'
+  ] },
+  { id: '2026-10-12', title: '4th and Pixels', items: [
+    'Snake drafts from one shared pool for quick games and tournaments, with an optional salary cap.',
+    'Kickers, special teams and playable kick and punt returns.',
+    'Play your players live: run the quarterback, the ball carrier or a defender yourself.',
+    'A real game clock: 2:00 quarters, NFL stoppage rules, timeouts, spikes and kneels.',
+    'Named plays in every call type on offense and defense.',
+    'Campaign with real starters and backups.'
+  ] }
+];
+
 /* Hub: menus, accounts, campaign, leagues and tournaments. Shares one scope across the hub/*.js parts. */
 const G = window.GAME, LG = window.LG, E = window.E;
 const $ = (s, r) => (r || document).querySelector(s);
@@ -5981,7 +6025,7 @@ function poll(fn, ms) {   // call fn repeatedly while the current view stays the
 }
 function renderHeader() {
   const el = $('#hdr-right'); if (!el) return;
-  el.innerHTML = '<button class="btn small" data-h="home">Menu</button>' +
+  el.innerHTML = '<button class="btn small ghost" data-h="changes">What\'s new</button><button class="btn small" data-h="home">Menu</button>' +
     (H.user ? '<button class="btn small" data-h="account">' + esc(H.user) + '</button>' : '<button class="btn small primary" data-h="auth">Sign in</button>');
 }
 
@@ -5993,7 +6037,7 @@ function signOut(silent) {
 }
 async function boot() {
   if (H.token) {
-    try { const r = await G.api({ op: 'me' }, 'auth'); H.user = r.name; lsSet('gd_user', r.name); }
+    try { const r = await G.api({ op: 'me' }, 'auth'); H.user = r.name; H.seen = r.seen; H.created = r.created; lsSet('gd_user', r.name); }
     catch (e) { if (e.status === 401) { H.token = ''; H.user = ''; lsSet('gd_tok', null); lsSet('gd_user', null); } }
   }
 }
@@ -6079,6 +6123,33 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Enter' && ev.target && (ev.target.id === 'au-p' || ev.target.id === 'au-n')) ACT['auth-go']();
   if (ev.key === 'Enter' && ev.target && ev.target.id === 'jn-code') ACT['join-code']();
 });
+
+/* ---------- What's new ----------
+   The first visit after an update shows every change-log release since the last one this person saw: for an account that is kept on
+   the account (any device), for a guest in this browser. A brand-new visitor is not shown the history; someone who played before the
+   change log existed (an account made before it, or saved data here) sees the latest release. */
+const seenKey = () => H.user ? H.seen : lsGet('gd_seen');
+function unseen() {
+  const seen = seenKey(), newest = CHANGELOG[0].id;
+  if (seen === newest) return [];
+  if (seen) return CHANGELOG.filter(r => r.id > seen);
+  const played = H.user ? (H.created || 0) < Date.parse(CHANGELOG[0].id.slice(0, 10)) : ['gd_cm1', 'gd_cm2', 'gd_cm3', 'gd_view', 'gd_user', 'gd_tok'].some(k => lsGet(k) != null);
+  return played ? CHANGELOG.slice(0, 1) : [];
+}
+function markSeen() {
+  const v = CHANGELOG[0].id;
+  lsSet('gd_seen', v);
+  if (H.user && H.seen !== v) { H.seen = v; call('auth', { op: 'seen', v }).catch(() => {}); }
+}
+const releaseHTML = r => '<div class="rel"><h4 class="pos-h">' + esc(r.title) + ' <small>' + esc(r.id.slice(0, 10)) + '</small></h4><ul class="news">' + r.items.map(t => '<li>' + esc(t) + '</li>').join('') + '</ul></div>';
+function whatsNew() {
+  const list = unseen();
+  if (!list.length) { if (!seenKey()) markSeen(); return; }
+  G.openModal('<h3>What\'s new</h3>' + list.map(releaseHTML).join('') + '<p class="hint">The full change log is under What\'s new at the top.</p>');
+  markSeen();
+}
+V.changes = () => { markSeen(); setMain('<section class="panel"><h2>What\'s new</h2><p class="sub">Every update to 4th and Pixels, newest first.</p>' + CHANGELOG.map(releaseHTML).join('') + '</section>'); };
+ACT.changes = () => go('changes');
 
 /* ---------- franchise UI (shared by the campaign and by league play) ---------- */
 const FR = { A: null, tab: 'home', to: null, give: [], get: [], offers: null, faPos: 'ALL', dpos: 'ALL', sview: 'season', dq: '', rtid: null, stid: null };
@@ -6939,7 +7010,7 @@ ACT['tn-play'] = async t => {
 window.HUB = {
   get token() { return H.token; }, get user() { return H.user; },
   boot, show, renderHeader,
-  ready() { G.resume(); }
+  ready() { G.resume(); whatsNew(); }
 };
 
 })();
