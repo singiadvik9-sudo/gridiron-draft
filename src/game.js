@@ -581,8 +581,15 @@ function leave() {
 
 /* ---------- snake draft ---------- */
 const money = x => '$' + (Math.round(x * 10) / 10) + 'M';
-const KLAB = { QB: 'QB', HB: 'HB', WR: 'WR', TE: 'TE', OL: 'O-Line', DEF: 'Defense', K: 'Kicker', PR: 'Punt Ret', KR: 'Kick Ret', ST: 'Spec Teams' };
-const SLOT_ORDER = ['QB', 'HB', 'WR', 'WR', 'TE', 'OL', 'DEF', 'K', 'PR', 'KR', 'ST'];
+const KLAB = { QB: 'QB', HB: 'HB', WR: 'WR', TE: 'TE', OL: 'O-Line', DEF: 'Defense', K: 'Kicker', ST: 'Spec Teams' };
+const SLOT_ORDER = ['QB', 'HB', 'WR', 'WR', 'TE', 'OL', 'DEF', 'K', 'ST'];
+// the returner: one of the drafted back, receivers or the defense's starting corners (E.RET_FROM), the best by default
+function sdReturners(ids) {
+  const g = k => ids.filter(i => DR.BY[i].k === k).map(i => DR.BY[i].n), wr = g('WR');
+  if (!g('HB').length || wr.length < 2 || !g('DEF').length) return null;
+  const r = []; r[1] = g('HB')[0]; r[2] = wr[0]; r[3] = wr[1]; r[6] = g('DEF')[0];
+  const c = E.returnerCands(r); return { c, best: E.bestReturner(r) };
+}
 // o: {label, d, me, names[], cpu[] (local CPU teams), localCpu, post(cid)->draft, poll()->draft, onDone(roster, draft)}
 function sdStart(o) {
   sdStop();
@@ -646,6 +653,11 @@ function sdUpdate() {
   $('#sd-lineup').innerHTML = '<h3>' + esc(nm(sd.me)) + (d.cap ? ' · ' + money(DR.spent(mine)) : '') + '</h3><ul class="sd-lu">' + slots.map(x => x.c ?
     '<li><span class="k">' + x.k + '</span><b>' + esc(x.c.name) + '</b><i>' + x.c.ovr + '</i><span class="m">' + money(x.c.sal) + '</span></li>' :
     '<li class="empty"><span class="k">' + x.k + '</span><b>—</b></li>').join('') + '</ul>';
+  const rets = sdReturners(mine);
+  if (rets) {   // who returns kicks and punts: the best by default, the person can change it
+    if (sd.ret == null || !rets.c[sd.ret]) sd.ret = rets.best;
+    $('#sd-lineup').innerHTML += '<label class="fld" for="sd-ret">Returner</label><select id="sd-ret" data-act="sd-ret">' + rets.c.map((x, i) => x ? '<option value="' + i + '"' + (i === sd.ret ? ' selected' : '') + '>' + esc(E.RET_FROM[i].replace(/\d$/, '') + ' ' + x.n) + ' · ' + x.rt + (i === rets.best ? ' (best)' : '') + '</option>' : '').join('') + '</select>';
+  }
   const recent = d.picks.slice(-10).reverse();
   let others = '';
   if (d.n === 2) {
@@ -712,11 +724,11 @@ function sdFinish() {
   if (sd.timer) { clearTimeout(sd.timer); sd.timer = 0; }
   if (sd.pollT) { clearTimeout(sd.pollT); sd.pollT = 0; }
   if (S.mode === 'local' && sd.localCpu) {
-    ['a', 'b'].forEach((seat, t) => { S.seats[seat] = { pid: t === sd.me ? PID : 'cpu', name: sd.names[t], status: 'ready', roster: DR.toRoster(DR.teamIds(sd.d, t)) }; });
+    ['a', 'b'].forEach((seat, t) => { S.seats[seat] = { pid: t === sd.me ? PID : 'cpu', name: sd.names[t], status: 'ready', roster: DR.toRoster(DR.teamIds(sd.d, t), t === sd.me ? sd.ret : null) }; });
     S.sd = null; S.screen = null; render(); return;
   }
   if (S.mode === 'sdraft') {
-    const cb = sd.onDone, roster = DR.toRoster(DR.teamIds(sd.d, sd.me)), d = sd.d;
+    const cb = sd.onDone, roster = DR.toRoster(DR.teamIds(sd.d, sd.me), sd.ret), d = sd.d;
     if (cb) cb(roster, d); else sdUpdate();
     return;
   }
@@ -741,7 +753,7 @@ function squadListHTML(team) {
   q.ol.p.forEach((p, n) => { h += row('OL', gk(n), p[0], p[1], ''); });
   q.df.p.forEach((p, n) => { h += row(p[0], fieldKey(genericKey({ abbr: q.df.tm, c1: '#222222', c2: '#222222' }, 'DEF', n), side), p[2], p[3], ''); });
   if (q.k) {
-    [['K', q.k], ['PR', q.pr], ['KR', q.kr]].forEach(r => { h += row(r[0], sk(r[1]), r[1].n, r[1].o, r[1].tm); });
+    [['K', q.k], ['RET', q.kr]].forEach(r => { h += row(r[0], sk(r[1]), r[1].n, r[1].o, r[1].tm); });   // one returner for kicks and punts
     const stN = q.st.p.slice().sort((x, y) => y[2] - x[2]).slice(0, 2).map(p => p[1]).join(', ');
     h += row('ST', fieldKey(genericKey({ abbr: q.st.tm, c1: '#222222', c2: '#222222' }, 'DEF', 9), side), (q.st.tm || '') + ' special teams', E.teamUnits({ squad: q }).stOvr, stN);
   }
@@ -750,11 +762,13 @@ function squadListHTML(team) {
 function rosterListHTML(team) {
   if (!team.roster) return squadListHTML(team);
   let rows = '';
+  const ros = E.normRoster(team.roster), rc = E.returnerCands(ros)[ros[9]];
   E.SLOTS.forEach((s, i) => {
-    const e = E.entity(i, team.roster[i]), g = E.grade(e.ovr);
+    const e = E.entity(i, ros[i]), g = E.grade(e.ovr);
     const nm = s.kind === 'OL' ? E.unitName(e, 'OL') : s.kind === 'DEF' ? E.unitName(e, 'DEF') : s.kind === 'ST' ? e.tm.nick + ' Special Teams' : e.name;
-    rows += '<li><span class="r-pos">' + s.short + '</span>' + spCanvas(slotKey(i, team.roster[i]), 2) + '<span class="r-name">' + esc(nm) + '</span><span class="r-type" style="--tc:' + brite(e.tm) + '">' + esc(e.tm.nick) + '</span><span class="r-fit">' + e.ovr + '</span><span class="grade g-' + g + '">' + g + '</span></li>';
+    rows += '<li><span class="r-pos">' + s.short + '</span>' + spCanvas(slotKey(i, ros[i]), 2) + '<span class="r-name">' + esc(nm) + '</span><span class="r-type" style="--tc:' + brite(e.tm) + '">' + esc(e.tm.nick) + '</span><span class="r-fit">' + e.ovr + '</span><span class="grade g-' + g + '">' + g + '</span></li>';
   });
+  if (rc) rows += '<li><span class="r-pos">RET</span><span class="r-name">' + esc(rc.n) + '</span><span class="r-type">returns kicks and punts</span><span class="r-fit">' + rc.rt + '</span></li>';
   return '<ul class="roster">' + rows + '</ul>';
 }
 function handleErr(e) {
@@ -1142,6 +1156,9 @@ document.addEventListener('pointerdown', ev => {
   const k = ev.target.closest && ev.target.closest('[data-lvk]'); if (k && LV.on) { ev.preventDefault(); LV.push(+k.dataset.lvk); }
 });
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => document.addEventListener(t, ev => { const h = ev.target.closest && ev.target.closest('[data-hold]'); if (h && LV.on) LV.hold(h.dataset.hold, false); }));
+document.addEventListener('change', ev => {   // the returner pick in the draft lineup
+  if (ev.target && ev.target.id === 'sd-ret' && S.sd) { S.sd.ret = +ev.target.value; sdUpdate(); }
+});
 document.addEventListener('input', ev => {
   if (ev.target && ev.target.id === 'sd-q' && S.sd) { S.sd.q = ev.target.value; sdList(); return; }
   if (ev.target && ev.target.id === 'code') ev.target.value = ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
