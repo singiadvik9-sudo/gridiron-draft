@@ -538,3 +538,5 @@ body.ingame.fs.gover .mast { display: flex; }
 @media (min-width: 761px) and (min-height: 620px) {
   body.ingame:not(.gover) .fieldhost.v3d { aspect-ratio: auto; align-self: stretch; overflow: visible; }
 }
+.use input { width: 3.6em; padding: 3px 4px; margin-right: 2px; }
+.use small { opacity: .75; }
