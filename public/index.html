@@ -546,6 +546,7 @@ body.ingame.fs.gover .mast { display: flex; }
 .use input { width: 3.6em; padding: 3px 4px; margin-right: 2px; }
 .use small { opacity: .75; }
 .inj { font-size: 10px; letter-spacing: .06em; color: #fff; background: #b3261e; border-radius: 4px; padding: 1px 5px; }
+.rotl { opacity: .85; }
 
 </style>
 <div class="wrap">
@@ -901,7 +902,7 @@ function defOptions() { return Object.keys(DEF_CALLS).map(id => ({ id, cat: DEF_
 function initState(seed) {
   const firstRecv = (seed % 2 === 0) ? 'a' : 'b';
   return { poss: firstRecv, firstRecv, ballOn: 25, down: 1, toGo: 10, score: { a: 0, b: 0 },
-           playNo: 0, over: false, winner: null, ot: false, q: 1, clock: QLEN, ro: 0, to: { a: TO_HALF, b: TO_HALF }, kick: null };
+           playNo: 0, over: false, winner: null, ot: false, q: 1, clock: QLEN, ro: 0, to: { a: TO_HALF, b: TO_HALF }, kick: null, fat: {} };
 }
 // ro: seconds that ran off after the last snap while the clock was still going (a timeout before the next snap takes them back)
 function clockInfo(st) {
@@ -1278,6 +1279,29 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
    passing downs a receiver can take the TE spot (the slot). Drawn from the game seed, so every screen and the server agree.
    Squads without rot (the quick game) always play their five. */
 const PERS_PASS = { PASS_S: 'quick', SCREEN: 'quick', PASS_M: 'mid', PASS_D: 'deep' };
+/* fatigue (squads with a rotation): st.fat[id] is a player's energy, 1 = fresh. Every run or pass snap on the field costs some (backs the
+   most), a snap off the field, a kick, a new quarter and halftime give it back. A tired player is drawn less often and plays below his
+   rating (up to FAT_DROP points when spent), so the rotation brings in fresher legs as a drive goes on. Part of the game state, so the
+   replay, the live sim and the server agree. */
+const FAT_COST = { HB: 0.1, WR: 0.05, TE: 0.06 }, FAT_REST = 0.05, FAT_DROP = 14;
+const energy = (st, id) => st.fat && st.fat[id] != null ? st.fat[id] : 1;
+function fatigueAfter(st, nst, sn, teams, pick) {
+  const oc = OFF[pick], play = oc && (oc.kind === 'run' || oc.kind === 'pass');
+  const fat = Object.assign({}, st.fat || {}), on = {};
+  if (play && sn.on) ['HB', 'WR1', 'WR2', 'TE'].forEach(k => { on[sn.on[k][0]] = 1; });
+  const bonus = nst.q !== st.q ? (st.q === 2 ? 0.5 : 0.25) : 0;   // between quarters, and halftime
+  ['a', 'b'].forEach(side => {
+    const rot = teams[side].squad.rot; if (!rot) return;
+    ['HB', 'WR', 'TE'].forEach(pos => (rot[pos] || []).forEach(p => {
+      let e = fat[p.i] != null ? fat[p.i] : 1;
+      if (side === st.poss && on[p.i]) e -= FAT_COST[pos] * (1.2 - Math.min(0.4, Math.max(0, (p.o - 70) / 75)));   // better conditioned stars tire a little slower
+      else e += play ? FAT_REST : FAT_REST * 0.7;
+      e = Math.min(1, Math.max(0, e + bonus));
+      if (e >= 1) delete fat[p.i]; else fat[p.i] = Math.round(e * 1000) / 1000;
+    }));
+  });
+  nst.fat = fat;
+}
 function persFit(p, cat, slot) {
   const o = (p.o - 55) / 40, s = ((p.s || 85) - 78) / 18;
   if (cat === 'deep') return Math.max(0.15, 0.35 + 0.35 * o + 0.9 * s);
@@ -1306,14 +1330,15 @@ function personnel(sq, st, pick, seed, side) {
   if (!rot || !oc || (oc.kind !== 'run' && oc.kind !== 'pass')) return sq;
   const R = mulberry32(hashStr(seed + ':pers:' + st.playNo + ':' + side));
   const cat = oc.kind === 'pass' ? PERS_PASS[oc.cat] || 'mid' : oc.cat;
-  const use = p => (p.u == null ? 50 : p.u) / 100;
+  const en = p => energy(st, p.i), use = p => (p.u == null ? 50 : p.u) / 100 * (0.2 + 0.8 * en(p) * en(p));   // tired players come out more
   const hb = rot.HB && rot.HB.length ? persDraw(R, rot.HB, 1, p => use(p) * persFit(p, cat, 'HB'))[0] : sq.hb;
   const wrs = rot.WR && rot.WR.length >= 2 ? persDraw(R, rot.WR, 2, p => use(p) * persFit(p, cat, 'WR')) : sq.wr;
   // the TE spot: a tight end, or on passing downs (or deep shots) a third receiver in the slot
   const slotish = oc.kind === 'pass' && (st.toGo >= 7 || st.down === 3 || cat === 'deep') ? 0.5 : 0.05;
   const yc = (rot.TE || []).map(p => ({ p, w: use(p) * persFit(p, cat, 'TE') })).concat((rot.WR || []).filter(p => wrs.indexOf(p) < 0).map(p => ({ p, w: use(p) * persFit(p, cat, 'WR') * slotish })));
   const te = yc.length ? persDraw(R, yc, 1, x => x.w)[0].p : sq.te;
-  return Object.assign({}, sq, { hb, wr: [wrs[0], wrs[1]], te });
+  const tired = p => { const e = en(p); return e >= 0.999 ? p : Object.assign({}, p, { o: Math.round(p.o - (1 - e) * FAT_DROP), e: Math.round(e * 100) }); };   // and play below their rating
+  return Object.assign({}, sq, { hb: tired(hb), wr: [tired(wrs[0]), tired(wrs[1])], te: tired(te) });
 }
 // the teams for one snap: the offense with this snap's personnel; U for the offense worked out again when it changed
 function snapTeams(teams, U, st, pick, seed, cache) {
@@ -1321,10 +1346,11 @@ function snapTeams(teams, U, st, pick, seed, cache) {
   if (!sq.rot) return { teams, U, on: null };
   const ps = personnel(sq, st, pick, seed, off);
   if (ps === sq) return { teams, U, on: null };
-  const key = off + [ps.hb.i, ps.wr[0].i, ps.wr[1].i, ps.te.i].join(',');
+  const key = off + [ps.hb, ps.wr[0], ps.wr[1], ps.te].map(p => p.i + ':' + p.o).join(',');
   const t2 = Object.assign({}, teams, { [off]: Object.assign({}, teams[off], { squad: ps }) });
   const uo = cache[key] || (cache[key] = teamUnits(t2[off]));
-  const on = { QB: [ps.qb.i, ps.qb.n], HB: [ps.hb.i, ps.hb.n], WR1: [ps.wr[0].i, ps.wr[0].n], WR2: [ps.wr[1].i, ps.wr[1].n], TE: [ps.te.i, ps.te.n] };
+  const ent = p => [p.i, p.n, p.e != null ? p.e : 100];   // [id, name, energy %]
+  const on = { QB: ent(ps.qb), HB: ent(ps.hb), WR1: ent(ps.wr[0]), WR2: ent(ps.wr[1]), TE: ent(ps.te) };
   return { teams: t2, U: Object.assign({}, U, { [off]: uo }), on };
 }
 function replay(seed, teams, moves, cpuSides) {
@@ -1362,6 +1388,7 @@ function replay(seed, teams, moves, cpuSides) {
     }
     if (lv) res.entry.ctl = { o: om.ctl ? 1 : 0, d: dm && dm.ctl ? 1 : 0 };
     if (sn.on) res.entry.on = sn.on;   // who played the snap: [id, name] per offensive spot
+    if (teams.a.squad.rot || teams.b.squad.rot) fatigueAfter(st, res.state, sn, teams, legalOff(st, om.pick));
     st = res.state; log.push(res.entry);
   }
   return { state: st, log, U, wait };
@@ -1539,7 +1566,7 @@ function cpuDefense(st, rnd) {
 
 const E = {
   DATA: D, QLEN, CAP, noDef, TEAMS, PLAYERS, OLU, DFU, SLOTS, GROUPS, OFF, OFF_CATS, DEF_CALLS, DEF_CATS, MATCH, matchup, defOptions,
-  KICK, KRS, PRS, STU, stSquad, stFrom, personnel, snapTeams, RET_FROM, normRoster, returnerCands, bestReturner, withReturner, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
+  KICK, KRS, PRS, STU, stSquad, stFrom, personnel, snapTeams, energy, FAT_DROP, RET_FROM, normRoster, returnerCands, bestReturner, withReturner, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
   drawOptions, autoDraft, fgDist, legalOff, offOptions, initState, clockInfo,
   KICKS, cpuKick, boxScore, stepGame, replay, lastCtl, retInfo, cpuOffense, cpuDefense, cleanMoves, cleanTrace, cpuTO
 };
@@ -5138,6 +5165,10 @@ function squadListHTML(team) {
   const row = (pos, key, name, ovr, tag) => '<li><span class="r-pos">' + pos + '</span>' + spCanvas(key, 2) + '<span class="r-name">' + esc(name) + '</span><span class="r-type">' + esc(tag || '') + '</span><span class="r-fit">' + ovr + '</span><span class="grade g-' + E.grade(ovr) + '">' + E.grade(ovr) + '</span></li>';
   let h = '';
   [['QB', q.qb], ['HB', q.hb], ['WR', q.wr[0]], ['WR', q.wr[1]], ['TE', q.te]].forEach(r => { h += row(r[0], sk(r[1]), r[1].n, r[1].o, r[1].tm); });
+  if (q.rot) {   // the rotation and how fresh each one is right now (fatigue: tired players come out more and play a little worse)
+    const st = S.G && S.G.state, en = p => Math.round(100 * E.energy(st || {}, p.i));
+    ['HB', 'WR', 'TE'].forEach(pos => (q.rot[pos] || []).forEach(p => { h += '<li class="rotl"><span class="r-pos">' + pos + '</span><span class="r-name">' + esc(p.n) + '</span><span class="r-type">use ' + p.u + '% · energy ' + en(p) + '%</span><span class="r-fit">' + p.o + '</span></li>'; }));
+  }
   const gk = n => fieldKey(genericKey({ abbr: q.ol.tm, c1: '#222222', c2: '#222222' }, 'OL', n), side);
   q.ol.p.forEach((p, n) => { h += row('OL', gk(n), p[0], p[1], ''); });
   q.df.p.forEach((p, n) => { h += row(p[0], fieldKey(genericKey({ abbr: q.df.tm, c1: '#222222', c2: '#222222' }, 'DEF', n), side), p[2], p[3], ''); });
