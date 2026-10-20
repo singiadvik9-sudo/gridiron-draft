@@ -540,3 +540,4 @@ body.ingame.fs.gover .mast { display: flex; }
 }
 .use input { width: 3.6em; padding: 3px 4px; margin-right: 2px; }
 .use small { opacity: .75; }
+.inj { font-size: 10px; letter-spacing: .06em; color: #fff; background: #b3261e; border-radius: 4px; padding: 1px 5px; }
