@@ -543,6 +543,8 @@ body.ingame.fs.gover .mast { display: flex; }
 @media (min-width: 761px) and (min-height: 620px) {
   body.ingame:not(.gover) .fieldhost.v3d { aspect-ratio: auto; align-self: stretch; overflow: visible; }
 }
+.use input { width: 3.6em; padding: 3px 4px; margin-right: 2px; }
+.use small { opacity: .75; }
 
 </style>
 <div class="wrap">
@@ -1268,11 +1270,67 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
   return { state: s, entry };
 }
 
+/* ---------- who is on the field (campaign and league squads) ----------
+   A squad from a franchise roster carries rot: every running back, receiver and tight end with u, his usage (0-100, set by the coach).
+   On each run or pass snap the HB, the two WR spots and the TE spot are filled from it: weighted by usage and by how well the player
+   fits the play (speed for deep shots, overall for quick and intermediate routes; on runs speed outside, overall inside), and on
+   passing downs a receiver can take the TE spot (the slot). Drawn from the game seed, so every screen and the server agree.
+   Squads without rot (the quick game) always play their five. */
+const PERS_PASS = { PASS_S: 'quick', SCREEN: 'quick', PASS_M: 'mid', PASS_D: 'deep' };
+function persFit(p, cat, slot) {
+  const o = (p.o - 55) / 40, s = ((p.s || 85) - 78) / 18;
+  if (cat === 'deep') return Math.max(0.15, 0.35 + 0.35 * o + 0.9 * s);
+  if (cat === 'quick') return Math.max(0.15, 0.4 + 0.8 * o + 0.15 * s);
+  if (cat === 'mid') return Math.max(0.15, 0.4 + 0.7 * o + 0.3 * s);
+  if (cat === 'RUN_OUT') return Math.max(0.15, 0.4 + 0.5 * o + (slot === 'HB' ? 0.6 * s : 0));
+  return Math.max(0.15, 0.4 + 0.8 * o);   // inside runs: the best players (and blockers)
+}
+// n of the list, each in with probability proportional to his weight (at most 1): a systematic draw, so a player's usage is his share of snaps
+function persDraw(R, list, n, w) {
+  const ws = list.map(p => Math.max(0, w(p))), pr = ws.map(() => 0);
+  let left = n, free = list.map((_, i) => i);
+  for (let pass = 0; pass < list.length && left > 0 && free.length; pass++) {
+    const tot = free.reduce((t, i) => t + ws[i], 0); if (tot <= 0) break;
+    const full = free.filter(i => left * ws[i] / tot >= 1);
+    if (!full.length) { free.forEach(i => { pr[i] = left * ws[i] / tot; }); break; }
+    full.forEach(i => { pr[i] = 1; }); left -= full.length; free = free.filter(i => full.indexOf(i) < 0);
+  }
+  const out = [], u = R(); let c = 0;
+  list.forEach((p, i) => { const a = Math.floor(c + u); c += pr[i]; if (Math.floor(c + u) > a && out.length < n) out.push(p); });
+  for (let i = 0; out.length < n && i < list.length; i++) if (out.indexOf(list[i]) < 0) out.push(list[i]);   // (rounding) fill up
+  return out;
+}
+function personnel(sq, st, pick, seed, side) {
+  const rot = sq.rot, oc = OFF[pick];
+  if (!rot || !oc || (oc.kind !== 'run' && oc.kind !== 'pass')) return sq;
+  const R = mulberry32(hashStr(seed + ':pers:' + st.playNo + ':' + side));
+  const cat = oc.kind === 'pass' ? PERS_PASS[oc.cat] || 'mid' : oc.cat;
+  const use = p => (p.u == null ? 50 : p.u) / 100;
+  const hb = rot.HB && rot.HB.length ? persDraw(R, rot.HB, 1, p => use(p) * persFit(p, cat, 'HB'))[0] : sq.hb;
+  const wrs = rot.WR && rot.WR.length >= 2 ? persDraw(R, rot.WR, 2, p => use(p) * persFit(p, cat, 'WR')) : sq.wr;
+  // the TE spot: a tight end, or on passing downs (or deep shots) a third receiver in the slot
+  const slotish = oc.kind === 'pass' && (st.toGo >= 7 || st.down === 3 || cat === 'deep') ? 0.5 : 0.05;
+  const yc = (rot.TE || []).map(p => ({ p, w: use(p) * persFit(p, cat, 'TE') })).concat((rot.WR || []).filter(p => wrs.indexOf(p) < 0).map(p => ({ p, w: use(p) * persFit(p, cat, 'WR') * slotish })));
+  const te = yc.length ? persDraw(R, yc, 1, x => x.w)[0].p : sq.te;
+  return Object.assign({}, sq, { hb, wr: [wrs[0], wrs[1]], te });
+}
+// the teams for one snap: the offense with this snap's personnel; U for the offense worked out again when it changed
+function snapTeams(teams, U, st, pick, seed, cache) {
+  const off = st.poss, sq = teams[off].squad;
+  if (!sq.rot) return { teams, U, on: null };
+  const ps = personnel(sq, st, pick, seed, off);
+  if (ps === sq) return { teams, U, on: null };
+  const key = off + [ps.hb.i, ps.wr[0].i, ps.wr[1].i, ps.te.i].join(',');
+  const t2 = Object.assign({}, teams, { [off]: Object.assign({}, teams[off], { squad: ps }) });
+  const uo = cache[key] || (cache[key] = teamUnits(t2[off]));
+  const on = { QB: [ps.qb.i, ps.qb.n], HB: [ps.hb.i, ps.hb.n], WR1: [ps.wr[0].i, ps.wr[0].n], WR2: [ps.wr[1].i, ps.wr[1].n], TE: [ps.te.i, ps.te.n] };
+  return { teams: t2, U: Object.assign({}, U, { [off]: uo }), on };
+}
 function replay(seed, teams, moves, cpuSides) {
   cpuSides = cpuSides || [];
   let st = initState(seed);
   const log = [];
-  const U = { a: teamUnits(teams.a), b: teamUnits(teams.b) };
+  const U = { a: teamUnits(teams.a), b: teamUnits(teams.b) }, pcache = {};
   let guard = 0, wait = null;
   while (!st.over && guard++ < 320) {
     const n = st.playNo, off = st.poss, def = off === 'a' ? 'b' : 'a';
@@ -1283,15 +1341,16 @@ function replay(seed, teams, moves, cpuSides) {
     let dm = moves[n + '-' + def];
     if (!dm && !kick && cpuSides.indexOf(def) >= 0) dm = { pick: cpuMove(st, U, def, seed, 'def'), to: cpuTO(st, def) ? 1 : 0 };
     if (!kick && !dm) break;
+    const sn = snapTeams(teams, U, st, legalOff(st, om.pick), seed, pcache);   // this snap's personnel (campaign and league squads)
     let lv = null;
     if (!kick && ((om.ctl ? 1 : 0) || (dm && dm.ctl ? 1 : 0))) {
       // somebody plays this snap on the field: it is decided by their recorded inputs (replay waits until they are in)
       const lm = moves[n + '-lv'];
       if (!lm || !E.LIVE) { wait = { n, off, def, om, dm }; break; }
-      lv = liveOutcome(seed, n, st, legalOff(st, om.pick), DEF_CALLS[dm.pick] ? dm.pick : 'ZONE', teams[off], teams[def], om.ctl ? 1 : 0, dm.ctl ? 1 : 0, lm[off], lm[def]);
+      lv = liveOutcome(seed, n, st, legalOff(st, om.pick), DEF_CALLS[dm.pick] ? dm.pick : 'ZONE', sn.teams[off], sn.teams[def], om.ctl ? 1 : 0, dm.ctl ? 1 : 0, lm[off], lm[def]);
     }
     const fl = { o: !!om.to, d: !!(dm && dm.to) };
-    let res = stepGame(st, teams, U, seed, om.pick, dm ? dm.pick : null, lv, fl);
+    let res = stepGame(st, sn.teams, sn.U, seed, om.pick, dm ? dm.pick : null, lv, fl);
     const ro = res.entry.retOpp;
     if (ro && E.LIVE && cpuSides.indexOf(ro.recv) < 0 && lastCtl(moves, ro.recv, kick ? n - 1 : n)) {   // (on a kick the receiver has not necessarily made a move yet: go by his earlier ones)
       // the receiving player runs the kick back himself: replay waits for his inputs
@@ -1301,6 +1360,7 @@ function replay(seed, teams, moves, cpuSides) {
       res = stepGame(st, teams, U, seed, om.pick, dm ? dm.pick : null, lv, fl, rv);
     }
     if (lv) res.entry.ctl = { o: om.ctl ? 1 : 0, d: dm && dm.ctl ? 1 : 0 };
+    if (sn.on) res.entry.on = sn.on;   // who played the snap: [id, name] per offensive spot
     st = res.state; log.push(res.entry);
   }
   return { state: st, log, U, wait };
@@ -1309,9 +1369,12 @@ function replay(seed, teams, moves, cpuSides) {
 function boxScore(log, teams) {
   const mk = () => ({ pts: 0, first: 0, rush: 0, ratt: 0, pass: 0, comp: 0, att: 0, sacksBy: 0, sackYds: 0, to: 0, fumLost: 0, ints: 0, punts: 0, puntYds: 0, plays: 0, pbu: 0, ff: 0 });
   const tm = { a: mk(), b: mk() }, pl = { a: {}, b: {} }, ps = { a: {}, b: {} };
-  const P = (side, slot, name) => { const m = pl[side]; return m[slot] || (m[slot] = { slot, name: name || nameOf(teams[side], slot), ratt: 0, ryd: 0, rtd: 0, c: 0, a: 0, pyd: 0, ptd: 0, int: 0, rec: 0, recyd: 0, rectd: 0, tgt: 0, sk: 0, dint: 0, pbu: 0, ff: 0, fgm: 0, fga: 0, fgl: 0, xp: 0 }); };
+  const P0 = (side, key, slot, name) => { const m = pl[side]; return m[key] || (m[key] = { slot, name: name || nameOf(teams[side], slot), ratt: 0, ryd: 0, rtd: 0, c: 0, a: 0, pyd: 0, ptd: 0, int: 0, rec: 0, recyd: 0, rectd: 0, tgt: 0, sk: 0, dint: 0, pbu: 0, ff: 0, fgm: 0, fga: 0, fgl: 0, xp: 0 }); };
+  let cur = null;   // with rotating personnel the log names who was on the field: credit him, not the spot
+  const P = (side, slot) => { const w = cur && side === cur.off && cur.on && cur.on[slot]; return w ? P0(side, w[0], slot, w[1]) : P0(side, slot, slot); };
   const o2 = s => s === 'a' ? 'b' : 'a';
   (log || []).forEach(e => {
+    cur = e;
     const O = e.off, D = o2(O), t = tm[O], d = tm[D], td = e.ev === 'td';
     if (e.ptsTeam) tm[e.ptsTeam].pts += e.pts || 0;
     if (KICKS[e.offPick]) return;   // kickoffs: the points above are all that count
@@ -1475,7 +1538,7 @@ function cpuDefense(st, rnd) {
 
 const E = {
   DATA: D, QLEN, CAP, noDef, TEAMS, PLAYERS, OLU, DFU, SLOTS, GROUPS, OFF, OFF_CATS, DEF_CALLS, DEF_CATS, MATCH, matchup, defOptions,
-  KICK, KRS, PRS, STU, stSquad, stFrom, RET_FROM, normRoster, returnerCands, bestReturner, withReturner, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
+  KICK, KRS, PRS, STU, stSquad, stFrom, personnel, snapTeams, RET_FROM, normRoster, returnerCands, bestReturner, withReturner, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
   drawOptions, autoDraft, fgDist, legalOff, offOptions, initState, clockInfo,
   KICKS, cpuKick, boxScore, stepGame, replay, lastCtl, retInfo, cpuOffense, cpuDefense, cleanMoves, cleanTrace, cpuTO
 };
@@ -2475,13 +2538,31 @@ function squadOf(L, tid) {
   const ret = (pos, dflt) => { const p = ln[pos][0]; return p ? { i: p.i, n: p.n, o: retRating(p), s: p.s || 85, a: (p.s || 85) - 3, sk: p.sk, hr: p.hr, tm: T.abbr } : dflt; };
   const pu = ln.P[0], stp = base.st.p.slice();
   if (pu) stp[0] = ['P', pu.n, pu.o, pu.i];
+  // the rotation: every back, receiver and tight end the coach gives snaps to (usage u), drawn on each snap (E.personnel)
+  const rot = {};
+  ['HB', 'WR', 'TE'].forEach(pos => { rot[pos] = usageList(L, tid, pos).filter(x => x.u > 0).map(x => Object.assign(sk(x.p), { u: x.u })); });
   return {
-    tm: T.abbr, cs: [T.c1, T.c2],
+    tm: T.abbr, cs: [T.c1, T.c2], rot,
     qb: sk(g('QB', 1)[0]), hb: sk(g('HB', 1)[0]), wr: g('WR', 2).map(sk), te: sk(g('TE', 1)[0]),
     ol: { tm: T.abbr, p: g('OL', 5).map(p => [p.n, p.o, p.i]) },
     df: { tm: T.abbr, sch: T.sch, p: df },
     k: spec('K', base.k), kr: ret('KR', base.kr), pr: ret('PR', base.pr), st: { tm: base.st.tm, p: stp }
   };
+}
+/* usage: each back, receiver and tight end's share of his group's snaps (0-100), set by the coach (p.use) or, until he does, by depth:
+   the best of each group plays most. A group's usages share its spots (the receivers' add up to two spots); on a given play the
+   ones who fit it best are a little likelier, and on passing downs a receiver can take the TE spot (the slot). */
+const USE_DEFAULT = { HB: [65, 30, 5], WR: [95, 80, 20, 5], TE: [85, 15] };   // each group adds up to its spots (1 HB, 2 WR, 1 TE)
+function usageList(L, tid, pos) {
+  const ps = rosterOf(L, tid).filter(p => p.p === pos && !p.inj).sort((a, b) => b.o - a.o || (a.i < b.i ? -1 : 1));
+  return ps.map((p, k) => ({ p, u: p.use != null ? p.use : (USE_DEFAULT[pos][k] || 0), set: p.use != null }));
+}
+function setUsage(L, tid, pid, v) {
+  const p = L.players[pid];
+  if (!p || p.t !== tid || !USE_DEFAULT[p.p]) return 'Usage is for running backs, receivers and tight ends.';
+  if (v === null || v === '') { delete p.use; return null; }   // back to the default for his place on the depth chart
+  v = Math.round(+v); if (!isFinite(v) || v < 0 || v > 100) return 'Usage is 0 to 100.';
+  p.use = v; return null;
 }
 function teamsFor(L, aId, bId) {
   return { a: { name: L.teams[aId].nick, squad: squadOf(L, aId) }, b: { name: L.teams[bId].nick, squad: squadOf(L, bId) } };
@@ -2629,12 +2710,21 @@ function addStats(L, g, T, log) {
     const p = id && L.players[id];
     if (p && p.t >= 0 && L.teams[p.t] && L.teams[p.t].owner) { const ps = g.ps || (g.ps = {}), t = ps[p.t] || (ps[p.t] = {}), l = t[id] || (t[id] = {}); l[k] = (l[k] || 0) + (v || 1); }
   };
+  const snapOf = id => { if (!id) return; L.snaps = L.snaps || {}; L.snaps[id] = (L.snaps[id] || 0) + 1; };
   log.forEach(e => {
     const O = tm[e.off], D = tm[e.off === 'a' ? 'b' : 'a'];
     const td = e.ev === 'td';
-    if (e.runId) { const id = E.idOf(O, e.runId); B(id, 'att'); B(id, 'ryd', e.yards || 0); if (td && e.anim === 'run') B(id, 'rtd'); }
+    // snaps: everyone on the field for a run or pass (the rotating spots from the log, the line and the defense from the squads)
+    if (e.offPick && E.OFF[e.offPick] && (E.OFF[e.offPick].kind === 'run' || E.OFF[e.offPick].kind === 'pass')) {
+      const ot = side[e.off], dt = side[e.off === 'a' ? 'b' : 'a'];
+      L.tsnaps = L.tsnaps || {}; const to = L.tsnaps[ot] || (L.tsnaps[ot] = { o: 0, d: 0 }), td2 = L.tsnaps[dt] || (L.tsnaps[dt] = { o: 0, d: 0 }); to.o++; td2.d++;
+      ['QB', 'HB', 'WR1', 'WR2', 'TE'].forEach(r => snapOf(e.on && e.on[r] ? e.on[r][0] : E.idOf(O, r)));
+      O.squad.ol.p.forEach(q => snapOf(q[2])); D.squad.df.p.forEach(q => snapOf(q[4]));
+    }
+    const who = r => e.on && e.on[r] ? e.on[r][0] : E.idOf(O, r);   // who played that spot on this snap
+    if (e.runId) { const id = who(e.runId === 'FB' ? 'HB' : e.runId); B(id, 'att'); B(id, 'ryd', e.yards || 0); if (td && e.anim === 'run') B(id, 'rtd'); }
     else if (e.recId) {
-      const q = E.idOf(O, e.qbId), rc = E.idOf(O, e.recId);
+      const q = who(e.qbId), rc = who(e.recId);
       B(q, 'pa');
       if (e.ev === 'pass' || (td && e.anim === 'pass') || (e.ev === 'downs' && e.anim === 'pass') || (e.ev === 'fumble' && e.anim === 'pass')) {
         B(q, 'pc'); B(q, 'pyd', e.yards || 0); B(rc, 'rec'); B(rc, 'recyd', e.yards || 0);
@@ -2872,6 +2962,14 @@ function finishSeason(L, champ, runner) {
 }
 
 /* ---------------- progression ---------------- */
+// a player's share of his side's snaps this season (offense for QB/HB/WR/TE/OL, defense otherwise), against the average team's snaps;
+// null in a save from before snaps were counted
+const OFF_POS = { QB: 1, HB: 1, WR: 1, TE: 1, OL: 1 };
+function snapShare(L, p) {
+  if (!L.tsnaps || !Object.keys(L.tsnaps).length) return null;
+  const k = OFF_POS[p.p] ? 'o' : 'd', ts = Object.values(L.tsnaps), den = ts.reduce((t, x) => t + x[k], 0) / Math.max(1, ts.length);
+  return den > 0 ? clamp(((L.snaps && L.snaps[p.i]) || 0) / den, 0, 1) : null;
+}
 function progress(L) {
   const r = rng(L, 'prog' + L.season), report = { up: [], down: [], retired: [] };
   // keep each season's stat line for players on a team a person runs (career totals)
@@ -2892,6 +2990,13 @@ function progress(L) {
     // kickers and punters last: they keep improving into their thirties and hardly decline until about 38
     if (p.p === 'K' || p.p === 'P') d = a <= 26 ? ri(r, 0, 4) : a <= 36 ? ri(r, -1, 2) : ri(r, -4, 0);
     if (d > 0) d += bonus; else if (d <= 0 && bonus && a < 27) d += 1;
+    // playing time: a young player who plays grows faster and one who sits grows slower; a veteran who plays holds on a little longer
+    const sh = snapShare(L, p);
+    if (sh != null && !(p.p === 'K' || p.p === 'P')) {
+      if (d > 0) d = Math.round(d * (0.45 + 0.85 * sh));
+      else if (d < 0 && a >= 29) d = Math.round(d * (1 - 0.35 * sh));
+      p.sh = Math.round(sh * 100);
+    }
     const old = p.o;
     p.o = clamp(p.o + d, 40, 99);
     if (p.o > p.pt) p.pt = p.o;
@@ -2907,6 +3012,7 @@ function progress(L) {
   // old career line is kept in the player's history; season stats reset
   L.lastStats = L.stats; L.stats = {};
   L.teams.forEach(t => { fillDepth(L, t.id, r); });
+  L.snaps = {}; L.tsnaps = {};   // a new season counts from zero
   return report;
 }
 
@@ -3603,6 +3709,7 @@ const LG = {
   divisionRanks, nflMatchups, STAT_KEYS, sumStats, gameLog, teamStats, ensurePicks, picksOf, pickOf_, isPick, pickId, pickValue, pickProjection, pickLabel, assetValue, strengthFrac, pickOpen, simGame, forfeit, playVerified, weekGames, simWeek, advanceWeek, runUntilHuman, humanSides, checkFinal,
   records, standings, overallRank, rank, startPlayoffs, advancePlayoffs,
   RET_POS, retRating, returnerCands, returnerOf, setReturner,
+  USE_DEFAULT, usageList, setUsage, snapShare,
   progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, UNIT_ROUNDS, fillPrice, hasLegalPick, isUnitId, unitOf, unitRating, draftOvr, salOfId, draftLabel, unitNeeds, canDraftId, affordableId, autoPickFor, startSeason, trimRoster, fillDepth, finishDraft,
   playerValue, tradeCheck, cpuTrade, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
   newCustom, addTeam, removeTeam, assignDivisions, startCustom, finalizeLeagueDraft, customSchedule, ownerRecord, leaders, leagueTables,
@@ -5303,9 +5410,11 @@ const LV = {
     this.start(G);
   },
   start(G) {
-    const w = G.wait, T = G.teams, n = w.n, me = S.me, ret = w.kind === 'ret';
+    const w = G.wait, n = w.n, me = S.me, ret = w.kind === 'ret';
     const off = ret ? w.ro.recv : w.off, def = ret ? w.ro.kicker : w.def;
     const st = ret ? Object.assign({}, G.state, { poss: off, ballOn: w.ro.at, down: 1, toGo: 10 }) : G.state;
+    // this snap's personnel (campaign and league squads rotate their backs, receivers and tight ends): the same draw the engine makes
+    const T = ret ? G.teams : E.snapTeams(G.teams, null, st, E.legalOff(st, w.om.pick), S.seed, {}).teams;
     const ctl = {}; ctl[off] = ret ? true : !!w.om.ctl; ctl[def] = ret ? false : !!(w.dm && w.dm.ctl);
     const online = S.mode === 'online', both = ctl.a && ctl.b;
     const ctx = ret ? { seed: S.seed, playNo: n, ret: { kind: w.ro.kind }, ballOn: w.ro.at, toGo: 10, OS: T[off].squad, DS: T[def].squad, ctlO: true, ctlD: false }
@@ -5943,6 +6052,13 @@ FRV.sched = A => {
   return '<div class="panel">' + tbl(['Wk', 'Opponent', 'Result'], rows) + '</div>';
 };
 
+// backs, receivers and tight ends: usage (share of the group's snaps, set by the coach) and the share of snaps he has played this season
+function useCell(L, tid, p, edit) {
+  if (!LG.USE_DEFAULT[p.p]) return '';
+  const x = LG.usageList(L, tid, p.p).find(y => y.p === p), u = x ? x.u : 0, sh = LG.snapShare(L, p);
+  return '<span class="use" title="Share of snaps at his spots; on passing downs receivers can also play the slot">' + (edit ? '<input type="number" min="0" max="100" step="5" data-hc="use" data-id="' + p.i + '" value="' + u + '" aria-label="Usage for ' + esc(p.n) + '">%' : 'use ' + u + '%') +
+    (sh != null ? ' <small>played ' + Math.round(sh * 100) + '%</small>' : '') + '</span> ';
+}
 FRV.roster = A => {
   const L = A.L, tid = FR.rtid != null && L.teams[FR.rtid] ? FR.rtid : A.tid, ro = LG.rosterOf(L, tid), ln = LG.lineup(L, tid);
   const start = {}; POSN.forEach(p => { if (p !== 'KR' && p !== 'PR') ln[p].forEach(x => { start[x.i] = 1; }); });
@@ -5956,7 +6072,7 @@ FRV.roster = A => {
     const list = ro.filter(p => p.p === pos).sort((a, b) => b.o - a.o);
     if ((pos === 'KR' || pos === 'PR') && !list.length) return;   // no returner position any more (older saves may still list some)
     h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + '</small></h4>' +
-      tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && blk.has(p.i) ? '<span class="blk" title="On the trading block">BLOCK</span> ' : '') +
+      tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => useCell(L, tid, p, mineT && A.canEditRoster()) + (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && blk.has(p.i) ? '<span class="blk" title="On the trading block">BLOCK</span> ' : '') +
         (mineT && A.canEditRoster() ? (A.blockBids ? '<button class="btn small ghost" data-h="fr-blk" data-id="' + p.i + '" data-on="' + (blk.has(p.i) ? '' : '1') + '">' + (blk.has(p.i) ? 'Off block' : 'Shop') + '</button>' : '') + '<button class="btn small ghost" data-h="fr-rel" data-id="' + p.i + '">Release</button>' : '')));
   });
   return h + '</div>';
@@ -6152,6 +6268,7 @@ const CH = {
   stid: el => { FR.stid = +el.value; FR.sview = 'season'; frShow(FR.A); },
   trto: el => { FR.to = +el.value; FR.give = []; FR.get = []; frShow(FR.A); },
   fapos: el => { FR.faPos = el.value; frShow(FR.A); },
+  use: async el => { const r = await FR.A.act('use', { pid: el.dataset.id, v: el.value === '' ? null : +el.value }); if (r && !r.ok && r.msg) toast(r.msg); },
   ret: async el => { const r = await FR.A.act('ret', { pid: el.value }); if (r && !r.ok && r.msg) toast(r.msg); },
   opos: el => { FR.opos = el.value; frShow(FR.A); },
   dpos: el => { FR.dpos = el.value; frShow(FR.A); }
@@ -6250,6 +6367,7 @@ function campAdapter() {
       } else if (op === 'sign') { const e = LG.signFA(L, tid, a.pid); r = { ok: !e, msg: e || 'Signed.' }; }
       else if (op === 'release') { const e = LG.release(L, tid, a.pid); r = { ok: !e, msg: e || 'Released.' }; }
       else if (op === 'block') { const e = LG.setBlock(L, tid, a.pid, a.on); r = { ok: !e, msg: e }; }
+      else if (op === 'use') { const e = LG.setUsage(L, tid, a.pid, a.v); r = { ok: !e, msg: e }; }
       else if (op === 'ret') { const e = LG.setReturner(L, tid, a.pid || null); r = { ok: !e, msg: e }; }
       else if (op === 'draft') {
         if (!LG.draftPick(L, tid, a.pid)) r = { ok: false, msg: 'That pick is not allowed.' };

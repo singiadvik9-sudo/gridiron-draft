@@ -49,9 +49,11 @@ const LV = {
     this.start(G);
   },
   start(G) {
-    const w = G.wait, T = G.teams, n = w.n, me = S.me, ret = w.kind === 'ret';
+    const w = G.wait, n = w.n, me = S.me, ret = w.kind === 'ret';
     const off = ret ? w.ro.recv : w.off, def = ret ? w.ro.kicker : w.def;
     const st = ret ? Object.assign({}, G.state, { poss: off, ballOn: w.ro.at, down: 1, toGo: 10 }) : G.state;
+    // this snap's personnel (campaign and league squads rotate their backs, receivers and tight ends): the same draw the engine makes
+    const T = ret ? G.teams : E.snapTeams(G.teams, null, st, E.legalOff(st, w.om.pick), S.seed, {}).teams;
     const ctl = {}; ctl[off] = ret ? true : !!w.om.ctl; ctl[def] = ret ? false : !!(w.dm && w.dm.ctl);
     const online = S.mode === 'online', both = ctl.a && ctl.b;
     const ctx = ret ? { seed: S.seed, playNo: n, ret: { kind: w.ro.kind }, ballOn: w.ro.at, toGo: 10, OS: T[off].squad, DS: T[def].squad, ctlO: true, ctlD: false }

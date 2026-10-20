@@ -91,6 +91,13 @@ FRV.sched = A => {
   return '<div class="panel">' + tbl(['Wk', 'Opponent', 'Result'], rows) + '</div>';
 };
 
+// backs, receivers and tight ends: usage (share of the group's snaps, set by the coach) and the share of snaps he has played this season
+function useCell(L, tid, p, edit) {
+  if (!LG.USE_DEFAULT[p.p]) return '';
+  const x = LG.usageList(L, tid, p.p).find(y => y.p === p), u = x ? x.u : 0, sh = LG.snapShare(L, p);
+  return '<span class="use" title="Share of snaps at his spots; on passing downs receivers can also play the slot">' + (edit ? '<input type="number" min="0" max="100" step="5" data-hc="use" data-id="' + p.i + '" value="' + u + '" aria-label="Usage for ' + esc(p.n) + '">%' : 'use ' + u + '%') +
+    (sh != null ? ' <small>played ' + Math.round(sh * 100) + '%</small>' : '') + '</span> ';
+}
 FRV.roster = A => {
   const L = A.L, tid = FR.rtid != null && L.teams[FR.rtid] ? FR.rtid : A.tid, ro = LG.rosterOf(L, tid), ln = LG.lineup(L, tid);
   const start = {}; POSN.forEach(p => { if (p !== 'KR' && p !== 'PR') ln[p].forEach(x => { start[x.i] = 1; }); });
@@ -104,7 +111,7 @@ FRV.roster = A => {
     const list = ro.filter(p => p.p === pos).sort((a, b) => b.o - a.o);
     if ((pos === 'KR' || pos === 'PR') && !list.length) return;   // no returner position any more (older saves may still list some)
     h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + '</small></h4>' +
-      tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && blk.has(p.i) ? '<span class="blk" title="On the trading block">BLOCK</span> ' : '') +
+      tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => useCell(L, tid, p, mineT && A.canEditRoster()) + (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && blk.has(p.i) ? '<span class="blk" title="On the trading block">BLOCK</span> ' : '') +
         (mineT && A.canEditRoster() ? (A.blockBids ? '<button class="btn small ghost" data-h="fr-blk" data-id="' + p.i + '" data-on="' + (blk.has(p.i) ? '' : '1') + '">' + (blk.has(p.i) ? 'Off block' : 'Shop') + '</button>' : '') + '<button class="btn small ghost" data-h="fr-rel" data-id="' + p.i + '">Release</button>' : '')));
   });
   return h + '</div>';
@@ -300,6 +307,7 @@ const CH = {
   stid: el => { FR.stid = +el.value; FR.sview = 'season'; frShow(FR.A); },
   trto: el => { FR.to = +el.value; FR.give = []; FR.get = []; frShow(FR.A); },
   fapos: el => { FR.faPos = el.value; frShow(FR.A); },
+  use: async el => { const r = await FR.A.act('use', { pid: el.dataset.id, v: el.value === '' ? null : +el.value }); if (r && !r.ok && r.msg) toast(r.msg); },
   ret: async el => { const r = await FR.A.act('ret', { pid: el.value }); if (r && !r.ok && r.msg) toast(r.msg); },
   opos: el => { FR.opos = el.value; frShow(FR.A); },
   dpos: el => { FR.dpos = el.value; frShow(FR.A); }
