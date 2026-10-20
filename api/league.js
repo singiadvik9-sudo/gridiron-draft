@@ -281,6 +281,14 @@ module.exports = async function (req, res) {
           if (!t) bad('You have no team.'); if (L.phase === 'setup' || L.phase === 'draft') bad('Not available right now.');
           const e = LG.signFA(L, t.id, String(b.pid)); if (e) bad(e); return { ok: true };
         }
+        case 'ir': {   // put an injured player on injured reserve
+          if (!t) bad('You have no team.');
+          const e = LG.placeIR(L, t.id, String(b.pid)); if (e) bad(e); return { ok: true };
+        }
+        case 'activate': {   // bring him back from injured reserve
+          if (!t) bad('You have no team.');
+          const e = LG.activateIR(L, t.id, String(b.pid)); if (e) bad(e); return { ok: true };
+        }
         case 'use': {   // a back, receiver or tight end's usage (share of snaps); empty: the default for his place on the depth chart
           if (!t) bad('You have no team.');
           const e = LG.setUsage(L, t.id, String(b.pid), b.v == null ? null : +b.v); if (e) bad(e); return { ok: true };
