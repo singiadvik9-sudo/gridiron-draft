@@ -524,20 +524,6 @@ body.ingame.fs.gover .mast { display: flex; }
 
 /* camera angles: the picker next to the full screen button, and the 3D canvas under the overlay */
 .fvbar { position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; gap: 6px; align-items: flex-start; line-height: 1.2; }
-.vmenu { position: relative; }
-.vlist { position: absolute; right: 0; top: calc(100% + 4px); display: grid; gap: 2px; min-width: 214px; padding: 4px; background: rgba(11, 16, 32, .97); border: 2px solid var(--line); z-index: 4; }
-.vlist[hidden] { display: none; }
-.vopt { display: grid; gap: 1px; text-align: left; padding: 7px 10px; background: var(--panel2); border: 2px solid transparent; }
-.vopt b { font-family: var(--display); font-size: 10px; text-transform: uppercase; font-weight: 400; letter-spacing: .04em; }
-.vopt small { color: var(--mute); font-size: 14px; line-height: 1.1; }
-.vopt.on { border-color: var(--flag); }
-.vopt:hover { border-color: var(--chalk); }
-.fieldhost.v3d { aspect-ratio: 680 / 372; overflow: visible; }
-.fieldhost.v3d canvas.gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
-.fieldhost.v3d canvas.field { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; object-fit: fill !important; pointer-events: none; image-rendering: auto !important; }
-@media (min-width: 761px) and (min-height: 620px) {
-  body.ingame:not(.gover) .fieldhost.v3d { aspect-ratio: auto; align-self: stretch; overflow: visible; }
-}
 .use input { width: 3.6em; padding: 3px 4px; margin-right: 2px; }
 .use small { opacity: .75; }
 .inj { font-size: 10px; letter-spacing: .06em; color: #fff; background: #b3261e; border-radius: 4px; padding: 1px 5px; }

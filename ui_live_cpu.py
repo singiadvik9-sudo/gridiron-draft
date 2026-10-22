@@ -1,12 +1,10 @@
 """Practice vs CPU with live control: play a full game where every snap is run on the field."""
 import random, sys, os
-VIEW=os.environ.get('VIEW','')   # e.g. VIEW=behind plays the whole game in a 3D view
 from playwright.sync_api import sync_playwright
 errs=[]
 def log(*a): print(*a); sys.stdout.flush()
 with sync_playwright() as p:
-    b=p.chromium.launch(args=['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist']); ctx=b.new_context(viewport={'width':1100,'height':1000}); ctx.add_init_script('window.__lvSpeed=8')
-    if VIEW: ctx.add_init_script("localStorage.setItem('gd_view','%s')" % VIEW)
+    b=p.chromium.launch(); ctx=b.new_context(viewport={'width':1100,'height':1000}); ctx.add_init_script('window.__lvSpeed=8')
     pg=ctx.new_page()
     pg.on('pageerror', lambda e: errs.append('PAGEERROR '+str(e)))
     pg.on('console', lambda m: errs.append('CONSOLE '+m.text) if m.type=='error' and 'ERR_' not in m.text and 'Failed to load resource' not in m.text else None)

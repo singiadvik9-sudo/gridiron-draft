@@ -529,20 +529,6 @@ body.ingame.fs.gover .mast { display: flex; }
 
 /* camera angles: the picker next to the full screen button, and the 3D canvas under the overlay */
 .fvbar { position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; gap: 6px; align-items: flex-start; line-height: 1.2; }
-.vmenu { position: relative; }
-.vlist { position: absolute; right: 0; top: calc(100% + 4px); display: grid; gap: 2px; min-width: 214px; padding: 4px; background: rgba(11, 16, 32, .97); border: 2px solid var(--line); z-index: 4; }
-.vlist[hidden] { display: none; }
-.vopt { display: grid; gap: 1px; text-align: left; padding: 7px 10px; background: var(--panel2); border: 2px solid transparent; }
-.vopt b { font-family: var(--display); font-size: 10px; text-transform: uppercase; font-weight: 400; letter-spacing: .04em; }
-.vopt small { color: var(--mute); font-size: 14px; line-height: 1.1; }
-.vopt.on { border-color: var(--flag); }
-.vopt:hover { border-color: var(--chalk); }
-.fieldhost.v3d { aspect-ratio: 680 / 372; overflow: visible; }
-.fieldhost.v3d canvas.gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
-.fieldhost.v3d canvas.field { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; object-fit: fill !important; pointer-events: none; image-rendering: auto !important; }
-@media (min-width: 761px) and (min-height: 620px) {
-  body.ingame:not(.gover) .fieldhost.v3d { aspect-ratio: auto; align-self: stretch; overflow: visible; }
-}
 .use input { width: 3.6em; padding: 3px 4px; margin-right: 2px; }
 .use small { opacity: .75; }
 .inj { font-size: 10px; letter-spacing: .06em; color: #fff; background: #b3261e; border-radius: 4px; padding: 1px 5px; }
@@ -1583,7 +1569,8 @@ else root.E = E;
 
    Frame: offense-relative.  x runs toward the offense's goal line (0 = line of scrimmage), y is across the field (screen-down positive).
    Input per side: { dx, dy } in {-1,0,1} (offense-relative x) plus one-shot action codes:
-     1..4 throw to WR1, WR2, TE, HB (quarterback)  5 juke / dive-tackle+jump / throw away  6 switch defender */
+     1..4 throw to WR1, WR2, TE, HB (quarterback behind the line)  5 juke / dive-tackle+jump / throw away  6 switch defender
+     7 spin move (ball carrier) / big hit (defender) */
 (function (root) {
 'use strict';
 const E = root.E || require('./engine.js');
@@ -1643,7 +1630,7 @@ function vmaxOf(grp, o, s) {
     default: return 7.8 + (o - 75) * 0.02;
   }
 }
-const ACC = 16;
+const ACC = 16, ACC_HUMAN = 25;
 // pass protection tuning: bias per tick (base, plus extra while the line is still setting up), help per free lineman, skill weight, noise, how hard a losing block gets driven back, when a block is beaten
 const PRO = { flyDB: 0.19, flyLB: 0.12, flyDL: 0.05, flyPick: 0.10, fum: 0.042, fumSack: 2.2, ball: 4, blitzDelay: 6, blitzEdge: 0.006, base: 0.0038, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82 };
 const RUNMOD = { STACK: -0.010, BLITZ: -0.004, MAN: 0, ZONE: 0.004, PREVENT: 0.012 };
@@ -1873,16 +1860,19 @@ function step(sim, inO, inD, acts) {
 
   // ----- actions -----
   if (sim.human.o) aO.forEach(c => {
-    if (c >= 1 && c <= 4 && B.st === 'carried' && B.car === 'QB' && sim.thrown === 0 && sim.kind === 'pass') throwTo(sim, ['WR1', 'WR2', 'TE', 'HB'][c - 1], true);
+    const behind = !sim.by.QB || sim.by.QB.x <= 0;   // a quarterback past the line of scrimmage is a runner: no more passes (returns have none)
+    if (c >= 1 && c <= 4 && B.st === 'carried' && B.car === 'QB' && sim.thrown === 0 && sim.kind === 'pass' && behind) throwTo(sim, ['WR1', 'WR2', 'TE', 'HB'][c - 1], true);
+    else if (c === 7) { const q = sim.by[B.car]; if (q && q === ctlO && q.cool === 0) { q.spin = 12; q.stumble = Math.max(q.stumble || 0, 5); q.cool = 40; } }   // spin: harder to bring down for a moment, at some speed
     else if (c === 5) {
       const q = sim.by[B.car] || ctlO;
-      if (q && B.car === 'QB' && sim.kind === 'pass' && sim.thrown === 0) sim.throwAway = true;
+      if (q && B.car === 'QB' && sim.kind === 'pass' && sim.thrown === 0 && behind) sim.throwAway = true;
       else if (q && B.car === q.id && q.cool === 0) { const dy = inO.dy || (q.vy >= 0 ? 1 : -1); q.y = clamp(q.y + dy * 1.3, -YB, YB); q.x += 0.4; q.imm = 8; q.cool = 36; }
     }
   });
   if (sim.kind === 'ret' && sim.retKind === 'pr' && sim.human.o && aO.indexOf(6) >= 0 && t <= 24 && B.car === 'HB' && !sim.out) { finish(sim, { k: 'run', x: 0, fc: true, who: 'HB' }); return sim.out; }
   if (sim.human.d) aD.forEach(c => {
     if (c === 5 && ctlD) { if (ctlD.cool === 0) { ctlD.dive = 4; ctlD.jump = 6; ctlD.cool = 24; } }
+    else if (c === 7 && ctlD) { if (ctlD.cool === 0) { ctlD.hit = 5; ctlD.cool = 26; } }   // big hit: a surer tackle that jars the ball loose more often; miss and he stumbles
     else if (c === 6) switchDef(sim);
   });
   sim.ctlO = ctlO; sim.ctlD = ctlD;
@@ -1896,8 +1886,16 @@ function step(sim, inO, inD, acts) {
     think(sim, p, carrier, t);
   }
   // human overrides
-  if (ctlO && sO && ctlO.hold === 0 && !ctlO.eng) { const sp = ctlO.vmax * (ctlO === carrier && ctlO.id !== 'QB' ? 1 : (ctlO.id === 'QB' ? 0.95 : 1)); ctlO.wx = sO[0] * sp; ctlO.wy = sO[1] * sp; ctlO.human = 1; }
-  if (ctlD && sD && ctlD.hold === 0 && !ctlD.eng) { ctlD.wx = sD[0] * ctlD.vmax; ctlD.wy = sD[1] * ctlD.vmax; ctlD.human = 1; }
+  if (ctlO && sO && ctlO.hold === 0 && !ctlO.eng) { const sp = ctlO.vmax * (ctlO.id === 'QB' && ctlO.x <= 0 && B.car === 'QB' && !sim.thrown && sim.kind === 'pass' ? 0.95 : 1); ctlO.wx = sO[0] * sp; ctlO.wy = sO[1] * sp; ctlO.human = 1; ctlO.steerT = sim.t; }
+  if (ctlD && sD && ctlD.hold === 0 && !ctlD.eng) {
+    let dx = sD[0], dy = sD[1];
+    // tackle assist: steering at a nearby ball carrier takes the defender onto his path
+    if (carrier && carrier.side === 'o') {
+      const d = dist(ctlD, carrier), tt = min(0.8, d / (ctlD.vmax + 1)), tx = carrier.x + carrier.vx * tt - ctlD.x, ty = carrier.y + carrier.vy * tt - ctlD.y, tl = sqrt(tx * tx + ty * ty) || 1;
+      if (d < 4.5 && (dx * tx + dy * ty) / tl > 0.35) { const w = d < 2.5 ? 0.6 : 0.35; dx = dx * (1 - w) + tx / tl * w; dy = dy * (1 - w) + ty / tl * w; const l = sqrt(dx * dx + dy * dy) || 1; dx /= l; dy /= l; }
+    }
+    ctlD.wx = dx * ctlD.vmax; ctlD.wy = dy * ctlD.vmax; ctlD.human = 1; ctlD.steerT = sim.t;
+  }
 
   // ----- blocks / rushes -----
   resolvePairs(sim);
@@ -1905,13 +1903,13 @@ function step(sim, inO, inD, acts) {
   // ----- motion -----
   for (let i = 0; i < P.length; i++) {
     const p = P[i];
-    if (p.dcool > 0) p.dcool--; if (p.cool > 0) p.cool--; if (p.imm > 0) p.imm--; if (p.dive > 0) p.dive--; if (p.jump > 0) p.jump--;
+    if (p.dcool > 0) p.dcool--; if (p.cool > 0) p.cool--; if (p.imm > 0) p.imm--; if (p.dive > 0) p.dive--; if (p.jump > 0) p.jump--; if (p.spin > 0) p.spin--; if (p.hit > 0) { p.hit--; if (!p.hit && !sim.out) p.stumble = 8; }
     if (p.eng || p.hold > 0) { if (p.hold > 0) { p.vx *= 0.5; p.vy *= 0.5; } else { p.vx = p.pvx || 0; p.vy = p.pvy || 0; } }
     else {
       let wx = p.wx, wy = p.wy;
       if (p.stumble > 0) { p.stumble--; wx *= 0.65; wy *= 0.65; }
       if (p.dive > 0) { wx *= 1.15; wy *= 1.15; }
-      const ax = wx - p.vx, ay = wy - p.vy, am = sqrt(ax * ax + ay * ay), lim = ACC * DT;
+      const ax = wx - p.vx, ay = wy - p.vy, am = sqrt(ax * ax + ay * ay), lim = (p.steerT === sim.t ? ACC_HUMAN : ACC) * DT;   // the player you are steering starts and cuts quicker
       if (am > lim) { p.vx += ax / am * lim; p.vy += ay / am * lim; } else { p.vx = wx; p.vy = wy; }
     }
     p.x += p.vx * DT; p.y += p.vy * DT;
@@ -1990,7 +1988,16 @@ function thinkOff(sim, p, carrier, t) {
 
 function runRoute(sim, p) {
   const w = p.route[p.ri];
-  if (!w) { if (sim.thrown && sim.byTarget === p.id && sim.ball.air) steer(p, sim.ball.air.ex, sim.ball.air.ey, 1, false); else steer(p, p.x + 0.001, p.y, 0.2); return; }
+  if (!w) {
+    if (sim.thrown && sim.byTarget === p.id && sim.ball.air) { steer(p, sim.ball.air.ex, sim.ball.air.ey, 1, false); return; }
+    const q = sim.by.QB;
+    if (sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass') {   // scramble drill: work back toward the quarterback's side, away from the nearest defender
+      let nd = null, bd = 1e9; sim.D.forEach(d => { const dd = dist(d, p); if (dd < bd) { bd = dd; nd = d; } });
+      const away = nd && bd < 3 ? (p.y >= nd.y ? 1.2 : -1.2) : 0;
+      steer(p, max(1.5, p.x - 0.4), clamp(p.y + clamp(q.y - p.y, -1, 1) * 0.8 + away, -YB + 0.5, YB - 0.5), 0.7); return;
+    }
+    steer(p, p.x + 0.001, p.y, 0.2); return;
+  }
   if (sim.thrown && sim.byTarget === p.id && sim.ball.air) { steer(p, sim.ball.air.ex, sim.ball.air.ey, 1, false); return; }
   const d = dist(p, { x: w[0], y: w[1] });
   if (d < 0.8) { p.ri++; }
@@ -2021,7 +2028,7 @@ function qbPass(sim, q, t) {
   const rusher = nearestFree(sim, q);
   let pressured = false;
   if (rusher && dist(rusher, q) < 2.6 && t >= 10) pressured = sim.R() < clamp(0.12 + (q.rat - 60) * 0.004, 0.05, 0.3);
-  if (human) return;
+  if (human || q.x > 0) return;
   if (best && ((t >= dec[0] && (best.open > (spec === 'SCREEN' ? 0 : 2.3) || t >= dec[1])) || (pressured && t >= 10))) {
     if (pressured && best.open < 1.4 && sim.R() < 0.25) { throwAwayBall(sim); return; }
     throwTo(sim, best.id, false);
@@ -2260,17 +2267,19 @@ function ballLogic(sim, carrier) {
     const evade = isQB ? 54 : car.rat * 0.85 + (car.s - 80) * 0.3;
     let pr = 0.46 + (q.rat - evade) * 0.008 + (near - 1) * 0.07 + (isQB ? 0.05 : 0) + (q.dive > 0 ? 0.08 : 0) - (q.eng ? 0.25 : 0);
     if (q.human && q.dive > 0) pr += 0.05;
+    if (q.hit > 0) pr += 0.1;          // big hit
+    if (car.spin > 0) pr -= 0.25;      // spin move
     pr = clamp(pr, 0.12, 0.93);
     q.cool = 6;
     if (R() < pr) return tackled(sim, car, q);
-    car.stumble = 5; q.cool = 8;
+    car.stumble = 5; q.cool = 8; if (q.hit > 0) { q.hit = 0; q.stumble = 10; }   // a missed big hit leaves him stumbling
   }
 }
 function tackled(sim, car, q) {
   const R = sim.R, B = sim.ball;
-  const isSack = car.side === 'o' && car.id === 'QB' && !sim.handoff && sim.kind === 'pass' && sim.thrown === 0;
+  const isSack = car.side === 'o' && car.id === 'QB' && !sim.handoff && sim.kind === 'pass' && sim.thrown === 0 && car.x <= 0;   // past the line it is a run
   // the ball comes loose on some tackles (more on a sack, where the quarterback is holding it out): about half the time the offense falls on it
-  const fumbleP = (PRO.fum + (q.rat - car.rat) * 0.00008 + (q.dive > 0 ? 0.012 : 0)) * (isSack ? PRO.fumSack : 1);
+  const fumbleP = (PRO.fum + (q.rat - car.rat) * 0.00008 + (q.dive > 0 ? 0.012 : 0)) * (isSack ? PRO.fumSack : 1) * (q.hit > 0 ? 2 : 1);
   if (car.side === 'o' && sim.kind !== 'ret' && R() < clamp(fumbleP, 0.008, 0.2)) {
     if (R() < 0.5) return finish(sim, { k: 'fumble', x: car.x, who: car.id, by: q.id, sack: isSack, pass: !!sim.thrown, tgt: sim.byTarget });
     sim.fumKept = q.id;
@@ -4219,20 +4228,9 @@ function derive() {
 
 /* ---------- field renderer ---------- */
 const Field = {
-  W: 680, H: 372, YPP: 20, TOP: 42,
+  W: 680, H: 372, YPP: 20, BASE_YPP: 20, TOP: 42,   // YPP: pixels per yard (a live snap zooms out a little for deep routes)
   cv: null, ctx: null, scene: null, cam: 50, ballX: null, ballLift: 0, flash: null,
-  queue: [], busy: false, live: null, view: 'side', anim: null,
-  // 3D views (src/field3d.js) take over the drawing; this canvas then only carries the overlay
-  setView(id) {
-    const host = this.cv && this.cv.parentNode;
-    this.view = id;
-    if (id === 'side') { if (Field3D.active) Field3D.disable(); if (host) host.classList.remove('v3d'); this.cv.width = this.W; this.cv.height = this.H; this.draw(); }
-    else if (host) { host.classList.add('v3d'); Field3D.enable(host, id); }
-  },
-  attach() {
-    const host = this.cv.parentNode; if (!host) return;
-    if (this.view !== 'side' && Field3D.ready) { host.classList.add('v3d'); Field3D.enable(host, this.view); } else host.classList.remove('v3d');
-  },
+  queue: [], busy: false, live: null, anim: null,
   init() {
     if (this.cv) return;
     const cv = document.createElement('canvas');
@@ -4242,7 +4240,7 @@ const Field = {
   },
   losX(sc) { return sc.poss === 'a' ? sc.ballOn : 100 - sc.ballOn; },
   clampCam(x) { const half = this.W / this.YPP / 2; return Math.max(-10 + half, Math.min(110 - half, x)); },
-  set(sc) { this.scene = sc; this.cam = this.clampCam(this.losX(sc)); this.ballX = null; this.ballLift = 0; this.flash = null; this.draw(); },
+  set(sc) { this.scene = sc; this.YPP = this.BASE_YPP; this.cam = this.clampCam(this.losX(sc)); this.ballX = null; this.ballLift = 0; this.flash = null; this.draw(); },
   formation(sc) {
     const o = sc.poss, d = other(o), dir = o === 'a' ? 1 : -1, los = this.losX(sc);
     const midY = this.TOP + (this.H - this.TOP) / 2, ROW = 24;
@@ -4265,7 +4263,6 @@ const Field = {
   },
 
   draw() {
-    if (this.view !== 'side') return;   // Field3D renders from this same state
     const x = this.ctx, W = this.W, H = this.H, YPP = this.YPP, TOP = this.TOP, sc = this.scene;
     if (!x) return;
     x.imageSmoothingEnabled = false;
@@ -4305,8 +4302,9 @@ const Field = {
     x.fillStyle = '#ffcf3f'; x.fillRect(Math.round(sx(fd)) - 1, TOP, 3, H - TOP);
     // players
     const live = this.live;
+    const offscreen = [];
     (live ? live.items : this.formation(sc)).forEach(p => {
-      const px = Math.round(sx(p.wx)); if (px < -20 || px > W + 20) return;
+      const px = Math.round(sx(p.wx)); if (px < -20 || px > W + 20) { if (live && p.num) offscreen.push({ p, right: px > W }); return; }
       x.fillStyle = TEAM_COL[p.team]; x.globalAlpha = 0.55;
       x.beginPath(); x.ellipse(px, p.sy + 9, 11, 4, 0, 0, Math.PI * 2); x.fill(); x.globalAlpha = 1;
       if (p.ring) {
@@ -4328,6 +4326,15 @@ const Field = {
         x.fillStyle = '#ffcf3f'; x.strokeStyle = '#0b1020'; x.lineWidth = 2; x.fillRect(px - 10, spx - 20, 20, 18); x.strokeRect(px - 10, spx - 20, 20, 18);
         x.fillStyle = '#10152a'; x.font = '15px Silkscreen, monospace'; x.textAlign = 'center'; x.fillText(p.num, px, spx - 5);
       }
+    });
+    // receivers you can throw to who are out of the picture: a marker on the edge with his key and how far away he is
+    offscreen.forEach(({ p, right }) => {
+      const ex = right ? W - 6 : 6, ey = Math.max(TOP + 16, Math.min(H - 10, Math.round(p.sy))), dx = right ? -1 : 1;
+      const yd = Math.round(Math.abs(p.wx - (right ? left + W / YPP : left)));
+      x.fillStyle = '#ffcf3f'; x.strokeStyle = '#0b1020'; x.lineWidth = 2;
+      x.beginPath(); x.moveTo(ex, ey); x.lineTo(ex + dx * 12, ey - 9); x.lineTo(ex + dx * 12, ey + 9); x.closePath(); x.fill(); x.stroke();
+      const bxl = right ? ex - 12 - 40 : ex + 12; x.fillRect(bxl, ey - 9, 40, 18); x.strokeRect(bxl, ey - 9, 40, 18);
+      x.fillStyle = '#10152a'; x.font = '11px Silkscreen, monospace'; x.textAlign = 'center'; x.fillText(p.num + ' +' + yd, bxl + 20, ey + 4);
     });
     // ball
     const bx = live ? live.ball.wx : (this.ballX == null ? los - dir * 0.2 : this.ballX);
@@ -4435,390 +4442,6 @@ const Field = {
     };
     requestAnimationFrame(step);
     setTimeout(finish, dur + hold + settle + 1800);
-  }
-};
-
-/* ---------- 3D camera views ----------
-   three.js (public/vendor/three.min.js) is fetched the first time a 3D view is picked. The field, the stands and the
-   low-poly players are drawn from the very same state as the 2D field (the formation, or a snapshot of the live sim);
-   the 2D canvas turns into a transparent overlay for the minimap, the key strip, messages and name tags.
-   Cameras only look along the field or across it, so the stick keeps mapping to whole-number sim directions
-   (Field3D.basis tells the live controls which way is "up" on the screen). */
-const VIEWS = [
-  { id: 'side', label: 'Sideline', sub: '2D pixels' },
-  { id: 'side3d', label: 'Sideline 3D', sub: 'broadcast camera' },
-  { id: 'behind', label: 'Behind the offense', sub: 'down the field' },
-  { id: 'defense', label: 'Behind the defense', sub: 'facing the offense' },
-  { id: 'player', label: 'Player cam', sub: 'over your shoulder' },
-  { id: 'top', label: 'Overhead', sub: 'coach cam' }
-];
-const YBW = 7.4;          // half the playing width (YB in lib/live.js)
-const FIELD_Z = 12.4;     // half the width of the painted grass
-// a thrown ball, f = 0 (release) .. 1 (arrival), arc = height of the throw's arc above the straight line: it leaves the passer's raised
-// hand above his helmet and comes down to a catcher's hands, so it clears the defenders between them (a player's helmet tops out near 2.2)
-const PASS_REL = 2.05, PASS_CATCH = 1.35;
-const passY = (f, arc) => { const y = PASS_REL + (PASS_CATCH - PASS_REL) * f + arc; return f < 0.06 ? 1.2 + (y - 1.2) * f / 0.06 : y; };   // the first frames ease up from where the ball was carried (1.2)
-const Field3D = {
-  ready: false, active: false, host: null, gl: null, ren: null, scene: null, camera: null, loading: null, raf: 0,
-  figs: new Map(), cx: 50, cpos: null, clook: null, snap: true, lastT: 0, tkey: '', fieldTex: null, fieldMesh: null, ball: null, lines: null, mode: 'side',
-  tags: [], fsc: null, fitems: null, sizeKey: '', cw: 0, ch: 0, bpos: null, rs: 0.85, fails: 0, ema: 0,
-
-  // something is wrong with 3D on this device: go back to the 2D field
-  giveUp(msg) {
-    if (Field.view === 'side') return;
-    lsSet('gd_view', 'side'); Field.setView('side'); paintViewBar(); toast(msg);
-  },
-  supported() { try { const c = document.createElement('canvas'); return !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) { return false; } },
-  load() {
-    if (window.THREE) { this.ready = true; return Promise.resolve(); }
-    if (!this.loading) this.loading = new Promise((res, rej) => {
-      const sc = document.createElement('script'); sc.src = 'vendor/three.min.js';
-      sc.onload = () => { this.ready = !!window.THREE; this.ready ? res() : rej(new Error('three')); };
-      sc.onerror = () => { this.loading = null; rej(new Error('load')); };
-      document.head.appendChild(sc);
-    });
-    return this.loading;
-  },
-
-  /* ----- which way is up on the screen: used by the live controls ----- */
-  basis(m) {
-    const v = Field.view, d = m ? m.dir : 1;
-    if (v === 'side3d') return { R: [1, 0], F: [0, -1] };
-    const f = v === 'defense' ? [-d, 0] : v === 'player' && m && m.me !== m.off ? [-d, 0] : [d, 0];
-    return { F: f, R: [-f[1], f[0]] };
-  },
-
-  /* ----- setup ----- */
-  enable(host, view) {
-    this.mode = view; this.host = host;
-    if (!this.ren) this.init();
-    if (this.gl.parentNode !== host) host.insertBefore(this.gl, Field.cv);
-    this.active = true; this.snap = true; this.sizeKey = ''; this.lastT = 0; this.tkey = '';
-    if (!this.raf) this.raf = requestAnimationFrame(t => this.loop(t));
-  },
-  disable() {
-    this.active = false;
-    if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
-    if (this.gl && this.gl.parentNode) this.gl.parentNode.removeChild(this.gl);
-    if (Field.cv) { Field.cv.width = Field.W; Field.cv.height = Field.H; }
-  },
-  init() {
-    const T = THREE;
-    const ren = this.ren = new T.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-    ren.setPixelRatio(1); ren.outputColorSpace = T.SRGBColorSpace;
-    this.gl = ren.domElement; this.gl.className = 'gl'; this.gl.setAttribute('aria-hidden', 'true');
-    this.gl.addEventListener('webglcontextlost', ev => { ev.preventDefault(); this.giveUp('The 3D view lost its graphics context. Back to the sideline view.'); });
-    const sc = this.scene = new T.Scene();
-    sc.background = new T.Color(0x0b1020); sc.fog = new T.Fog(0x0b1020, 80, 230);
-    sc.add(new T.HemisphereLight(0xcfdcff, 0x24402c, 0.95));
-    const sun = new T.DirectionalLight(0xffffff, 1.15); sun.position.set(25, 70, 30); sc.add(sun);
-    this.camera = new T.PerspectiveCamera(50, 1.8, 0.3, 420);
-    this.cpos = new T.Vector3(50, 10, 20); this.clook = new T.Vector3(50, 0, 0);
-    this.buildWorld(); this.buildBall(); this.buildLines();
-  },
-  mat(color, extra) {
-    this._m = this._m || {};
-    const k = color + (extra ? JSON.stringify(extra) : '');
-    return this._m[k] || (this._m[k] = new THREE.MeshLambertMaterial(Object.assign({ color, flatShading: true }, extra || {})));
-  },
-  geos() {
-    if (this._g) return this._g;
-    const T = THREE, B = (x, y, z) => new T.BoxGeometry(x, y, z);
-    return this._g = {
-      leg: B(0.27, 0.8, 0.29), shoe: B(0.42, 0.13, 0.3), torso: B(0.46, 0.72, 0.8), pad: B(0.52, 0.2, 0.94), arm: B(0.21, 0.38, 0.21), fore: B(0.18, 0.36, 0.18),
-      helm: new T.SphereGeometry(0.29, 10, 8), face: B(0.14, 0.2, 0.3), mask: B(0.05, 0.19, 0.3),
-      ring: new T.RingGeometry(0.82, 1.04, 30).rotateX(-Math.PI / 2), blob: new T.CircleGeometry(0.66, 14).rotateX(-Math.PI / 2),
-      cone: new T.ConeGeometry(0.3, 0.62, 4).rotateX(Math.PI)
-    };
-  },
-
-  /* ----- the stadium ----- */
-  fieldTexture(sc) {
-    const A = sc.teams.a.name, Bn = sc.teams.b.name, W = 2048, H = 512, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-    const x = cv.getContext('2d'), TX = W / 120, TZ = H / (FIELD_Z * 2), px = v => (v + 10) * TX, pz = v => (v + FIELD_Z) * TZ;
-    for (let yd = 0; yd < 100; yd += 5) { x.fillStyle = ((yd / 5) | 0) % 2 === 0 ? '#2f7a48' : '#35854f'; x.fillRect(px(yd), 0, 5 * TX + 1, H); }
-    x.fillStyle = '#7a2e20'; x.fillRect(px(-10), 0, 10 * TX, H);
-    x.fillStyle = '#1d4f8a'; x.fillRect(px(100), 0, 10 * TX, H);
-    x.fillStyle = 'rgba(8,14,24,.34)'; x.fillRect(0, 0, W, pz(-YBW)); x.fillRect(0, pz(YBW), W, H - pz(YBW));   // out of bounds
-    x.fillStyle = 'rgba(239,233,214,.92)';
-    for (let yd = 0; yd <= 100; yd += 5) x.fillRect(px(yd) - (yd % 100 === 0 ? 2.2 : 1.2), pz(-YBW), yd % 100 === 0 ? 4.4 : 2.4, pz(YBW) - pz(-YBW));
-    x.fillRect(px(-10), pz(-YBW), 3, pz(YBW) - pz(-YBW)); x.fillRect(px(110) - 3, pz(-YBW), 3, pz(YBW) - pz(-YBW));
-    x.fillRect(px(-10), pz(-YBW) - 2.5, 120 * TX, 5); x.fillRect(px(-10), pz(YBW) - 2.5, 120 * TX, 5);
-    for (let yd = 1; yd < 100; yd++) { const l = yd % 5 === 0 ? 0 : 1; if (l) for (const z of [-3.1, 3.1, -YBW + 0.7, YBW - 0.7]) x.fillRect(px(yd) - 0.8, pz(z) - 0.3 * TZ, 1.6, 0.6 * TZ); }
-    x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = 'bold ' + Math.round(TZ * 1.9) + 'px Arial, sans-serif'; x.fillStyle = 'rgba(239,233,214,.85)';
-    for (let yd = 10; yd <= 90; yd += 10) {
-      const n = String(Math.min(yd, 100 - yd));
-      x.save(); x.translate(px(yd), pz(4.7)); x.fillText(n, 0, 0); x.restore();
-      x.save(); x.translate(px(yd), pz(-4.7)); x.rotate(Math.PI); x.fillText(n, 0, 0); x.restore();
-    }
-    x.font = 'bold ' + Math.round(TZ * 5.4) + 'px Arial, sans-serif'; x.fillStyle = 'rgba(239,233,214,.55)';
-    x.save(); x.translate(px(-5), H / 2); x.rotate(-Math.PI / 2); x.fillText(abbr(A), 0, 0); x.restore();
-    x.save(); x.translate(px(105), H / 2); x.rotate(Math.PI / 2); x.fillText(abbr(Bn), 0, 0); x.restore();
-    return cv;
-  },
-  buildWorld() {
-    const T = THREE, sc = this.scene;
-    const tex = this.fieldTex = new T.CanvasTexture(document.createElement('canvas'));
-    tex.colorSpace = T.SRGBColorSpace; tex.anisotropy = Math.min(8, this.ren.capabilities.getMaxAnisotropy());
-    const fm = this.fieldMesh = new T.Mesh(new T.PlaneGeometry(120, FIELD_Z * 2), new T.MeshLambertMaterial({ map: tex }));
-    fm.rotation.x = -Math.PI / 2; fm.position.set(50, 0, 0); sc.add(fm);
-    const ground = new T.Mesh(new T.PlaneGeometry(600, 600), this.mat(0x0a1020)); ground.rotation.x = -Math.PI / 2; ground.position.set(50, -0.06, 0); sc.add(ground);
-    // crowd texture
-    const cc = document.createElement('canvas'); cc.width = 128; cc.height = 32; const cx = cc.getContext('2d');
-    const pal = ['#8a2f2f', '#2f4f8a', '#cfc7a8', '#1b2140', '#3b3f5c', '#b58a2f', '#5a2a4a', '#2a5a52'];
-    cx.fillStyle = '#12182e'; cx.fillRect(0, 0, 128, 32);
-    let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    for (let i = 0; i < 700; i++) { cx.fillStyle = pal[(rnd() * pal.length) | 0]; cx.fillRect((rnd() * 128) | 0, (rnd() * 32) | 0, 2, 2); }
-    const crowd = new T.CanvasTexture(cc); crowd.wrapS = crowd.wrapT = T.RepeatWrapping; crowd.magFilter = T.NearestFilter; crowd.colorSpace = T.SRGBColorSpace;
-    const crowdMat = (rx) => { const t = crowd.clone(); t.needsUpdate = true; t.repeat.set(rx, 1); return new T.MeshLambertMaterial({ map: t, flatShading: true }); };
-    // stands: three rising tiers along each side and behind each end zone
-    const tier = (cx0, cz0, len, depth, h, y, alongX) => {
-      const m = new T.Mesh(new T.BoxGeometry(alongX ? len : depth, h, alongX ? depth : len), crowdMat(len / 6));
-      m.position.set(cx0, y + h / 2, cz0); sc.add(m);
-    };
-    for (const sgn of [-1, 1]) {
-      for (let i = 0; i < 3; i++) tier(50, sgn * (YBW + 14 + i * 3.2), 150, 3.4, 4 + i * 3.4, 0, true);
-      for (let i = 0; i < 3; i++) tier(sgn < 0 ? -15 - i * 3.2 : 115 + i * 3.2, 0, 70, 3.4, 4 + i * 3.4, 0, false);
-    }
-    // ad boards and the team benches along the sidelines
-    for (const sgn of [-1, 1]) {
-      const board = new T.Mesh(new T.BoxGeometry(122, 1.05, 0.3), this.mat(0x1a2442)); board.position.set(50, 0.52, sgn * (YBW + 4.2)); sc.add(board);
-      for (let i = 0; i < 12; i++) { const b = new T.Mesh(new T.BoxGeometry(6.2, 0.7, 0.34), this.mat(i % 2 ? 0xffcf3f : 0xefe9d6)); b.position.set(-5 + i * 10, 0.55, sgn * (YBW + 4.2)); sc.add(b); }
-    }
-    for (const x of [-11.2, 111.2]) { const b = new T.Mesh(new T.BoxGeometry(0.3, 1.05, 30), this.mat(0x1a2442)); b.position.set(x, 0.52, 0); sc.add(b); }
-    // goal posts
-    const yel = this.mat(0xffcf3f, { emissive: 0x3a2e00 });
-    for (const gx of [-10, 110]) {
-      const g = new T.Group();
-      const cyl = (r, h) => new T.CylinderGeometry(r, r, h, 8);
-      const base = new T.Mesh(cyl(0.16, 3.4), yel); base.position.set(0, 1.7, 0); g.add(base);
-      const bar = new T.Mesh(cyl(0.12, 6.2), yel); bar.rotation.x = Math.PI / 2; bar.position.set(0, 3.4, 0); g.add(bar);
-      for (const z of [-3.1, 3.1]) { const up = new T.Mesh(cyl(0.1, 11.7), yel); up.position.set(0, 3.4 + 5.85, z); g.add(up); }
-      g.position.set(gx, 0, 0); sc.add(g);
-    }
-    // flood lights
-    for (const [lx, lz] of [[-22, -34], [-22, 34], [122, -34], [122, 34]]) {
-      const pole = new T.Mesh(new T.CylinderGeometry(0.4, 0.6, 34, 6), this.mat(0x1a2038)); pole.position.set(lx, 17, lz); sc.add(pole);
-      const head = new T.Mesh(new T.BoxGeometry(9, 4.4, 0.8), new T.MeshBasicMaterial({ color: 0xfff3c4 })); head.position.set(lx, 35, lz); head.lookAt(50, 20, 0); sc.add(head);
-    }
-  },
-  buildBall() {
-    const T = THREE, g = new T.Group();
-    const b = new T.Mesh(new T.SphereGeometry(0.2, 10, 8), this.mat(0x7a3f1c)); b.scale.set(1.55, 0.95, 0.95); g.add(b);
-    const lace = new T.Mesh(new T.BoxGeometry(0.22, 0.03, 0.05), this.mat(0xefe9d6)); lace.position.set(0, 0.19, 0); g.add(lace);
-    const stripe = new T.Mesh(new T.BoxGeometry(0.04, 0.34, 0.34), this.mat(0xefe9d6)); stripe.position.set(0.16, 0, 0); g.add(stripe);
-    const stripe2 = stripe.clone(); stripe2.position.x = -0.16; g.add(stripe2);
-    const spin = new T.Group(); spin.add(g);
-    const holder = new T.Group(); holder.add(spin);
-    const sh = new T.Mesh(this.geos().blob, new T.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false })); sh.scale.set(0.5, 1, 0.5); sh.position.y = 0.03;
-    this.scene.add(holder); this.scene.add(sh);
-    this.ball = { holder, spin, shadow: sh, prev: new T.Vector3() };
-  },
-  buildLines() {
-    const T = THREE, mk = (color, h) => {
-      const g = new T.Group();
-      const strip = new T.Mesh(new T.PlaneGeometry(0.42, YBW * 2 + 0.2).rotateX(-Math.PI / 2), new T.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthWrite: false })); strip.position.y = 0.035; g.add(strip);
-      for (const z of [-1, 1]) { const p = new T.Mesh(new T.BoxGeometry(0.32, h, 0.32), new T.MeshBasicMaterial({ color })); p.position.set(0, h / 2, z * (YBW + 0.7)); g.add(p); }
-      this.scene.add(g); return g;
-    };
-    this.lines = { los: mk(0x5aa9ff, 1.25), fd: mk(0xffcf3f, 1.25) };
-  },
-
-  /* ----- players ----- */
-  makeFig(key) {
-    const T = THREE, g = this.geos(), [sk, hr, jc, hc] = key.split(':'), skin = D.SKIN[+sk - 1] || '#c68c60';
-    const jersey = '#' + jc, helmet = '#' + hc, pants = '#e6e3d6';
-    const root = new T.Group(), body = new T.Group(); body.position.y = 0.9; root.add(body);
-    const mk = (geo, color, x, y, z, parent) => { const m = new T.Mesh(geo, this.mat(color)); m.position.set(x, y, z); parent.add(m); return m; };
-    const legL = new T.Group(), legR = new T.Group(); legL.position.set(0, 0, -0.18); legR.position.set(0, 0, 0.18); body.add(legL); body.add(legR);
-    for (const l of [legL, legR]) { mk(g.leg, pants, 0, -0.4, 0, l); mk(g.shoe, '#171a24', 0.07, -0.83, 0, l); }
-    const upper = new T.Group(); upper.position.y = 0.02; body.add(upper);
-    mk(g.torso, jersey, 0, 0.36, 0, upper); mk(g.pad, jersey, 0, 0.66, 0, upper);
-    const head = new T.Group(); head.position.y = 0.98; upper.add(head);
-    mk(g.helm, helmet, 0, 0.02, 0, head); mk(g.face, skin, 0.2, -0.05, 0, head); mk(g.mask, '#c9ccd4', 0.27, -0.06, 0, head);
-    const armL = new T.Group(), armR = new T.Group(); armL.position.set(0, 0.7, -0.52); armR.position.set(0, 0.7, 0.52); upper.add(armL); upper.add(armR);
-    for (const a of [armL, armR]) { mk(g.arm, jersey, 0, -0.19, 0, a); mk(g.fore, skin, 0.02, -0.56, 0, a); }
-    const shadow = new T.Mesh(g.blob, new T.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.38, depthWrite: false })); shadow.position.y = 0.03; this.scene.add(shadow);
-    this.scene.add(root);
-    return { key, root, body, upper, head, legL, legR, armL, armR, shadow, ph: Math.random() * 6, hd: null, ring: null, arrow: null, big: 1 };
-  },
-  figFor(it) {
-    const id = it.team + '|' + it.id;
-    let f = this.figs.get(id);
-    if (!f || f.key !== it.key) {
-      if (f) this.dropFig(f);
-      f = this.makeFig(it.key); this.figs.set(id, f);
-    }
-    f.used = true; return f;
-  },
-  dropFig(f) { this.scene.remove(f.root); this.scene.remove(f.shadow); if (f.ring) this.scene.remove(f.ring); if (f.arrow) this.scene.remove(f.arrow); },
-  pose(f, it, dt, now, dirW) {
-    const sp = Math.hypot(it.vx || 0, it.vz || 0), grp = it.grp || '';
-    // facing: the way he runs, else the way the play goes (offence) or toward the ball (defence)
-    let want = f.hd;
-    if (sp > 0.9) want = Math.atan2(-(it.vz || 0), it.vx || 0);
-    else if (want == null) want = it.fx != null ? it.fx : (it.off ? (dirW > 0 ? 0 : Math.PI) : (dirW > 0 ? Math.PI : 0));
-    if (f.hd == null) f.hd = want; else { let d = want - f.hd; d = Math.atan2(Math.sin(d), Math.cos(d)); f.hd += d * Math.min(1, dt * 12); }
-    f.root.rotation.y = f.hd;
-    const sz = grp === 'OL' || grp === 'DL' ? 1.14 : grp === 'LB' || grp === 'TE' ? 1.06 : grp === 'WR' || grp === 'CB' ? 0.97 : 1;
-    f.root.scale.set(sz, 1, sz * 1.04);
-    f.ph += dt * Math.min(sp, 9.5) * 1.55;
-    const amp = Math.min(1.05, sp * 0.15), sw = Math.sin(f.ph) * amp;
-    let lean = Math.min(0.42, sp * 0.05), y = 0, bodyPitch = 0, aL = -sw * 0.95, aR = sw * 0.95, lL = sw, lR = -sw;
-    if (it.stance) { lean = 0.62; y = -0.16; lL = -0.5; lR = 0.45; aL = aR = 0.35; }
-    if (it.eng) { lean = 0.5; y = -0.1; aL = aR = 1.25; lL = -0.3; lR = 0.3; }
-    if (it.carrier) { aR = 1.15; aL = 0.65 - sw * 0.3; }
-    if (it.jump) { y += 0.75; aL = aR = 2.7; lL = -0.4; lR = 0.4; }
-    if (it.dive) { bodyPitch = -1.38; y = 0.62; aL = aR = 2.9; lL = lR = 0.05; lean = 0; }
-    if (it.down) { bodyPitch = 1.45; y = 0.28; aL = aR = -0.4; lean = 0; lL = lR = 0; }
-    f.body.rotation.z = bodyPitch; f.body.position.y = 0.9 + y - Math.abs(Math.sin(f.ph)) * 0.05 * (sp > 1);
-    f.upper.rotation.z = -lean;
-    f.legL.rotation.z = lL; f.legR.rotation.z = lR; f.armL.rotation.z = aL; f.armR.rotation.z = aR;
-    f.root.position.set(it.wx, 0, it.wz);
-    f.shadow.position.set(it.wx, 0.03, it.wz); const air = it.jump ? 0.75 : 0; f.shadow.scale.set(1 - air * 0.25, 1, 1 - air * 0.25);
-    // ring under a controlled player, arrow over yours
-    if (it.ring) {
-      if (!f.ring) { f.ring = new THREE.Mesh(this.geos().ring, new THREE.MeshBasicMaterial({ color: it.ring, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide })); this.scene.add(f.ring); }
-      f.ring.visible = true; f.ring.material.color.set(it.ring);
-      const pulse = it.tag ? 1 + 0.12 * Math.sin(now / 170) : 1; f.ring.scale.set(pulse, 1, pulse); f.ring.position.set(it.wx, 0.05, it.wz);
-    } else if (f.ring) f.ring.visible = false;
-    if (it.tag) {
-      if (!f.arrow) { f.arrow = new THREE.Mesh(this.geos().cone, new THREE.MeshBasicMaterial({ color: it.ring })); this.scene.add(f.arrow); }
-      f.arrow.visible = true; f.arrow.material.color.set(it.ring); f.arrow.position.set(it.wx, 2.85 + Math.sin(now / 200) * 0.12, it.wz); f.arrow.rotation.y = now / 400;
-    } else if (f.arrow) f.arrow.visible = false;
-  },
-
-  /* ----- the scene each frame ----- */
-  itemsFor(F, dirW) {
-    const live = F.live && F.live.items.length ? F.live : null;
-    if (live) return live.items;
-    if (this.fsc !== F.scene) { this.fsc = F.scene; this.fitems = F.formation(F.scene); }
-    const items = this.fitems.map(it => Object.assign({ off: it.team === F.scene.poss }, it));
-    const a = F.anim;
-    if (a && F.ballX != null) {
-      const e = Math.max(0, Math.min(1, (F.ballX - a.startX) / ((a.endX - a.startX) || 1))), en = a.entry;
-      const cid = en.anim === 'run' ? (en.runId === 'FB' ? 'HB' : en.runId) : en.anim === 'pass' ? en.recId : en.anim === 'sack' ? 'QB' : null;
-      const c = cid && items.find(i => i.id === cid && i.team === F.scene.poss);
-      if (c) {
-        if (en.anim === 'pass') { const w0 = c.wx; c.wx = w0 + (a.endX - w0) * e; c.vx = e > 0 && e < 1 ? a.dir * 8 : 0; }
-        else if (en.anim === 'run') { const w0 = c.wx, t = F.ballX - a.dir * 0.3; c.wx = w0 + (t - w0) * Math.min(1, e * 4); c.vx = a.dir * 7.5; c.carrier = true; }
-        else if (en.anim === 'sack') { c.wx = F.ballX - a.dir * 0.3; c.vx = -a.dir * 3; }
-      }
-    }
-    return items;
-  },
-  camTarget(F, items, dirW, bx, bz) {
-    const v = this.mode, cl = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
-    const L = F.live && F.live.items.length ? F.live : null, me = L && L.mine ? items.find(i => i.mine) : null;
-    const myOff = L ? L.meOff : (S.me ? S.me === F.scene.poss : true);
-    let mode = v;
-    if (v === 'player' && !me) mode = myOff ? 'behind' : 'defense';
-    const cx = this.cx;
-    switch (mode) {
-      case 'side3d': return { p: [cx, 12.5, YBW + 10], l: [cx + 1.5, 0, 0.5], fov: 50 };
-      case 'defense': return { p: [cl(cx + dirW * 15, -9, 109), 7.4, bz * 0.3], l: [cl(cx - dirW * 8, -8, 108), 0.8, 0], fov: 58 };
-      case 'player': { const f = myOff ? dirW : -dirW; return { p: [me.wx - f * 6.2, 3.5, me.wz * 0.9], l: [me.wx + f * 9, 1.1, me.wz * 0.9], fov: 64 }; }
-      case 'top': return { p: [cl(cx - dirW * 9, -9, 109), 33, bz * 0.2], l: [cl(cx + dirW * 4, -8, 108), 0, 0], fov: 50 };
-      default: return { p: [cl(cx - dirW * 15, -9, 109), 7.4, bz * 0.3], l: [cl(cx + dirW * 11, -8, 108), 0.7, 0], fov: 58 };
-    }
-  },
-  resize(F) {
-    const host = this.host; if (!host) return false;
-    const r = host.getBoundingClientRect(); if (r.width < 8 || r.height < 8) return false;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2), key = Math.round(r.width) + 'x' + Math.round(r.height) + '@' + dpr;
-    if (key !== this.sizeKey) {
-      this.sizeKey = key;
-      this.ren.setSize(Math.max(2, Math.round(r.width * this.rs)), Math.max(2, Math.round(r.height * this.rs)), false);
-      this.camera.aspect = r.width / r.height; this.camera.updateProjectionMatrix();
-      this.cw = Field.cv.width = Math.round(r.width * dpr); this.ch = Field.cv.height = Math.round(r.height * dpr);
-    }
-    return true;
-  },
-  proj(x, y, z, W, H) {
-    const v = new THREE.Vector3(x, y, z).project(this.camera);
-    if (v.z > 1 || v.z < -1) return null;
-    return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H };
-  },
-  loop(ts) {
-    if (!this.active) { this.raf = 0; return; }
-    this.raf = requestAnimationFrame(t => this.loop(t));
-    if (document.hidden || !Field.cv || !document.body.contains(this.host)) return;
-    const dt = Math.min(0.1, this.lastT ? (ts - this.lastT) / 1000 : 0.016); this.lastT = ts;
-    try { this.render(Field, dt, ts); this.fails = 0; }
-    catch (e) { console.warn('3D view', e); if (++this.fails >= 3) { this.fails = 0; this.giveUp('The 3D view hit a problem. Back to the sideline view.'); } return; }
-    // slow graphics: draw fewer pixels
-    this.ema = this.ema ? this.ema * 0.95 + dt * 0.05 : dt;
-    if (this.ema > 0.05 && this.rs > 0.45 && ts - (this.rsT || 0) > 1500) { this.rs = Math.max(0.45, this.rs - 0.1); this.rsT = ts; this.sizeKey = ''; this.ema = 0.03; }
-  },
-  render(F, dt, now) {
-    const T = THREE, sc = F.scene; if (!sc || !this.resize(F)) return;
-    const key = abbr(sc.teams.a.name) + abbr(sc.teams.b.name);
-    if (key !== this.tkey) { this.tkey = key; this.fieldTex.image = this.fieldTexture(sc); this.fieldTex.needsUpdate = true; }
-    const live = F.live && F.live.items.length ? F.live : null, dirW = live ? live.dir : (sc.poss === 'a' ? 1 : -1), los = F.losX(sc);
-    const items = this.itemsFor(F, dirW);
-    // ball
-    let bx, bz = 0, by, carried = false, carrier = null;
-    if (live) {
-      bx = live.ball.wx; bz = live.ball.wz || 0; carried = !!live.ball.carried;
-      // a thrown ball leaves the passer's hand and arrives at the catcher's hands, with the sim's arc on top (the sim measures it from the ground)
-      by = carried ? 1.2 : live.ball.f >= 0 ? passY(live.ball.f, live.ball.h || 0) : 0.35 + (live.ball.h || 0);
-    } else {
-      const a = F.anim, held = a && F.ballX != null && (a.kind === 'run' || a.kind === 'sack');
-      bx = F.ballX == null ? los - dirW * 0.2 : F.ballX; by = F.ballX == null ? 0.22 : 0.4 + (F.ballLift / 20) * 2.4; carried = !!held; if (held) by = 1.15;
-      if (a && F.ballX != null && (a.kind === 'pass' || a.kind === 'int' || a.kind === 'inc')) {
-        // same arc as a live throw: higher for longer passes instead of one fixed height for every pass
-        const d = Math.abs(a.endX - a.startX), f = Math.max(0, Math.min(1, (F.ballX - a.startX) / ((a.endX - a.startX) || 1)));
-        by = passY(f, 4 * Math.min(5, Math.max(0.8, d * 0.13)) * f * (1 - f));
-      }
-    }
-    // smooth camera follow
-    const tx = bx;
-    if (this.snap || Math.abs(tx - this.cx) > 45) this.cx = tx; else this.cx += (tx - this.cx) * (1 - Math.exp(-dt * 5.5));
-    const tgt = this.camTarget(F, items, dirW, bx, bz);
-    const kP = this.snap ? 1 : 1 - Math.exp(-dt * 6.5);
-    this.cpos.x += (tgt.p[0] - this.cpos.x) * kP; this.cpos.y += (tgt.p[1] - this.cpos.y) * kP; this.cpos.z += (tgt.p[2] - this.cpos.z) * kP;
-    this.clook.x += (tgt.l[0] - this.clook.x) * kP; this.clook.y += (tgt.l[1] - this.clook.y) * kP; this.clook.z += (tgt.l[2] - this.clook.z) * kP;
-    const cam = this.camera; cam.position.copy(this.cpos); cam.lookAt(this.clook);
-    if (Math.abs(cam.fov - tgt.fov) > 0.05) { cam.fov += (tgt.fov - cam.fov) * (this.snap ? 1 : 0.1); cam.updateProjectionMatrix(); }
-    this.snap = false;
-    // players
-    this.figs.forEach(f => { f.used = false; });
-    this.tags.length = 0;
-    items.forEach(it => {
-      const f = this.figFor(it); this.pose(f, it, dt, now, dirW);
-      if (it.tag || it.num) this.tags.push(it);
-    });
-    this.figs.forEach((f, id) => { const on = f.used; f.root.visible = on; f.shadow.visible = on; if (!on) { if (f.ring) f.ring.visible = false; if (f.arrow) f.arrow.visible = false; } });
-    // ball
-    const B = this.ball; B.holder.position.set(bx, by, bz); B.shadow.position.set(bx, 0.04, bz);
-    const vx = bx - B.prev.x, vy = by - B.prev.y, vz = bz - B.prev.z, vh = Math.hypot(vx, vz);
-    if (!carried && (vh > 0.04 || Math.abs(vy) > 0.04)) { B.holder.rotation.y = Math.atan2(-vz, vx); B.holder.rotation.z = Math.atan2(vy, vh || 1) * 0.8; B.spin.rotation.x += dt * 16; }
-    else if (carried) { B.holder.rotation.set(0, 0.4, 0.9); B.spin.rotation.x = 0; }
-    else { B.holder.rotation.set(0, B.holder.rotation.y, 0); B.spin.rotation.x = 0; }
-    B.prev.set(bx, by, bz);
-    B.shadow.visible = !carried || true; B.shadow.scale.setScalar(Math.max(0.3, 0.55 - by * 0.05));
-    // down markers
-    const fd = Math.max(-0.01, Math.min(100.01, los + dirW * sc.toGo));
-    this.lines.los.position.x = los; this.lines.fd.position.x = fd; this.lines.fd.visible = sc.toGo < 100 - (dirW > 0 ? los : 100 - los) + 0.5 || true;
-    this.ren.render(this.scene, cam);
-    this.overlay(F, items, bx);
-  },
-  overlay(F, items, bx) {
-    const x = F.ctx, W = 680, k = this.cw / W, H = this.ch / k;
-    x.setTransform(k, 0, 0, k, 0, 0); x.clearRect(0, 0, W, H); x.imageSmoothingEnabled = false;
-    F.drawOverlay(x, W, H, this.cx - 20, 40);
-    this.tags.forEach(it => {
-      if (it.tag) {
-        const p = this.proj(it.wx, 3.5, it.wz, W, H); if (!p) return;
-        x.font = '11px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020';
-        const lab = 'YOU · ' + it.tag.toUpperCase(); x.strokeText(lab, p.x, p.y); x.fillStyle = it.ring; x.fillText(lab, p.x, p.y);
-      }
-      if (it.num) {
-        const p = this.proj(it.wx, 2.9, it.wz, W, H); if (!p) return;
-        x.fillStyle = '#ffcf3f'; x.strokeStyle = '#0b1020'; x.lineWidth = 2; x.fillRect(p.x - 10, p.y - 14, 20, 18); x.strokeRect(p.x - 10, p.y - 14, 20, 18);
-        x.fillStyle = '#10152a'; x.font = '15px Silkscreen, monospace'; x.textAlign = 'center'; x.fillText(it.num, p.x, p.y);
-      }
-    });
   }
 };
 
@@ -5241,27 +4864,6 @@ function drawWait() {
 }
 
 /* ---------- game screen ---------- */
-// camera angles: the sideline pixel view, plus 3D views that load three.js the first time one is picked
-const getView = () => { const v = lsGet('gd_view'); return VIEWS.some(x => x.id === v) ? v : 'side'; };
-async function pickView(id, quiet) {
-  if (!VIEWS.some(v => v.id === id)) return;
-  if (id !== 'side') {
-    if (!Field3D.supported()) { if (!quiet) toast('The 3D views need WebGL, which this browser does not offer.'); return; }
-    if (!Field3D.ready) { if (!quiet) toast('Loading the 3D views…'); try { await Field3D.load(); } catch (e) { toast('Could not load the 3D views. Check your connection.'); return; } const t = $('#toast'); if (t) t.hidden = true; }
-  }
-  lsSet('gd_view', id); Field.setView(id); S.vmenu = false; paintViewBar();
-}
-function paintViewBar() {
-  const b = $('[data-act="view-menu"]'), l = $('.vlist'); if (!b || !l) return;
-  const cur = VIEWS.find(v => v.id === Field.view) || VIEWS[0];
-  b.textContent = '◉ ' + cur.label; b.setAttribute('aria-expanded', S.vmenu ? 'true' : 'false');
-  l.hidden = !S.vmenu;
-  l.innerHTML = VIEWS.map(v => '<button class="vopt' + (v.id === cur.id ? ' on' : '') + '" data-act="view" data-v="' + v.id + '"><b>' + esc(v.label) + '</b><small>' + esc(v.sub) + '</small></button>').join('');
-}
-function cycleView() {
-  const ok = VIEWS.filter(v => v.id === 'side' || Field3D.supported()), i = ok.findIndex(v => v.id === Field.view);
-  pickView(ok[(i + 1) % ok.length].id);
-}
 // full screen: the browser's own full screen where it exists (not on iPhone), plus a layout that drops the header and gives the field all the room
 const isFull = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
 const fsLabel = () => document.body.classList.contains('fs') ? '✕ Exit full screen' : '⛶ Full screen';
@@ -5288,9 +4890,7 @@ function buildGame() {
     '<div class="side"><div class="banner" id="banner"></div><ol class="log" id="log"></ol>' +
     '<div class="row"><button class="btn small" data-act="rosters">Rosters</button><button class="btn small" data-act="matchups">Matchups</button></div></div></div></section>';
   $('#fieldHost').appendChild(Field.cv);
-  $('#fieldHost').insertAdjacentHTML('beforeend', '<div class="fvbar"><div class="vmenu"><button class="fsbtn" data-act="view-menu" aria-haspopup="true" aria-expanded="false" title="Camera angle (V)"></button><div class="vlist" hidden></div></div><button class="fsbtn" data-act="fullscreen" title="Full screen (F)" aria-label="Toggle full screen">' + fsLabel() + '</button></div>');
-  Field.attach(); paintViewBar();
-  if (Field.view === 'side' && getView() !== 'side') pickView(getView(), true);
+  $('#fieldHost').insertAdjacentHTML('beforeend', '<div class="fvbar"><button class="fsbtn" data-act="fullscreen" title="Full screen (F)" aria-label="Toggle full screen">' + fsLabel() + '</button></div>');
   S.shown = null; S.callSig = null;
 }
 function updateGame() {
@@ -5579,6 +5179,7 @@ const LV = {
   stop() {
     cancelAnimationFrame(this.raf); this.raf = 0; clearInterval(this.netT); this.netT = 0;
     this.on = null; this.held = {}; if (Field.live) { Field.live = null; Field.flash = null; }
+    Field.YPP = Field.BASE_YPP;   // back to the normal zoom
     window.GD_LIVE = null;
   },
 
@@ -5628,9 +5229,8 @@ const LV = {
   stick() {
     const m = this.on, h = this.held;
     const sx = (h.r ? 1 : 0) - (h.l ? 1 : 0), up = (h.u ? 1 : 0) - (h.d ? 1 : 0);
-    // the keys are relative to the camera: right is the screen's right, up is away from you (a 3D view looks along the field)
-    const b = Field.view !== 'side' && Field3D.active ? Field3D.basis(m) : { R: [1, 0], F: [0, -1] };
-    return [(sx * b.R[0] + up * b.F[0]) * m.dir, (sx * b.R[1] + up * b.F[1]) * m.dir];
+    // the keys follow the screen: right is toward the right of the field picture, up is up
+    return [sx * m.dir, -up * m.dir];
   },
   push(code) {
     const m = this.on; if (!m || !m.myCtl || m.sim.out || m.handed) return;
@@ -5651,6 +5251,7 @@ const LV = {
     if (!down) return false;
     if (k === ' ' || k === 'Spacebar') { ev.preventDefault(); this.push(5); return true; }
     if (k === 'e' || k === 'E' || k === 'Tab') { ev.preventDefault(); this.push(6); return true; }
+    if (k === 'q' || k === 'Q') { ev.preventDefault(); this.push(7); return true; }   // spin (ball carrier) / big hit (defender)
     if (THROWKEY[k.toLowerCase()]) { ev.preventDefault(); this.push(THROWKEY[k.toLowerCase()]); return true; }
     if (/^[1-4]$/.test(k)) { this.push(+k); return true; }
     return false;
@@ -5759,15 +5360,24 @@ const LV = {
     L.mine = items.some(i => i.mine); L.meOff = m.me === m.off;
     L.hud = null;
     if (m.myCtl && !m.handed && !sim.out && performance.now() >= m.readyAt) {
-      const off = m.me === m.off, qbHas = off && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass';
+      const off = m.me === m.off, qbHas = off && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass' && sim.by.QB.x <= 0;
       const mv = ['WASD / ARROWS', 'MOVE'];
       L.hud = m.ret ? [mv, ['SPACE', 'JUKE']].concat(m.ret.kind === 'pr' ? [['E', 'FAIR CATCH']] : [])
         : qbHas ? [mv, ['J K L ;', 'THROW TO #'], ['SPACE', 'THROW AWAY']]
-        : off ? (sim.kind === 'run' && sim.ball.car === 'QB' ? [mv] : [mv, ['SPACE', 'JUKE']])
-        : [mv, ['SPACE', 'DIVE'], ['E', 'SWITCH PLAYER']];
+        : off ? (sim.kind === 'run' && sim.ball.car === 'QB' ? [mv] : [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN']])
+        : [mv, ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
     }
     L.msg = performance.now() < m.readyAt ? (m.myCtl ? 'READY · YOU ARE ' + lastName((sim.by[m.me === m.off ? sim.ctlId.o : sim.ctlId.d] || {}).name).toUpperCase() : 'READY…') : m.stallAt && !sim.out && (performance.now() - m.stallAt > 700) ? 'Waiting for ' + esc((S.seats[m.opp] || {}).name || 'your opponent') + '…' : '';
-    Field.cam += (Field.clampCam(L.ball.wx + (m.ret ? dir * 9 : 0)) - Field.cam) * 0.14;   // on a return the camera looks ahead at the coverage
+    // the camera: on a return it looks ahead at the coverage; while the quarterback holds the ball it leans downfield so the routes stay in
+    // view (the quarterback near the back edge); with the ball in the air it frames the throw and the catch point
+    const qbHold = !m.ret && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass' && sim.by.QB.x <= 0, air = sim.ball.air;
+    const focus = m.ret ? L.ball.wx + dir * 9 : qbHold ? L.ball.wx + dir * 11 : air && !air.away ? los + dir * (sim.ball.x + air.ex) / 2 : L.ball.wx;
+    // zoom out (to about 52 yards across) when the quarterback's deepest target would not fit, so the routes stay in the picture
+    let reach = 0;
+    if (qbHold || (air && !air.away)) ['WR1', 'WR2', 'TE', 'HB'].forEach(id => { const r = sim.by[id]; if (r) reach = Math.max(reach, r.x - sim.by.QB.x); });
+    const wantYPP = Math.max(13, Math.min(Field.BASE_YPP, Field.W / Math.max(1, reach + 12)));
+    Field.YPP += (wantYPP - Field.YPP) * 0.08;
+    Field.cam += (Field.clampCam(focus) - Field.cam) * 0.14;
     Field.ballLift = L.ball.lift; Field.draw();
   },
 
@@ -5793,15 +5403,16 @@ const LV = {
         info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b>, the ' + (pr ? 'punt' : 'kick') + ' returner. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke' + (pr ? ' · ' + K('E') + ' fair catch' : '') + '. Follow your blockers.';
         acts = '<button class="ab wide" data-lvk="5">Juke</button>' + (pr ? '<button class="ab wide" data-lvk="6">Fair catch</button>' : '');
       } else if (role === 'off') {
-        const qbHas = sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass';
-        if (qbHas) {
-          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>, the quarterback. ' + K('WASD') + K('←↑↓→') + ' move. Throw to ' + K('J') + esc(lastName(sim.by.WR1.name)) + ' ' + K('K') + esc(lastName(sim.by.WR2.name)) + ' ' + K('L') + esc(lastName(sim.by.TE.name)) + ' ' + K(';') + esc(lastName(sim.by.HB.name)) + ' · ' + K('Space') + ' throws it away.';
+        const qbHas = sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass', scramble = qbHas && sim.by.QB.x > 0;
+        if (scramble) { info = 'You are scrambling with <b>' + esc(lastName(sim.by.QB.name)) + '</b>: past the line you can only run. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
+        else if (qbHas) {
+          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>, the quarterback. ' + K('WASD') + K('←↑↓→') + ' move. Throw to ' + K('J') + esc(lastName(sim.by.WR1.name)) + ' ' + K('K') + esc(lastName(sim.by.WR2.name)) + ' ' + K('L') + esc(lastName(sim.by.TE.name)) + ' ' + K(';') + esc(lastName(sim.by.HB.name)) + ' · ' + K('Space') + ' throws it away. Run past the line to scramble.';
           acts = ['1', '2', '3', '4'].map((k, i) => '<button class="ab" data-lvk="' + k + '">' + THROWLAB[i] + '</button>').join('') + '<button class="ab wide" data-lvk="5">Throw away</button>';
         } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. ' + K('WASD') + K('←↑↓→') + ' move.'; acts = ''; }
-        else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="5">Juke</button>'; }
+        else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
       } else {
-        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('WASD') + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('E') + ' switch player.';
-        acts = '<button class="ab wide" data-lvk="5">Dive</button><button class="ab wide" data-lvk="6">Switch</button>';
+        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('WASD') + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch player. Steer at the ball carrier and you are guided onto him.';
+        acts = '<button class="ab wide" data-lvk="5">Dive</button><button class="ab wide" data-lvk="7">Big hit</button><button class="ab wide" data-lvk="6">Switch</button>';
       }
     } else if (m.myCtl && m.handed) info = 'The computer has your players.';
     else if (m.oppCtl) info = 'Your opponent is playing this snap on the field. Your players move on their own.';
@@ -5848,7 +5459,7 @@ function startBoard(o) {   // hub-driven snake draft (tournaments): {label, d, m
   sdStart(o); sdPollLoop(); render(); sdStep();
 }
 function exitToHub() { leave(); }
-window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field, Field3D };
+window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field };
 
 /* ---------- router ---------- */
 function render() {
@@ -5863,15 +5474,12 @@ function render() {
 
 /* ---------- events ---------- */
 document.addEventListener('click', ev => {
-  if (S.vmenu && !ev.target.closest('.vmenu')) { S.vmenu = false; paintViewBar(); }
   const t = ev.target.closest('[data-act]'); if (!t) return;
   const a = t.dataset.act;
   if (a === 'create') createRoom();
   else if (a === 'join') joinRoom($('#code').value);
   else if (a === 'cpu') startLocal();
   else if (a === 'fullscreen') toggleFull();
-  else if (a === 'view-menu') { S.vmenu = !S.vmenu; paintViewBar(); }
-  else if (a === 'view') pickView(t.dataset.v)
   else if (a === 'leave') leave();
   else if (a === 'ctx-done') { const c = S.ctx; leave(); if (c && c.onDone) c.onDone(); }
   else if (a === 'ctx-retry') { const c = S.ctx; if (c) { c.sent = false; ctxFinish(S.G); renderCall(S.G); } }
@@ -5897,7 +5505,6 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape') { closeModal(); return; }
   const m = $('#modal'); if (m && !m.hidden) return;
   if (LV.on) { if (LV.key(ev, true)) return; }
-  if (S.screen === 'game' && (ev.key === 'v' || ev.key === 'V') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { cycleView(); return; }
   if (S.screen === 'game' && (ev.key === 'f' || ev.key === 'F') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { toggleFull(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
@@ -5944,6 +5551,13 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-22', title: 'Better controls on the field', items: [
+    'QB scrambles work: run past the line and you are a runner. A tackle there is a run, not a sack, and you can no longer throw.',
+    'New moves: Q spins away from tacklers with the ball, and on defense Q lands a big hit (surer tackle, more fumbles, but you stumble if you miss). Steering at the ball carrier now guides your defender onto him.',
+    'The player you control starts and cuts quicker, and receivers work back toward a scrambling quarterback.',
+    'The camera leans downfield and zooms out on pass plays so your receivers stay in view; anyone still off screen gets an edge marker with his throw key.',
+    'The 3D camera views are gone; the game is back to the sideline pixel view.'
+  ] },
   { id: '2026-10-19-2', title: 'Gentler fatigue', items: [
     'Tired players sit less than before: a back worn down to 30% energy still plays about half his usual snaps (it was about a third). Tired players still play a little below their rating.'
   ] },

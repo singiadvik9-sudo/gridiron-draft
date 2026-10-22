@@ -2,6 +2,13 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-22', title: 'Better controls on the field', items: [
+    'QB scrambles work: run past the line and you are a runner. A tackle there is a run, not a sack, and you can no longer throw.',
+    'New moves: Q spins away from tacklers with the ball, and on defense Q lands a big hit (surer tackle, more fumbles, but you stumble if you miss). Steering at the ball carrier now guides your defender onto him.',
+    'The player you control starts and cuts quicker, and receivers work back toward a scrambling quarterback.',
+    'The camera leans downfield and zooms out on pass plays so your receivers stay in view; anyone still off screen gets an edge marker with his throw key.',
+    'The 3D camera views are gone; the game is back to the sideline pixel view.'
+  ] },
   { id: '2026-10-19-2', title: 'Gentler fatigue', items: [
     'Tired players sit less than before: a back worn down to 30% energy still plays about half his usual snaps (it was about a third). Tired players still play a little below their rating.'
   ] },
