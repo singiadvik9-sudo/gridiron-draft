@@ -184,20 +184,9 @@ function derive() {
 
 /* ---------- field renderer ---------- */
 const Field = {
-  W: 680, H: 372, YPP: 20, TOP: 42,
+  W: 680, H: 372, YPP: 20, BASE_YPP: 20, TOP: 42,   // YPP: pixels per yard (a live snap zooms out a little for deep routes)
   cv: null, ctx: null, scene: null, cam: 50, ballX: null, ballLift: 0, flash: null,
-  queue: [], busy: false, live: null, view: 'side', anim: null,
-  // 3D views (src/field3d.js) take over the drawing; this canvas then only carries the overlay
-  setView(id) {
-    const host = this.cv && this.cv.parentNode;
-    this.view = id;
-    if (id === 'side') { if (Field3D.active) Field3D.disable(); if (host) host.classList.remove('v3d'); this.cv.width = this.W; this.cv.height = this.H; this.draw(); }
-    else if (host) { host.classList.add('v3d'); Field3D.enable(host, id); }
-  },
-  attach() {
-    const host = this.cv.parentNode; if (!host) return;
-    if (this.view !== 'side' && Field3D.ready) { host.classList.add('v3d'); Field3D.enable(host, this.view); } else host.classList.remove('v3d');
-  },
+  queue: [], busy: false, live: null, anim: null,
   init() {
     if (this.cv) return;
     const cv = document.createElement('canvas');
@@ -207,7 +196,7 @@ const Field = {
   },
   losX(sc) { return sc.poss === 'a' ? sc.ballOn : 100 - sc.ballOn; },
   clampCam(x) { const half = this.W / this.YPP / 2; return Math.max(-10 + half, Math.min(110 - half, x)); },
-  set(sc) { this.scene = sc; this.cam = this.clampCam(this.losX(sc)); this.ballX = null; this.ballLift = 0; this.flash = null; this.draw(); },
+  set(sc) { this.scene = sc; this.YPP = this.BASE_YPP; this.cam = this.clampCam(this.losX(sc)); this.ballX = null; this.ballLift = 0; this.flash = null; this.draw(); },
   formation(sc) {
     const o = sc.poss, d = other(o), dir = o === 'a' ? 1 : -1, los = this.losX(sc);
     const midY = this.TOP + (this.H - this.TOP) / 2, ROW = 24;
@@ -230,7 +219,6 @@ const Field = {
   },
 
   draw() {
-    if (this.view !== 'side') return;   // Field3D renders from this same state
     const x = this.ctx, W = this.W, H = this.H, YPP = this.YPP, TOP = this.TOP, sc = this.scene;
     if (!x) return;
     x.imageSmoothingEnabled = false;
@@ -270,8 +258,9 @@ const Field = {
     x.fillStyle = '#ffcf3f'; x.fillRect(Math.round(sx(fd)) - 1, TOP, 3, H - TOP);
     // players
     const live = this.live;
+    const offscreen = [];
     (live ? live.items : this.formation(sc)).forEach(p => {
-      const px = Math.round(sx(p.wx)); if (px < -20 || px > W + 20) return;
+      const px = Math.round(sx(p.wx)); if (px < -20 || px > W + 20) { if (live && p.num) offscreen.push({ p, right: px > W }); return; }
       x.fillStyle = TEAM_COL[p.team]; x.globalAlpha = 0.55;
       x.beginPath(); x.ellipse(px, p.sy + 9, 11, 4, 0, 0, Math.PI * 2); x.fill(); x.globalAlpha = 1;
       if (p.ring) {
@@ -293,6 +282,15 @@ const Field = {
         x.fillStyle = '#ffcf3f'; x.strokeStyle = '#0b1020'; x.lineWidth = 2; x.fillRect(px - 10, spx - 20, 20, 18); x.strokeRect(px - 10, spx - 20, 20, 18);
         x.fillStyle = '#10152a'; x.font = '15px Silkscreen, monospace'; x.textAlign = 'center'; x.fillText(p.num, px, spx - 5);
       }
+    });
+    // receivers you can throw to who are out of the picture: a marker on the edge with his key and how far away he is
+    offscreen.forEach(({ p, right }) => {
+      const ex = right ? W - 6 : 6, ey = Math.max(TOP + 16, Math.min(H - 10, Math.round(p.sy))), dx = right ? -1 : 1;
+      const yd = Math.round(Math.abs(p.wx - (right ? left + W / YPP : left)));
+      x.fillStyle = '#ffcf3f'; x.strokeStyle = '#0b1020'; x.lineWidth = 2;
+      x.beginPath(); x.moveTo(ex, ey); x.lineTo(ex + dx * 12, ey - 9); x.lineTo(ex + dx * 12, ey + 9); x.closePath(); x.fill(); x.stroke();
+      const bxl = right ? ex - 12 - 40 : ex + 12; x.fillRect(bxl, ey - 9, 40, 18); x.strokeRect(bxl, ey - 9, 40, 18);
+      x.fillStyle = '#10152a'; x.font = '11px Silkscreen, monospace'; x.textAlign = 'center'; x.fillText(p.num + ' +' + yd, bxl + 20, ey + 4);
     });
     // ball
     const bx = live ? live.ball.wx : (this.ballX == null ? los - dir * 0.2 : this.ballX);
@@ -403,7 +401,6 @@ const Field = {
   }
 };
 
-/*FIELD3D*/
 
 /* ---------- header ---------- */
 function renderHeader() {
@@ -823,27 +820,6 @@ function drawWait() {
 }
 
 /* ---------- game screen ---------- */
-// camera angles: the sideline pixel view, plus 3D views that load three.js the first time one is picked
-const getView = () => { const v = lsGet('gd_view'); return VIEWS.some(x => x.id === v) ? v : 'side'; };
-async function pickView(id, quiet) {
-  if (!VIEWS.some(v => v.id === id)) return;
-  if (id !== 'side') {
-    if (!Field3D.supported()) { if (!quiet) toast('The 3D views need WebGL, which this browser does not offer.'); return; }
-    if (!Field3D.ready) { if (!quiet) toast('Loading the 3D views…'); try { await Field3D.load(); } catch (e) { toast('Could not load the 3D views. Check your connection.'); return; } const t = $('#toast'); if (t) t.hidden = true; }
-  }
-  lsSet('gd_view', id); Field.setView(id); S.vmenu = false; paintViewBar();
-}
-function paintViewBar() {
-  const b = $('[data-act="view-menu"]'), l = $('.vlist'); if (!b || !l) return;
-  const cur = VIEWS.find(v => v.id === Field.view) || VIEWS[0];
-  b.textContent = '◉ ' + cur.label; b.setAttribute('aria-expanded', S.vmenu ? 'true' : 'false');
-  l.hidden = !S.vmenu;
-  l.innerHTML = VIEWS.map(v => '<button class="vopt' + (v.id === cur.id ? ' on' : '') + '" data-act="view" data-v="' + v.id + '"><b>' + esc(v.label) + '</b><small>' + esc(v.sub) + '</small></button>').join('');
-}
-function cycleView() {
-  const ok = VIEWS.filter(v => v.id === 'side' || Field3D.supported()), i = ok.findIndex(v => v.id === Field.view);
-  pickView(ok[(i + 1) % ok.length].id);
-}
 // full screen: the browser's own full screen where it exists (not on iPhone), plus a layout that drops the header and gives the field all the room
 const isFull = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
 const fsLabel = () => document.body.classList.contains('fs') ? '✕ Exit full screen' : '⛶ Full screen';
@@ -870,9 +846,7 @@ function buildGame() {
     '<div class="side"><div class="banner" id="banner"></div><ol class="log" id="log"></ol>' +
     '<div class="row"><button class="btn small" data-act="rosters">Rosters</button><button class="btn small" data-act="matchups">Matchups</button></div></div></div></section>';
   $('#fieldHost').appendChild(Field.cv);
-  $('#fieldHost').insertAdjacentHTML('beforeend', '<div class="fvbar"><div class="vmenu"><button class="fsbtn" data-act="view-menu" aria-haspopup="true" aria-expanded="false" title="Camera angle (V)"></button><div class="vlist" hidden></div></div><button class="fsbtn" data-act="fullscreen" title="Full screen (F)" aria-label="Toggle full screen">' + fsLabel() + '</button></div>');
-  Field.attach(); paintViewBar();
-  if (Field.view === 'side' && getView() !== 'side') pickView(getView(), true);
+  $('#fieldHost').insertAdjacentHTML('beforeend', '<div class="fvbar"><button class="fsbtn" data-act="fullscreen" title="Full screen (F)" aria-label="Toggle full screen">' + fsLabel() + '</button></div>');
   S.shown = null; S.callSig = null;
 }
 function updateGame() {
@@ -1093,7 +1067,7 @@ function startBoard(o) {   // hub-driven snake draft (tournaments): {label, d, m
   sdStart(o); sdPollLoop(); render(); sdStep();
 }
 function exitToHub() { leave(); }
-window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field, Field3D };
+window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field };
 
 /* ---------- router ---------- */
 function render() {
@@ -1108,15 +1082,12 @@ function render() {
 
 /* ---------- events ---------- */
 document.addEventListener('click', ev => {
-  if (S.vmenu && !ev.target.closest('.vmenu')) { S.vmenu = false; paintViewBar(); }
   const t = ev.target.closest('[data-act]'); if (!t) return;
   const a = t.dataset.act;
   if (a === 'create') createRoom();
   else if (a === 'join') joinRoom($('#code').value);
   else if (a === 'cpu') startLocal();
   else if (a === 'fullscreen') toggleFull();
-  else if (a === 'view-menu') { S.vmenu = !S.vmenu; paintViewBar(); }
-  else if (a === 'view') pickView(t.dataset.v)
   else if (a === 'leave') leave();
   else if (a === 'ctx-done') { const c = S.ctx; leave(); if (c && c.onDone) c.onDone(); }
   else if (a === 'ctx-retry') { const c = S.ctx; if (c) { c.sent = false; ctxFinish(S.G); renderCall(S.G); } }
@@ -1142,7 +1113,6 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'Escape') { closeModal(); return; }
   const m = $('#modal'); if (m && !m.hidden) return;
   if (LV.on) { if (LV.key(ev, true)) return; }
-  if (S.screen === 'game' && (ev.key === 'v' || ev.key === 'V') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { cycleView(); return; }
   if (S.screen === 'game' && (ev.key === 'f' || ev.key === 'F') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { toggleFull(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }

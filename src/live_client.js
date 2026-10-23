@@ -95,6 +95,7 @@ const LV = {
   stop() {
     cancelAnimationFrame(this.raf); this.raf = 0; clearInterval(this.netT); this.netT = 0;
     this.on = null; this.held = {}; if (Field.live) { Field.live = null; Field.flash = null; }
+    Field.YPP = Field.BASE_YPP;   // back to the normal zoom
     window.GD_LIVE = null;
   },
 
@@ -144,9 +145,8 @@ const LV = {
   stick() {
     const m = this.on, h = this.held;
     const sx = (h.r ? 1 : 0) - (h.l ? 1 : 0), up = (h.u ? 1 : 0) - (h.d ? 1 : 0);
-    // the keys are relative to the camera: right is the screen's right, up is away from you (a 3D view looks along the field)
-    const b = Field.view !== 'side' && Field3D.active ? Field3D.basis(m) : { R: [1, 0], F: [0, -1] };
-    return [(sx * b.R[0] + up * b.F[0]) * m.dir, (sx * b.R[1] + up * b.F[1]) * m.dir];
+    // the keys follow the screen: right is toward the right of the field picture, up is up
+    return [sx * m.dir, -up * m.dir];
   },
   push(code) {
     const m = this.on; if (!m || !m.myCtl || m.sim.out || m.handed) return;
@@ -167,6 +167,7 @@ const LV = {
     if (!down) return false;
     if (k === ' ' || k === 'Spacebar') { ev.preventDefault(); this.push(5); return true; }
     if (k === 'e' || k === 'E' || k === 'Tab') { ev.preventDefault(); this.push(6); return true; }
+    if (k === 'q' || k === 'Q') { ev.preventDefault(); this.push(7); return true; }   // spin (ball carrier) / big hit (defender)
     if (THROWKEY[k.toLowerCase()]) { ev.preventDefault(); this.push(THROWKEY[k.toLowerCase()]); return true; }
     if (/^[1-4]$/.test(k)) { this.push(+k); return true; }
     return false;
@@ -275,15 +276,24 @@ const LV = {
     L.mine = items.some(i => i.mine); L.meOff = m.me === m.off;
     L.hud = null;
     if (m.myCtl && !m.handed && !sim.out && performance.now() >= m.readyAt) {
-      const off = m.me === m.off, qbHas = off && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass';
+      const off = m.me === m.off, qbHas = off && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass' && sim.by.QB.x <= 0;
       const mv = ['WASD / ARROWS', 'MOVE'];
       L.hud = m.ret ? [mv, ['SPACE', 'JUKE']].concat(m.ret.kind === 'pr' ? [['E', 'FAIR CATCH']] : [])
         : qbHas ? [mv, ['J K L ;', 'THROW TO #'], ['SPACE', 'THROW AWAY']]
-        : off ? (sim.kind === 'run' && sim.ball.car === 'QB' ? [mv] : [mv, ['SPACE', 'JUKE']])
-        : [mv, ['SPACE', 'DIVE'], ['E', 'SWITCH PLAYER']];
+        : off ? (sim.kind === 'run' && sim.ball.car === 'QB' ? [mv] : [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN']])
+        : [mv, ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
     }
     L.msg = performance.now() < m.readyAt ? (m.myCtl ? 'READY · YOU ARE ' + lastName((sim.by[m.me === m.off ? sim.ctlId.o : sim.ctlId.d] || {}).name).toUpperCase() : 'READY…') : m.stallAt && !sim.out && (performance.now() - m.stallAt > 700) ? 'Waiting for ' + esc((S.seats[m.opp] || {}).name || 'your opponent') + '…' : '';
-    Field.cam += (Field.clampCam(L.ball.wx + (m.ret ? dir * 9 : 0)) - Field.cam) * 0.14;   // on a return the camera looks ahead at the coverage
+    // the camera: on a return it looks ahead at the coverage; while the quarterback holds the ball it leans downfield so the routes stay in
+    // view (the quarterback near the back edge); with the ball in the air it frames the throw and the catch point
+    const qbHold = !m.ret && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass' && sim.by.QB.x <= 0, air = sim.ball.air;
+    const focus = m.ret ? L.ball.wx + dir * 9 : qbHold ? L.ball.wx + dir * 11 : air && !air.away ? los + dir * (sim.ball.x + air.ex) / 2 : L.ball.wx;
+    // zoom out (to about 52 yards across) when the quarterback's deepest target would not fit, so the routes stay in the picture
+    let reach = 0;
+    if (qbHold || (air && !air.away)) ['WR1', 'WR2', 'TE', 'HB'].forEach(id => { const r = sim.by[id]; if (r) reach = Math.max(reach, r.x - sim.by.QB.x); });
+    const wantYPP = Math.max(13, Math.min(Field.BASE_YPP, Field.W / Math.max(1, reach + 12)));
+    Field.YPP += (wantYPP - Field.YPP) * 0.08;
+    Field.cam += (Field.clampCam(focus) - Field.cam) * 0.14;
     Field.ballLift = L.ball.lift; Field.draw();
   },
 
@@ -309,15 +319,16 @@ const LV = {
         info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b>, the ' + (pr ? 'punt' : 'kick') + ' returner. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke' + (pr ? ' · ' + K('E') + ' fair catch' : '') + '. Follow your blockers.';
         acts = '<button class="ab wide" data-lvk="5">Juke</button>' + (pr ? '<button class="ab wide" data-lvk="6">Fair catch</button>' : '');
       } else if (role === 'off') {
-        const qbHas = sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass';
-        if (qbHas) {
-          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>, the quarterback. ' + K('WASD') + K('←↑↓→') + ' move. Throw to ' + K('J') + esc(lastName(sim.by.WR1.name)) + ' ' + K('K') + esc(lastName(sim.by.WR2.name)) + ' ' + K('L') + esc(lastName(sim.by.TE.name)) + ' ' + K(';') + esc(lastName(sim.by.HB.name)) + ' · ' + K('Space') + ' throws it away.';
+        const qbHas = sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass', scramble = qbHas && sim.by.QB.x > 0;
+        if (scramble) { info = 'You are scrambling with <b>' + esc(lastName(sim.by.QB.name)) + '</b>: past the line you can only run. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
+        else if (qbHas) {
+          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>, the quarterback. ' + K('WASD') + K('←↑↓→') + ' move. Throw to ' + K('J') + esc(lastName(sim.by.WR1.name)) + ' ' + K('K') + esc(lastName(sim.by.WR2.name)) + ' ' + K('L') + esc(lastName(sim.by.TE.name)) + ' ' + K(';') + esc(lastName(sim.by.HB.name)) + ' · ' + K('Space') + ' throws it away. Run past the line to scramble.';
           acts = ['1', '2', '3', '4'].map((k, i) => '<button class="ab" data-lvk="' + k + '">' + THROWLAB[i] + '</button>').join('') + '<button class="ab wide" data-lvk="5">Throw away</button>';
         } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. ' + K('WASD') + K('←↑↓→') + ' move.'; acts = ''; }
-        else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="5">Juke</button>'; }
+        else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
       } else {
-        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('WASD') + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('E') + ' switch player.';
-        acts = '<button class="ab wide" data-lvk="5">Dive</button><button class="ab wide" data-lvk="6">Switch</button>';
+        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('WASD') + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch player. Steer at the ball carrier and you are guided onto him.';
+        acts = '<button class="ab wide" data-lvk="5">Dive</button><button class="ab wide" data-lvk="7">Big hit</button><button class="ab wide" data-lvk="6">Switch</button>';
       }
     } else if (m.myCtl && m.handed) info = 'The computer has your players.';
     else if (m.oppCtl) info = 'Your opponent is playing this snap on the field. Your players move on their own.';
