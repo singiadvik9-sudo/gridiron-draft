@@ -4,6 +4,7 @@
   python3 build_rosters.py build DIR      rewrites PLAYERS, OLU, DFU, KICK, KR, PR, STU, DEPTH and FA in lib/data.json (then runs salaries)
   python3 build_rosters.py salaries DIR   gives every player in lib/data.json his real salary, and writes the salary curve (SAL)
   python3 build_rosters.py returners DIR  gives every running back, receiver and corner a returner rating (and corners a speed)
+  python3 build_rosters.py ratings DIR    re-rates every player already in lib/data.json from the current Madden 27 ratings (rosters and contracts stay)
 
 Each team's pool is its roster plus its injured-reserve list (nflverse status ACT, INA or RES), with injuries ignored. Every player
 gets his Madden NFL 27 rating (ea.com ratings database, matched by name, then team and birth date; nicknames by birth date and last
@@ -345,9 +346,80 @@ def returners(d):
     json.dump(D, open(OUT, 'w'), separators=(',', ':'))
     print('returner ratings for', n, 'backs, receivers and corners')
 
+# ---------------------------------------------------------------- ratings
+# re-rates everyone already in lib/data.json from the current Madden 27 ratings (fetch saves them), without touching rosters or contracts:
+# overall everywhere, and speed, strength, agility and awareness where the data keeps them; the special-teams units and returners follow
+FAMILY = {'QB': 'QB', 'HB': 'HB', 'WR': 'WR', 'TE': 'TE', 'OL': 'OL', 'DE': 'D', 'DT': 'D', 'LB': 'D', 'CB': 'D', 'S': 'D', 'K': 'K', 'P': 'P', 'LS': 'LS', 'DL': 'D'}
+def ratings(d):
+    D = json.load(open(OUT))
+    M = json.load(open(os.path.join(d, 'madden27.json')))
+    label = {t['city'] + ' ' + t['nick']: t['abbr'] for t in D['TEAMS']}
+    label.update({'NY Giants': 'NYG', 'NY Jets': 'NYJ', 'Los Angeles Rams': 'LA', 'Los Angeles Chargers': 'LAC', 'Las Vegas Raiders': 'LV'})
+    byname, byborn = collections.defaultdict(list), collections.defaultdict(list)
+    for m in M: byname[norm(m['name'])].append(m); byborn[m['born']].append(m)
+    born = {}   # nicknames (Cam / Cameron): the roster file's birth date and the last name, as the build matches them
+    rf = os.path.join(d, 'roster_2026.csv')
+    if os.path.exists(rf):
+        for r in csv.DictReader(open(rf)): born.setdefault(norm(r['full_name']), ((r['birth_date'] or '')[:10], norm(r['last_name'])))
+    last = lambda n: norm(re.sub(r'\s+(jr\.?|sr\.?|ii|iii|iv|v)$', '', n.strip(), flags=re.I).split(' ')[-1])
+    fam = lambda m: FAMILY.get(group(m['pos'], None, '43') or '', None)
+    def find(name, team, g):   # the same name at the same position family, on his team if there is more than one
+        c = [m for m in byname.get(norm(name), []) if fam(m) == FAMILY.get(g)]
+        if not c and norm(name) in born:
+            b, ln = born[norm(name)]
+            c = [m for m in byborn.get(b, []) if b and last(m['name']) == ln and fam(m) == FAMILY.get(g)]
+        if len(c) > 1: c = [m for m in c if label.get(m['team']) == team] or []
+        return c[0] if len(c) == 1 else None
+    moves, seen = [], [0, 0]
+    def rate(name, team, g, old):
+        seen[0] += 1
+        m = find(name, team, g)
+        if not m: return None
+        seen[1] += 1
+        if m['ovr'] != old: moves.append((m['ovr'] - old, name, team, g, old, m['ovr']))
+        return m
+    for p in D['PLAYERS']:
+        m = rate(p['name'], p['team'], p['pos'], p['ovr'])
+        if m: p.update(ovr=m['ovr'], est=0, **{k: m[k] for k in ('spd', 'str', 'agi', 'awr') if m.get(k)})
+    for u in D['OLU']:
+        for q in u['players']:
+            m = rate(q[0], u['team'], 'OL', q[1])
+            if m: q[1], q[2] = m['ovr'], 0                               # [name, ovr, est, age, salary, end]
+        u.pop('ovr', None)
+    for u in D['DFU']:
+        for q in u['players']:
+            m = rate(q[2], u['team'], 'CB' if q[1] == 'CB' else 'S' if q[1] == 'S' else 'LB', q[3])
+            if m: q[3], q[4] = m['ovr'], 0                               # [slot, job, name, ovr, est, age, ...]
+    for k in D['KICK']:
+        m = rate(k['name'], k['team'], 'K', k['ovr'])
+        if m: k['ovr'] = m['ovr']
+    for u in D['STU']:
+        for q in u['players']:
+            g = {'P': 'P', 'LS': 'LS'}.get(q[0], 'CB')
+            m = find(q[1], u['team'], g) if g != 'CB' else (find(q[1], u['team'], 'CB') or find(q[1], u['team'], 'LB'))
+            seen[0] += 1
+            if m: seen[1] += 1; q[2], q[3] = m['ovr'], 0
+        cv = [q[2] for q in u['players'] if q[0] == 'CV']
+        u['ovr'] = round(0.35 * u['players'][0][2] + 0.15 * u['players'][1][2] + 0.50 * sum(cv) / max(1, len(cv)))
+    for lst in (D['KR'], D['PR']):
+        for k in lst:
+            m = find(k['name'], k['team'], 'WR') or find(k['name'], k['team'], 'HB') or find(k['name'], k['team'], 'CB')
+            if m and m['spd']: k.update(ovr=retr(m['spd'], m['agi'] or m['spd'] - 3, m['cod'] or m['spd'] - 3), spd=m['spd'], agi=m['agi'] or k['agi'], str=m['str'] or k['str'], awr=m['awr'] or k['awr'], est=0)
+    for lst, team in [(u['players'], u['team']) for u in D['DEPTH']] + [(D['FA'], None)]:
+        for q in lst:
+            m = rate(q[1], team, q[0], q[2])
+            if m:
+                q[2] = m['ovr']                                         # [pos, name, ovr, age, spd, salary, end, rt]
+                if q[4] is not None and m['spd']: q[4] = m['spd']
+    json.dump(D, open(OUT, 'w'), separators=(',', ':'))
+    moves.sort()
+    print('re-rated', seen[1], 'of', seen[0], 'players from', M[0]['it'] + ';', len(moves), 'ratings changed')
+    for x in moves[:8] + moves[-8:]: print('  %+d  %s (%s %s) %d -> %d' % x)
+    returners(d)
+
 if __name__ == '__main__':
-    if len(sys.argv) != 3 or sys.argv[1] not in ('fetch', 'build', 'salaries', 'returners'): sys.exit(__doc__)
-    {'fetch': fetch, 'build': build, 'salaries': salaries, 'returners': returners}[sys.argv[1]](sys.argv[2])
+    if len(sys.argv) != 3 or sys.argv[1] not in ('fetch', 'build', 'salaries', 'returners', 'ratings'): sys.exit(__doc__)
+    {'fetch': fetch, 'build': build, 'salaries': salaries, 'returners': returners, 'ratings': ratings}[sys.argv[1]](sys.argv[2])
     if sys.argv[1] == 'build':
         if os.path.exists(os.path.join(sys.argv[2], 'contracts.json')): salaries(sys.argv[2])
         returners(sys.argv[2])
