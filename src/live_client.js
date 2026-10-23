@@ -5,7 +5,7 @@
 const LIVE = E.LIVE;
 const RL = 21;   // pixels per sideways unit on the live field
 const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r', w: 'u', s: 'd', a: 'l', d: 'r', W: 'u', S: 'd', A: 'l', D: 'r' };
-const lastName = n => String(n || '').trim().split(/\s+/).slice(-1)[0] || '';
+const lastName = n => { const w = String(n || '').trim().split(/\s+/); while (w.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(w[w.length - 1])) w.pop(); return w[w.length - 1] || ''; };   // (not "II" for a Jr. or a II)
 const K = t => '<kbd>' + t + '</kbd>';
 // the right hand rests on the home row: J K L ; throw to the four numbered targets (1-4 still work)
 const THROWKEY = { j: 1, k: 2, l: 3, ';': 4 }, SHIFTED = { ':': ';' }, THROWLAB = ['J', 'K', 'L', ';'];
@@ -264,7 +264,8 @@ const LV = {
         stance: (p.grp === 'OL' || p.grp === 'DL') && sim.t < 4, fire: !!p.fire };
       const mineHot = hot.some(h => h[0] === m.me && h[1] === p.id), anyHot = hot.some(h => h[1] === p.id);
       it.mine = mineHot;
-      if (mineHot) { it.ring = '#ffcf3f'; it.tag = lastName(p.name); }
+      if (mineHot) { it.ring = '#ffcf3f'; it.tag = lastName(p.name); if (p.side === 'd' && p.eng) it.lev = p.pairL || 0; }
+      if (p.moveT != null && sim.t - p.moveT < 16) it.pop = { win: 'BEAT HIM!', stuck: 'STONEWALLED', bull: 'BULL RUSH' }[p.move];
       else if (anyHot) { it.ring = TEAM_COL[other(m.me)]; }
       if (tags && tags[p.id]) it.num = tags[p.id];
       items.push(it);
@@ -275,6 +276,7 @@ const LV = {
     L.items = items; L.los = los; L.dir = dir;
     const fl = cu.f >= 0 ? (pv.f >= 0 ? lerp(pv.f, cu.f) : cu.f) : -1;
     L.ball = { wx: los + dir * bx, sy: mid + by * dir * RL, wz: by * dir, h: bz, carried, lift: carried ? 11 : bz * 9, f: fl };
+    const fly = sim.ball.air; L.land = fly && !fly.away ? { wx: los + dir * fly.ex, sy: mid + fly.ey * dir * RL } : null;   // where the throw comes down
     L.mine = items.some(i => i.mine); L.meOff = m.me === m.off;
     L.hud = null;
     if (m.myCtl && !m.handed && !sim.out && performance.now() >= m.readyAt) {
@@ -283,6 +285,7 @@ const LV = {
       L.hud = m.ret ? [mv, ['SPACE', 'JUKE']].concat(m.ret.kind === 'pr' ? [['E', 'FAIR CATCH']] : [])
         : qbHas ? [mv, ['J K L ;', 'BULLET'], ['SHIFT+', 'LOB'], ['SPACE', 'THROW AWAY']]
         : off ? (sim.kind === 'run' && sim.ball.car === 'QB' ? [mv] : [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN']])
+        : (sim.by[sim.ctlId.d] || {}).eng ? [mv, ['SPACE', 'SWIM'], ['Q', 'BULL RUSH'], ['E', 'SWITCH']]
         : [mv, ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
     }
     L.msg = performance.now() < m.readyAt ? (m.myCtl ? 'READY · YOU ARE ' + lastName((sim.by[m.me === m.off ? sim.ctlId.o : sim.ctlId.d] || {}).name).toUpperCase() : 'READY…') : m.stallAt && !sim.out && (performance.now() - m.stallAt > 700) ? 'Waiting for ' + esc((S.seats[m.opp] || {}).name || 'your opponent') + '…' : '';
@@ -329,8 +332,8 @@ const LV = {
         } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. ' + K('WASD') + K('←↑↓→') + ' move.'; acts = ''; }
         else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
       } else {
-        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('WASD') + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch player. Steer at the ball carrier and you are guided onto him.';
-        acts = '<button class="ab wide" data-lvk="5">Dive</button><button class="ab wide" data-lvk="7">Big hit</button><button class="ab wide" data-lvk="6">Switch</button>';
+        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('WASD') + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch player. Steer at the ball carrier and you are guided onto him. When a blocker has you: ' + K('Q') + ' bull rush builds leverage, ' + K('Space') + ' swims past him (best with your meter in the green, or the moment he touches you).';
+        acts = '<button class="ab wide" data-lvk="5">Dive / Swim</button><button class="ab wide" data-lvk="7">Hit / Bull rush</button><button class="ab wide" data-lvk="6">Switch</button>';
       }
     } else if (m.myCtl && m.handed) info = 'The computer has your players.';
     else if (m.oppCtl) info = 'Your opponent is playing this snap on the field. Your players move on their own.';

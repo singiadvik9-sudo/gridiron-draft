@@ -2,6 +2,12 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-23', title: 'Ends and tackles, and a better defense', items: [
+    'Defensive linemen are now ends (DE) and tackles (DT). Edge rushers like T.J. Watt and Myles Garrett are ends, and no team plays an end at linebacker any more. Old saves are updated automatically.',
+    'No more free sacks: a blitzer who comes late gets picked up by a lineman or the back, and quarterbacks throw hot when someone comes free.',
+    'Pass-rush moves: when a blocker has you, Q bull rushes and Space swims past him. Watch the meter under your player: swim when it is green, or the moment he touches you.',
+    'A ring shows where a thrown ball will come down, so you can go make a play on it.'
+  ] },
   { id: '2026-10-22-2', title: 'Faster and more fun', items: [
     'Quicker games: plays animate faster, kickoffs kick deep on their own (unless you trail in the 4th), and Hurry-up (R) runs your last call again with no huddle.',
     'Trick plays: Flea Flicker, Hook and Lateral, and a Fake Punt on 4th down. They hit big against the wrong defense, but the defense gets wise to every trick you run.',

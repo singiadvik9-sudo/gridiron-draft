@@ -72,21 +72,21 @@ def fetch(d):
     print(len(best), 'contracts saved')
 
 # ---------------------------------------------------------------- building
-# the game's position groups; edge rushers are linemen in a 4-3 and outside linebackers in a 3-4
+# the game's position groups: edge rushers are defensive ends (a 3-4 stands them up at LEDGE / REDGE), interior linemen tackles
 def group(mpos, npos, scheme):
-    if mpos in ('LEDG', 'REDG'): return 'DL' if scheme == '43' else 'LB'
-    m = {'QB': 'QB', 'HB': 'HB', 'FB': 'HB', 'WR': 'WR', 'TE': 'TE', 'LT': 'OL', 'LG': 'OL', 'C': 'OL', 'RG': 'OL', 'RT': 'OL', 'DT': 'DL',
+    if mpos in ('LEDG', 'REDG'): return 'DE'
+    m = {'QB': 'QB', 'HB': 'HB', 'FB': 'HB', 'WR': 'WR', 'TE': 'TE', 'LT': 'OL', 'LG': 'OL', 'C': 'OL', 'RG': 'OL', 'RT': 'OL', 'DT': 'DT',
          'MIKE': 'LB', 'WILL': 'LB', 'SAM': 'LB', 'CB': 'CB', 'FS': 'S', 'SS': 'S', 'K': 'K', 'P': 'P', 'LS': 'LS'}
     if mpos in m: return m[mpos]
-    n = {'QB': 'QB', 'RB': 'HB', 'FB': 'HB', 'WR': 'WR', 'TE': 'TE', 'OL': 'OL', 'T': 'OL', 'G': 'OL', 'C': 'OL', 'DL': 'DL', 'DE': 'DL', 'DT': 'DL', 'NT': 'DL',
+    n = {'QB': 'QB', 'RB': 'HB', 'FB': 'HB', 'WR': 'WR', 'TE': 'TE', 'OL': 'OL', 'T': 'OL', 'G': 'OL', 'C': 'OL', 'DL': 'DT', 'DE': 'DE', 'DT': 'DT', 'NT': 'DT',
          'LB': 'LB', 'OLB': 'LB', 'ILB': 'LB', 'MLB': 'LB', 'DB': 'CB', 'CB': 'CB', 'S': 'S', 'SS': 'S', 'FS': 'S', 'SAF': 'S', 'K': 'K', 'P': 'P', 'LS': 'LS'}
     return n.get(npos)
 # a 53-man roster: at least MIN at every position, at most MAX, the rest of the spots go to the best players left
-MIN = {'QB': 2, 'HB': 2, 'WR': 4, 'TE': 2, 'OL': 7, 'DL': 6, 'LB': 5, 'CB': 4, 'S': 3, 'K': 1, 'P': 1}
-MAX = {'43': {'QB': 3, 'HB': 4, 'WR': 7, 'TE': 4, 'OL': 10, 'DL': 10, 'LB': 7, 'CB': 7, 'S': 5, 'K': 1, 'P': 1},
-       '34': {'QB': 3, 'HB': 4, 'WR': 7, 'TE': 4, 'OL': 10, 'DL': 8, 'LB': 10, 'CB': 7, 'S': 5, 'K': 1, 'P': 1}}
-BASE = {'QB': 60, 'HB': 64, 'WR': 64, 'TE': 62, 'OL': 61, 'DL': 64, 'LB': 64, 'CB': 63, 'S': 63, 'K': 66, 'P': 64, 'LS': 62}
-SPD = {'QB': 78, 'HB': 88, 'WR': 89, 'TE': 82, 'OL': 64, 'DL': 76, 'LB': 82, 'CB': 90, 'S': 88, 'K': 60, 'P': 60, 'LS': 60}
+MIN = {'QB': 2, 'HB': 2, 'WR': 4, 'TE': 2, 'OL': 7, 'DE': 3, 'DT': 3, 'LB': 3, 'CB': 4, 'S': 3, 'K': 1, 'P': 1}
+MAX = {'43': {'QB': 3, 'HB': 4, 'WR': 7, 'TE': 4, 'OL': 10, 'DE': 6, 'DT': 6, 'LB': 7, 'CB': 7, 'S': 5, 'K': 1, 'P': 1},
+       '34': {'QB': 3, 'HB': 4, 'WR': 7, 'TE': 4, 'OL': 10, 'DE': 6, 'DT': 7, 'LB': 6, 'CB': 7, 'S': 5, 'K': 1, 'P': 1}}
+BASE = {'QB': 60, 'HB': 64, 'WR': 64, 'TE': 62, 'OL': 61, 'DE': 64, 'DT': 64, 'LB': 64, 'CB': 63, 'S': 63, 'K': 66, 'P': 64, 'LS': 62}
+SPD = {'QB': 78, 'HB': 88, 'WR': 89, 'TE': 82, 'OL': 64, 'DE': 80, 'DT': 72, 'LB': 82, 'CB': 90, 'S': 88, 'K': 60, 'P': 60, 'LS': 60}
 SK = [1, 2, 3, 4, 4, 5, 5, 3, 1, 4, 5]; HR = ['K', 'N', 'K', 'X', 'K', 'B', 'K', 'N', 'X', 'K', 'R']
 
 def jit(name, span): return int(hashlib.md5(name.encode()).hexdigest()[:6], 16) % (2 * span + 1) - span
@@ -174,8 +174,8 @@ def build(d):
         keep, cnt, kid = [], collections.Counter(), set()
         for g, n in MIN.items():
             for p in [p for p in ps if p['g'] == g][:n]: keep.append(p); kid.add(id(p)); cnt[g] += 1
-        # a position still short borrows a player who can play it: an edge rusher at linebacker (or on the line in a 3-4), a safety at corner and back
-        FLEX = {'LB': ('DL', ('LEDG', 'REDG')), 'DL': ('LB', ('LEDG', 'REDG')), 'CB': ('S', ('FS', 'SS')), 'S': ('CB', ('CB',))}
+        # a position still short borrows a player who can play it: an end at linebacker or tackle, a tackle at end, a safety at corner and back
+        FLEX = {'LB': ('DE', ('LEDG', 'REDG', None)), 'DT': ('DE', ('LEDG', 'REDG', None)), 'DE': ('DT', ('DT', None)), 'CB': ('S', ('FS', 'SS')), 'S': ('CB', ('CB',))}
         for g, (src, mp) in FLEX.items():
             while cnt[g] < MIN[g]:
                 c = [p for p in ps if p['g'] == src and p['mpos'] in mp and (id(p) not in kid or cnt[src] > MIN[src])]
@@ -193,11 +193,12 @@ def build(d):
         if len(keep) != 53: print('WARNING', t, 'has only', len(keep))
     # starters and units from each 53
     PLAYERS, OLU, DFU, KICK, KR, PR, STU, DEPTH = [], [], [], [], [], [], [], []
-    SLOTS = {'43': [('LDE', 'DL', ['LEDG', 'REDG']), ('LDT', 'DL', ['DT']), ('RDT', 'DL', ['DT']), ('RDE', 'DL', ['REDG', 'LEDG']),
-                    ('WLB', 'LB', ['WILL']), ('MLB', 'LB', ['MIKE']), ('SLB', 'LB', ['SAM']), ('LCB', 'CB', ['CB']), ('SS', 'S', ['SS']), ('FS', 'S', ['FS']), ('RCB', 'CB', ['CB'])],
-             '34': [('LDE', 'DL', ['DT']), ('NT', 'DL', ['DT']), ('RDE', 'DL', ['DT']), ('WLB', 'LB', ['LEDG', 'REDG']), ('LILB', 'LB', ['MIKE', 'WILL']),
-                    ('RILB', 'LB', ['WILL', 'MIKE']), ('SLB', 'LB', ['REDG', 'LEDG']), ('LCB', 'CB', ['CB']), ('SS', 'S', ['SS']), ('FS', 'S', ['FS']), ('RCB', 'CB', ['CB'])]}
-    NEED = {'43': {'DL': 4, 'LB': 3}, '34': {'DL': 3, 'LB': 4}}
+    # (slot, position group, the slot's job on the field: 'DL' linemen, 'LB' linebackers and the 3-4's stand-up edge rushers, Madden positions that fit it best)
+    SLOTS = {'43': [('LDE', 'DE', 'DL', ['LEDG', 'REDG']), ('LDT', 'DT', 'DL', ['DT']), ('RDT', 'DT', 'DL', ['DT']), ('RDE', 'DE', 'DL', ['REDG', 'LEDG']),
+                    ('WLB', 'LB', 'LB', ['WILL']), ('MLB', 'LB', 'LB', ['MIKE']), ('SLB', 'LB', 'LB', ['SAM']), ('LCB', 'CB', 'CB', ['CB']), ('SS', 'S', 'S', ['SS']), ('FS', 'S', 'S', ['FS']), ('RCB', 'CB', 'CB', ['CB'])],
+             '34': [('LDT', 'DT', 'DL', ['DT']), ('NT', 'DT', 'DL', ['DT']), ('RDT', 'DT', 'DL', ['DT']), ('LEDGE', 'DE', 'LB', ['LEDG', 'REDG']), ('LILB', 'LB', 'LB', ['MIKE', 'WILL']),
+                    ('RILB', 'LB', 'LB', ['WILL', 'MIKE']), ('REDGE', 'DE', 'LB', ['REDG', 'LEDG']), ('LCB', 'CB', 'CB', ['CB']), ('SS', 'S', 'S', ['SS']), ('FS', 'S', 'S', ['FS']), ('RCB', 'CB', 'CB', ['CB'])]}
+    NEED = {'43': {'DE': 2, 'DT': 2, 'LB': 3}, '34': {'DT': 3, 'DE': 2, 'LB': 2}}
     OL_ORDER = ['LT', 'LG', 'C', 'RG', 'RT']
     for i, t in enumerate(TEAMS):
         ro, sch = rosters[t], scheme[t]
@@ -217,11 +218,11 @@ def build(d):
         # defense: the best at each group, each slot filled by the player whose Madden position fits it best
         df = []
         starters = {g: take(g, n) for g, n in list(NEED[sch].items()) + [('CB', 2), ('S', 2)]}
-        for slot, g, pref in SLOTS[sch]:
+        for slot, g, role, pref in SLOTS[sch]:
             c = starters[g]
             p = next((p for k in pref for p in c if p['mpos'] == k), None) or c[0]
             c.remove(p)
-            df.append([slot, g, p['name'], p['ovr'], p['est'], p['age']])
+            df.append([slot, role, p['name'], p['ovr'], p['est'], p['age']])
         DFU.append(dict(team=t, scheme=sch, players=df))
         k = take('K', 1)[0]; s, h = look(k['name'])
         KICK.append(dict(id=i, name=k['name'], team=t, ovr=k['ovr'], skin=s, hair=h))
@@ -271,7 +272,7 @@ def salaries(d):
         return round(max(LEAGUE_MIN, apy), 2), (ys or 2026) + max(1, yrs or 1) - 1   # a mid-season deal shows only its prorated part
     # every player in the data as (group, rating, contract, where to write [salary, last contract season]); the curve is fitted first
     people = []
-    def add(g, o, name, team, put): people.append([g, o, contract(name, team), put])
+    def add(g, o, name, team, put): people.append([{'DE': 'DL', 'DT': 'DL'}.get(g, g), o, contract(name, team), put])   # ends and tackles share the linemen's curve
     def at(q, i):   # writes [salary, end] into list q at index i (padding with None)
         def put(v): q[:] = q[:i] + [None] * max(0, i - len(q)) + v + q[i + 2:]
         return put
@@ -281,7 +282,7 @@ def salaries(d):
     for u in D['OLU']:
         for q in u['players']: add('OL', q[1], q[0], u['team'], at(q, 4))          # [name, ovr, est, age, salary, end]
     for u in D['DFU']:
-        for q in u['players']: add(q[1], q[3], q[2], u['team'], at(q, 6))          # [slot, group, name, ovr, est, age, salary, end]
+        for q in u['players']: add('DL' if 'EDGE' in q[0] else q[1], q[3], q[2], u['team'], at(q, 6))   # [slot, job, name, ovr, est, age, salary, end] (3-4 edges are paid as linemen)
     for k in D['KICK']: add('K', k['ovr'], k['name'], k['team'], key(k))
     for u in D['STU']: q = u['players'][0]; add('P', q[2], q[1], u['team'], at(q, 4))   # the punter: [P, name, ovr, est, salary, end]
     for lst, team in [(u['players'], u['team']) for u in D['DEPTH']] + [(D['FA'], None)]:
