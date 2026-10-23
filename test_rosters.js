@@ -6,7 +6,7 @@ const sizes = L.teams.map(t => LG.rosterOf(L, t.id).length);
 ok(sizes.every(n => n === 53), 'every campaign team starts with exactly 53 players (' + [...new Set(sizes)] + ')');
 const on = (name, abbr) => LG.rosterOf(L, T(abbr)).find(p => p.n === name);
 ok(on('Myles Garrett', 'LA') && on('Myles Garrett', 'LA').o === 99, 'Myles Garrett (on injured reserve) is on the Rams, rated 99');
-ok(LG.lineup(L, T('LA')).LB.some(p => p.n === 'Myles Garrett'), 'and he starts (an outside linebacker in their 3-4)');
+ok(LG.lineup(L, T('LA')).DE.some(p => p.n === 'Myles Garrett') && LG.teamsFor(L, T('LA'), 0).a.squad.df.p.some(q => q[0] === 'LEDGE' && q[2] === 'Myles Garrett'), 'and he starts at defensive end (standing up at edge in their 3-4)');
 ok(['Micah Parsons', 'Laremy Tunsil', 'A.J. Brown'].every(n => Object.values(L.players).some(p => p.n === n && p.t >= 0)), 'other players from injured reserve are on rosters too');
 ok(L.teams.every(t => { const c = LG.posCount(L, t.id); return Object.keys(LG.MIN_DEPTH).every(p => c[p] >= LG.MIN_DEPTH[p]); }), 'every team has enough players at every position');
 ok(!Object.values(L.players).some(p => p.t >= 0 && ['Kyle Juszczyk', 'Patrick Ricard'].indexOf(p.n) >= 0), 'fullbacks do not take running back spots');

@@ -215,7 +215,7 @@ const Field = {
     const gt = ab => ({ abbr: ab, c1: '#222222', c2: '#222222' });
     [-2, -1, 0, 1, 2].forEach((yy, n) => put(o, los - dir * 0.7, midY + yy * dir * ROW, genericKey(gt(OS.ol.tm), 'OL', n), 'OL' + n, 'OL'));
     const T43 = { LDE: [-0.9, -2.9], LDT: [-0.9, -1], RDT: [-0.9, 1], RDE: [-0.9, 2.9], WLB: [-3, -3.6], MLB: [-3.8, 0], SLB: [-3, 3.6] };
-    const T34 = { LDE: [-0.9, -2.2], NT: [-0.9, 0], RDE: [-0.9, 2.2], WLB: [-2.6, -3.8], LILB: [-3.6, -1.1], RILB: [-3.6, 1.1], SLB: [-2.6, 3.8] };
+    const T34 = { LDT: [-0.9, -2.2], NT: [-0.9, 0], RDT: [-0.9, 2.2], LEDGE: [-2.6, -3.8], LILB: [-3.6, -1.1], RILB: [-3.6, 1.1], REDGE: [-2.6, 3.8], LDE: [-0.9, -2.2], RDE: [-0.9, 2.2], WLB: [-2.6, -3.8], SLB: [-2.6, 3.8] };
     const TD = Object.assign({}, DS.df.sch === '43' ? T43 : T34, { LCB: [-2.2, -6], RCB: [-2.2, 6], SS: [-9, 2.2], FS: [-9, -2.2] });
     DS.df.p.forEach((p, n) => {
       const q = TD[p[0]]; if (!q) return;
@@ -270,6 +270,10 @@ const Field = {
     // players
     const live = this.live;
     const offscreen = [];
+    if (live && live.land) {   // where the throw is coming down
+      const lx = Math.round(sx(live.land.wx)), pul = 0.5 + 0.5 * Math.sin(performance.now() / 120);
+      x.strokeStyle = '#ffcf3f'; x.globalAlpha = 0.5 + 0.4 * pul; x.lineWidth = 2; x.beginPath(); x.ellipse(lx, live.land.sy + 9, 9 + pul * 3, 4 + pul * 1.5, 0, 0, Math.PI * 2); x.stroke(); x.globalAlpha = 1;
+    }
     (live ? live.items : this.formation(sc)).forEach(p => {
       const px = Math.round(sx(p.wx)); if (px < -20 || px > W + 20) { if (live && p.num) offscreen.push({ p, right: px > W }); return; }
       x.fillStyle = TEAM_COL[p.team]; x.globalAlpha = 0.55;
@@ -294,6 +298,13 @@ const Field = {
         x.font = '11px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020';
         const lab = 'YOU · ' + p.tag.toUpperCase(); x.strokeText(lab, px, spx - 19 + bob); x.fillStyle = p.ring; x.fillText(lab, px, spx - 19 + bob);
       }
+      if (p.lev != null) {   // your rusher's leverage against his blocker: green, he is winning (swim now); red, the blocker is
+        const w = 34, f = Math.max(-1, Math.min(1, -p.lev)), bx = px - w / 2, by = spx + 31;
+        x.fillStyle = '#0b1020'; x.fillRect(bx - 2, by - 2, w + 4, 8);
+        x.fillStyle = f > 0.25 ? '#3fdc6a' : f > -0.2 ? '#ffcf3f' : '#ff5a4a'; x.fillRect(bx + w / 2, by, Math.round(f * w / 2), 4);
+        x.fillStyle = '#efe9d6'; x.fillRect(bx + w / 2, by - 1, 1, 6);
+      }
+      if (p.pop) { x.font = '12px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020'; x.strokeText(p.pop, px, spx - 34); x.fillStyle = p.pop === 'STONEWALLED' ? '#ff7a6a' : '#3fdc6a'; x.fillText(p.pop, px, spx - 34); }
       if (p.num) {
         x.fillStyle = '#ffcf3f'; x.strokeStyle = '#0b1020'; x.lineWidth = 2; x.fillRect(px - 10, spx - 20, 20, 18); x.strokeRect(px - 10, spx - 20, 20, 18);
         x.fillStyle = '#10152a'; x.font = '15px Silkscreen, monospace'; x.textAlign = 'center'; x.fillText(p.num, px, spx - 5);
