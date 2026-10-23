@@ -2,6 +2,10 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-23-2', title: 'New keys: arrows move, left hand does the rest', items: [
+    'Arrow keys move your player. Everything else is on the left side of the keyboard: A S D F throw to the receiver with that letter (Shift + the letter lobs it), Space jukes, dives, swims or throws it away, Q spins, big hits or bull rushes, E switches player or calls a fair catch.',
+    'WASD no longer moves, and J K L ; no longer throw. Number keys 1-4 still throw.'
+  ] },
   { id: '2026-10-23', title: 'Ends and tackles, and a better defense', items: [
     'Defensive linemen are now ends (DE) and tackles (DT). Edge rushers like T.J. Watt and Myles Garrett are ends, and no team plays an end at linebacker any more. Old saves are updated automatically.',
     'No more free sacks: a blitzer who comes late gets picked up by a lineman or the back, and quarterbacks throw hot when someone comes free.',
