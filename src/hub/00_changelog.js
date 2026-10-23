@@ -2,6 +2,13 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-22-2', title: 'Faster and more fun', items: [
+    'Quicker games: plays animate faster, kickoffs kick deep on their own (unless you trail in the 4th), and Hurry-up (R) runs your last call again with no huddle.',
+    'Trick plays: Flea Flicker, Hook and Lateral, and a Fake Punt on 4th down. They hit big against the wrong defense, but the defense gets wise to every trick you run.',
+    'On fire: a player with two big plays in a row catches fire and plays better for a few snaps, until the defense stops him. You see his flames on the field.',
+    'Lob or bullet: hold Shift while throwing (or tap Lob first) to float the ball over the defense.',
+    'Celebrations: touchdowns, picks, fumbles and big hits shake the field, and touchdowns throw confetti.'
+  ] },
   { id: '2026-10-22', title: 'Better controls on the field', items: [
     'QB scrambles work: run past the line and you are a runner. A tackle there is a run, not a sack, and you can no longer throw.',
     'New moves: Q spins away from tacklers with the ball, and on defense Q lands a big hit (surer tackle, more fumbles, but you stumble if you miss). Steering at the ball carrier now guides your defender onto him.',

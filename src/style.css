@@ -422,6 +422,7 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .ctlrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
 .btn.ctl { border-color: var(--line); }
 .btn.ctl.on { background: var(--flag); color: #1a1405; border-color: var(--flag); }
+.firerow { color: #ff9a3f; font-weight: 600; }
 .ctlrow .hint { flex: 1 1 220px; margin: 0; }
 .ctlnote { color: var(--good); }
 .lvinfo { font-size: 19px; line-height: 1.25; margin: 10px 0; min-height: 48px; }
@@ -432,6 +433,7 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
 .pb:active { border-bottom-width: 2px; transform: translateY(2px); border-color: var(--flag); }
 .pb.u { grid-column: 2; grid-row: 1; } .pb.l { grid-column: 1; grid-row: 2; } .pb.r { grid-column: 3; grid-row: 2; } .pb.d { grid-column: 2; grid-row: 3; }
 .lvact { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; flex: 1; }
+.ab.on { background: #ff9a3f; }
 .ab { min-width: 52px; min-height: 52px; padding: 0 12px; background: var(--flag); color: #1a1405; border: 2px solid #1a1405; border-bottom-width: 5px; font-family: var(--display); font-size: 14px; touch-action: none; }
 .ab.wide { min-width: 96px; }
 .ab:active { border-bottom-width: 2px; transform: translateY(2px); }
