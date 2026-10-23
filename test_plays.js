@@ -19,7 +19,7 @@ ok(E.OFF_CATS.every(c => c.id === 'SPEC' || E.OFF[c.id] && E.OFF[c.id].cat === c
   let bad = 0, n = 0;
   const base = Object.assign(E.initState(1), { ballOn: 40, down: 2, toGo: 8, clock: 100 });
   live.forEach(op => defIds.forEach(dp => { for (let i = 0; i < 6; i++) {
-    const r = E.stepGame(Object.assign({}, base, { playNo: i }), T, U, 100 + i, op, dp, null, null); n++;
+    const r = E.stepGame(Object.assign({}, base, { playNo: i }, op === 'FAKEPUNT' ? { down: 4, toGo: 3 } : {}), T, U, 100 + i, op, dp, null, null); n++;   // (the fake punt is a 4th-down call)
     if (!r.entry.text || !Number.isFinite(r.entry.yards) || r.entry.offPick !== op || r.entry.defPick !== dp || r.state.ballOn < 1 || r.state.ballOn > 99 && !r.entry.ev) bad++;
   } }));
   ok(bad === 0, 'stat engine handles ' + n + ' play x defense snaps');

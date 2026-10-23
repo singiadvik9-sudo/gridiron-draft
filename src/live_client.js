@@ -8,7 +8,7 @@ const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r', 
 const lastName = n => String(n || '').trim().split(/\s+/).slice(-1)[0] || '';
 const K = t => '<kbd>' + t + '</kbd>';
 // the right hand rests on the home row: J K L ; throw to the four numbered targets (1-4 still work)
-const THROWKEY = { j: 1, k: 2, l: 3, ';': 4 }, THROWLAB = ['J', 'K', 'L', ';'];
+const THROWKEY = { j: 1, k: 2, l: 3, ';': 4 }, SHIFTED = { ':': ';' }, THROWLAB = ['J', 'K', 'L', ';'];
 const LVLAB = { QB: 'quarterback', HB: 'running back', WR1: 'receiver', WR2: 'receiver', TE: 'tight end' };
 
 function liveKeys(teams, off, def) {
@@ -58,6 +58,7 @@ const LV = {
     const online = S.mode === 'online', both = ctl.a && ctl.b;
     const ctx = ret ? { seed: S.seed, playNo: n, ret: { kind: w.ro.kind }, ballOn: w.ro.at, toGo: 10, OS: T[off].squad, DS: T[def].squad, ctlO: true, ctlD: false }
       : { seed: S.seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick: E.legalOff(st, w.om.pick), defPick: E.DEF_CALLS[w.dm.pick] ? w.dm.pick : 'ZONE', OS: T[off].squad, DS: T[def].squad, ctlO: ctl[off], ctlD: ctl[def] };
+    this.lobArm = false;
     const m = this.on = {
       n, wn: ret ? RVN + n : n, ret: ret ? w.ro : null, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? this.D : 0, dir: off === 'a' ? 1 : -1, st, T, keys: ret ? retKeys(T, off, def) : liveKeys(T, off, def),
       stream: { a: { ev: [], upto: ctl.a ? 0 : 9999, fin: !ctl.a }, b: { ev: [], upto: ctl.b ? 0 : 9999, fin: !ctl.b } },
@@ -168,7 +169,8 @@ const LV = {
     if (k === ' ' || k === 'Spacebar') { ev.preventDefault(); this.push(5); return true; }
     if (k === 'e' || k === 'E' || k === 'Tab') { ev.preventDefault(); this.push(6); return true; }
     if (k === 'q' || k === 'Q') { ev.preventDefault(); this.push(7); return true; }   // spin (ball carrier) / big hit (defender)
-    if (THROWKEY[k.toLowerCase()]) { ev.preventDefault(); this.push(THROWKEY[k.toLowerCase()]); return true; }
+    const tk = THROWKEY[k.toLowerCase()] || THROWKEY[SHIFTED[k]];
+    if (tk) { ev.preventDefault(); if (ev.shiftKey) this.push(8); this.push(tk); return true; }   // Shift + throw key = lob
     if (/^[1-4]$/.test(k)) { this.push(+k); return true; }
     return false;
   },
@@ -233,7 +235,7 @@ const LV = {
     else if (o.k === 'safety') { text = 'SAFETY'; col = own(m.def); }
     else if (o.k === 'inc') text = o.away ? 'THROWN AWAY' : 'INCOMPLETE';
     else { const y = Math.round(o.x); text = y > 0 ? '+' + y + ' YARDS' : y === 0 ? 'NO GAIN' : y + ' YARDS'; if (y >= m.st.toGo) { text += ' · 1ST DOWN'; col = own(m.off); } }
-    Field.flash = { text, color: col };
+    Field.flash = { text, color: col }; Field.celebrate(text, col);
   },
   finish(m) {
     const n = m.n, lv = { a: m.stream.a.ev.slice(), b: m.stream.b.ev.slice() };
@@ -259,7 +261,7 @@ const LV = {
       const fx = p.vx * dir, face = Math.abs(fx) > 0.8 ? (fx > 0 ? 1 : -1) : (p.side === 'o' ? dir : -dir);
       const it = { wx: los + dir * x, sy: mid + y * dir * RL, wz: y * dir, key: m.keys[p.id], team: p.side === 'o' ? m.off : m.def, face, id: p.id,
         vx: p.vx * dir, vz: p.vy * dir, grp: p.grp, off: p.side === 'o', dive: p.dive > 0, down: p.hold > 0, jump: p.jump > 0, eng: !!p.eng, carrier: sim.ball.car === p.id,
-        stance: (p.grp === 'OL' || p.grp === 'DL') && sim.t < 4 };
+        stance: (p.grp === 'OL' || p.grp === 'DL') && sim.t < 4, fire: !!p.fire };
       const mineHot = hot.some(h => h[0] === m.me && h[1] === p.id), anyHot = hot.some(h => h[1] === p.id);
       it.mine = mineHot;
       if (mineHot) { it.ring = '#ffcf3f'; it.tag = lastName(p.name); }
@@ -279,7 +281,7 @@ const LV = {
       const off = m.me === m.off, qbHas = off && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass' && sim.by.QB.x <= 0;
       const mv = ['WASD / ARROWS', 'MOVE'];
       L.hud = m.ret ? [mv, ['SPACE', 'JUKE']].concat(m.ret.kind === 'pr' ? [['E', 'FAIR CATCH']] : [])
-        : qbHas ? [mv, ['J K L ;', 'THROW TO #'], ['SPACE', 'THROW AWAY']]
+        : qbHas ? [mv, ['J K L ;', 'BULLET'], ['SHIFT+', 'LOB'], ['SPACE', 'THROW AWAY']]
         : off ? (sim.kind === 'run' && sim.ball.car === 'QB' ? [mv] : [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN']])
         : [mv, ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
     }
@@ -322,8 +324,8 @@ const LV = {
         const qbHas = sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass', scramble = qbHas && sim.by.QB.x > 0;
         if (scramble) { info = 'You are scrambling with <b>' + esc(lastName(sim.by.QB.name)) + '</b>: past the line you can only run. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
         else if (qbHas) {
-          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>, the quarterback. ' + K('WASD') + K('←↑↓→') + ' move. Throw to ' + K('J') + esc(lastName(sim.by.WR1.name)) + ' ' + K('K') + esc(lastName(sim.by.WR2.name)) + ' ' + K('L') + esc(lastName(sim.by.TE.name)) + ' ' + K(';') + esc(lastName(sim.by.HB.name)) + ' · ' + K('Space') + ' throws it away. Run past the line to scramble.';
-          acts = ['1', '2', '3', '4'].map((k, i) => '<button class="ab" data-lvk="' + k + '">' + THROWLAB[i] + '</button>').join('') + '<button class="ab wide" data-lvk="5">Throw away</button>';
+          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>, the quarterback. ' + K('WASD') + K('←↑↓→') + ' move. Throw to ' + K('J') + esc(lastName(sim.by.WR1.name)) + ' ' + K('K') + esc(lastName(sim.by.WR2.name)) + ' ' + K('L') + esc(lastName(sim.by.TE.name)) + ' ' + K(';') + esc(lastName(sim.by.HB.name)) + '. Hold ' + K('Shift') + ' to lob it over the defense · ' + K('Space') + ' throws it away. Run past the line to scramble.';
+          acts = ['1', '2', '3', '4'].map((k, i) => '<button class="ab" data-lvk="' + k + '">' + THROWLAB[i] + '</button>').join('') + '<button class="ab wide' + (LV.lobArm ? ' on' : '') + '" data-lvk="lob">Lob</button><button class="ab wide" data-lvk="5">Throw away</button>';
         } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. ' + K('WASD') + K('←↑↓→') + ' move.'; acts = ''; }
         else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('WASD') + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
       } else {
