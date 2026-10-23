@@ -2,6 +2,12 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-23-3', title: 'Play calling on the field, Coach\'s picks, clearer turnovers, more trick plays', items: [
+    'Play calling happens on the field now, Madden style, instead of in a side panel. It steps aside while each play is shown.',
+    'Coach\'s picks: every call screen suggests three plays (on offense a run and a pass) with the reason, based on what the other team has been calling. Press G to call the starred one.',
+    'Interceptions and fumbles are much clearer: the action stops with a turnover banner saying whose ball it is and who made the play, the log marks it, and a pick you play by hand gets a call-out and a moment of slow motion.',
+    'Trick plays work on the field now: the flea flicker really hands off and pitches back, and on the hook and lateral E pitches it to the trailer. New: Halfback Pass and WR Reverse. All of them pay off more against the wrong defense.'
+  ] },
   { id: '2026-10-23-2', title: 'New keys: arrows move, left hand does the rest', items: [
     'Arrow keys move your player. Everything else is on the left side of the keyboard: A S D F throw to the receiver with that letter (Shift + the letter lobs it), Space jukes, dives, swims or throws it away, Q spins, big hits or bull rushes, E switches player or calls a fair catch.',
     'WASD no longer moves, and J K L ; no longer throw. Number keys 1-4 still throw.'

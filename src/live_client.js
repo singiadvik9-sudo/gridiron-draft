@@ -68,11 +68,11 @@ const LV = {
     if (part && part[me] && m.myCtl) { m.stream[me].ev = part[me].ev.slice(); m.stream[me].upto = part[me].upto; }
     this.build(m);
     const sc = { poss: off, ballOn: st.ballOn, down: st.down, toGo: st.toGo, teams: T };
-    Field.queue = []; Field.busy = false; Field.flash = null; Field.scene = sc; Field.live = { items: [], ball: { wx: 0, sy: 0 }, los: Field.losX(sc), dir: m.dir };
+    Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.flash = null; Field.scene = sc; Field.live = { items: [], ball: { wx: 0, sy: 0 }, los: Field.losX(sc), dir: m.dir };
     m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
     Field.cam = Field.clampCam(Field.losX(sc) + (ret ? m.dir * 9 : 0));
     this.panel(true);
-    window.GD_LIVE = this;
+    window.GD_LIVE = this; document.body.classList.add('lvon');
     m.readyAt = performance.now() + 1000 / this.speedNow();
     this.raf = requestAnimationFrame(t => { m.last = t; this.frame(t); });
     clearInterval(this.netT); this.netT = setInterval(() => this.netTick(), 130);
@@ -96,6 +96,7 @@ const LV = {
   stop() {
     cancelAnimationFrame(this.raf); this.raf = 0; clearInterval(this.netT); this.netT = 0;
     this.on = null; this.held = {}; if (Field.live) { Field.live = null; Field.flash = null; }
+    document.body.classList.remove('lvon'); const lp = $('#lvpanel'); if (lp) lp.innerHTML = '';
     Field.YPP = Field.BASE_YPP;   // back to the normal zoom
     window.GD_LIVE = null;
   },
@@ -117,7 +118,7 @@ const LV = {
   frame(ts) {
     const m = this.on; if (!m) return;
     this.raf = requestAnimationFrame(t => this.frame(t));
-    const dt = Math.min(120, ts - m.last) * this.speedNow(); m.last = ts;
+    const dt = Math.min(120, ts - m.last) * this.speedNow() * (m.slowUntil && ts < m.slowUntil ? 0.35 : 1); m.last = ts;   // a moment of slow motion on a pick
     if (ts < m.readyAt) { this.draw(m); if (ts - m.panT > 120) { m.panT = ts; this.panel(false); } return; }
     if (!m.sim.out) m.acc = Math.min(m.acc + dt, 200);
     let guard = 0;
@@ -130,6 +131,7 @@ const LV = {
       if (!catching) m.acc -= 50;
       this.tick(m);
     }
+    this.callouts(m, ts);
     if (m.sim.out && !m.ended) { m.ended = ts; this.flashResult(m); this.flush(m); }
     if (m.sim.out && ts - m.ended > 1250 / Math.max(1, this.speedNow() > 2 ? 4 : 1)) { this.finish(m); return; }
     this.draw(m);
@@ -217,25 +219,38 @@ const LV = {
   },
 
   /* ----- finishing ----- */
+  // the moment the ball changes hands mid-snap (an interception): a call-out and a beat of slow motion, before the return plays out
+  callouts(m, ts) {
+    const ev = m.sim.evt; m.evSeen = m.evSeen || 0;
+    for (; m.evSeen < ev.length; m.evSeen++) {
+      const e = ev[m.evSeen];
+      if (e[0] !== 'int' || m.sim.out) continue;
+      const by = m.sim.by[e[2]], col = TEAM_COL[m.def];
+      Field.flash = { text: 'PICKED OFF!', color: col, turn: (m.T[m.def] || {}).name || '', sub: by ? lastName(by.name).toUpperCase() + ' HAS IT' : '', until: performance.now() + 1300 };
+      Field.celebrate('INTERCEPTED', col); m.slowUntil = ts + 900;
+    }
+  },
   flashResult(m) {
     const o = m.sim.out, own = k => TEAM_COL[k];
-    let text = '', col = '#efe9d6';
+    let text = '', col = '#efe9d6', turn = 0, sub = '';
     if (o.k === 'ret') {
       const sp = Math.round(m.ret.at + o.x);
       if (o.td) { text = 'TOUCHDOWN'; col = own(m.off); }
-      else if (o.fumble) { text = 'FUMBLE'; col = own(m.def); }
+      else if (o.fumble) { text = 'FUMBLE'; col = own(m.def); turn = 1; }
       else if (o.fc) text = 'FAIR CATCH';
       else if (o.tb) text = 'TOUCHBACK';
       else text = 'TO THE ' + (sp > 50 ? 'OPP ' + (100 - sp) : 'OWN ' + sp);
     }
     else if (o.td || o.tdRet) { text = 'TOUCHDOWN'; col = own(o.tdRet ? m.def : m.off); }
     else if (o.k === 'sack') { text = 'SACK'; col = own(m.def); }
-    else if (o.k === 'int') { text = 'INTERCEPTED'; col = own(m.def); }
-    else if (o.k === 'fumble') { text = 'FUMBLE'; col = own(m.def); }
+    else if (o.k === 'int') { text = 'INTERCEPTED'; col = own(m.def); turn = 1; const by = m.sim.by[o.by]; sub = by ? 'PICKED OFF BY ' + lastName(by.name).toUpperCase() + (o.tdRet ? ' · RETURNED FOR A TOUCHDOWN' : '') : ''; }
+    else if (o.k === 'fumble') { text = 'FUMBLE'; col = own(m.def); turn = 1; const by = m.sim.by[o.by]; sub = by ? 'FORCED BY ' + lastName(by.name).toUpperCase() + (o.sack ? ' ON THE SACK' : '') : ''; }
     else if (o.k === 'safety') { text = 'SAFETY'; col = own(m.def); }
     else if (o.k === 'inc') text = o.away ? 'THROWN AWAY' : 'INCOMPLETE';
     else { const y = Math.round(o.x); text = y > 0 ? '+' + y + ' YARDS' : y === 0 ? 'NO GAIN' : y + ' YARDS'; if (y >= m.st.toGo) { text += ' · 1ST DOWN'; col = own(m.off); } }
-    Field.flash = { text, color: col }; Field.celebrate(text, col);
+    if (o.fum && !turn && o.k !== 'ret') sub = 'FUMBLE! ' + ((m.T[m.off] || {}).name || 'THE OFFENSE').toUpperCase() + ' FALL ON IT';   // loose, but kept
+    Field.flash = { text, color: col }; if (turn) Field.flash.turn = (m.T[m.def] || {}).name || ''; if (sub) Field.flash.sub = sub;
+    Field.celebrate(text, col);
   },
   finish(m) {
     const n = m.n, lv = { a: m.stream.a.ev.slice(), b: m.stream.b.ev.slice() };
@@ -255,7 +270,8 @@ const LV = {
     const lerp = (a, b) => a + (b - a) * alpha;
     const items = [];
     const hot = []; if (m.ctl[m.off] && sim.human.o) hot.push([m.off, sim.ctlId.o]); if (m.ctl[m.def] && sim.human.d) hot.push([m.def, sim.ctlId.d]);
-    const tags = (m.me === m.off && m.myCtl && sim.human.o && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass') ? { WR1: 'A', WR2: 'S', TE: 'D', HB: 'F' } : null;
+    const passer = sim.passer || 'QB';   // (the back on a halfback pass)
+    const tags = (m.me === m.off && m.myCtl && sim.human.o && sim.ball.car === passer && !sim.thrown && sim.kind === 'pass') ? Object.assign({ WR1: 'A', WR2: 'S', TE: 'D', HB: 'F' }, { [passer]: undefined }) : null;
     sim.P.forEach((p, i) => {
       const a = pv.p[i] || cu.p[i], b = cu.p[i], x = lerp(a[0], b[0]), y = lerp(a[1], b[1]);
       const fx = p.vx * dir, face = Math.abs(fx) > 0.8 ? (fx > 0 ? 1 : -1) : (p.side === 'o' ? dir : -dir);
@@ -280,11 +296,12 @@ const LV = {
     L.mine = items.some(i => i.mine); L.meOff = m.me === m.off;
     L.hud = null;
     if (m.myCtl && !m.handed && !sim.out && performance.now() >= m.readyAt) {
-      const off = m.me === m.off, qbHas = off && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass' && sim.by.QB.x <= 0;
+      const off = m.me === m.off, qbHas = off && sim.ball.car === passer && !sim.thrown && sim.kind === 'pass' && sim.by[passer].x <= 0, latOn = off && sim.pm.trick === 'lat' && sim.ball.car === sim.pm.tgt && !sim.latT;
       const mv = ['ARROWS', 'MOVE'];
       L.hud = m.ret ? [mv, ['SPACE', 'JUKE']].concat(m.ret.kind === 'pr' ? [['E', 'FAIR CATCH']] : [])
         : qbHas ? [mv, ['A S D F', 'BULLET'], ['SHIFT+', 'LOB'], ['SPACE', 'THROW AWAY']]
-        : off ? (sim.kind === 'run' && sim.ball.car === 'QB' ? [mv] : [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN']])
+        : latOn ? [mv, ['E', 'LATERAL'], ['SPACE', 'JUKE'], ['Q', 'SPIN']]
+        : off ? ((sim.kind === 'run' || sim.fake) && sim.ball.car !== sim.ctlId.o ? [mv] : [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN']])
         : (sim.by[sim.ctlId.d] || {}).eng ? [mv, ['SPACE', 'SWIM'], ['Q', 'BULL RUSH'], ['E', 'SWITCH']]
         : [mv, ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
     }
@@ -304,7 +321,7 @@ const LV = {
 
   /* ----- the panel under the field ----- */
   panel(force) {
-    const m = this.on, p = $('#callpanel'); if (!m || !p) return;
+    const m = this.on, p = $('#lvpanel'); if (!m || !p) return;
     const sim = m.sim, me = m.me, role = me === m.off ? 'off' : 'def';
     const sit = (m.ret ? (m.ret.kind === 'ko' ? 'Kickoff return' : 'Punt return') : ddLabel(m.st)) + ' at ' + spotLabel(m.st, m.T);
     if (force || !p.querySelector('#lvinfo')) {
@@ -324,12 +341,14 @@ const LV = {
         info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b>, the ' + (pr ? 'punt' : 'kick') + ' returner. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke' + (pr ? ' · ' + K('E') + ' fair catch' : '') + '. Follow your blockers.';
         acts = '<button class="ab wide" data-lvk="5">Juke</button>' + (pr ? '<button class="ab wide" data-lvk="6">Fair catch</button>' : '');
       } else if (role === 'off') {
-        const qbHas = sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass', scramble = qbHas && sim.by.QB.x > 0;
+        const pz = sim.passer || 'QB', qbHas = sim.ball.car === pz && !sim.thrown && sim.kind === 'pass', scramble = qbHas && sim.by[pz].x > 0;
         if (scramble) { info = 'You are scrambling with <b>' + esc(lastName(sim.by.QB.name)) + '</b>: past the line you can only run. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
         else if (qbHas) {
-          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>, the quarterback. ' + K('←↑↓→') + ' move. Throw to ' + K('A') + esc(lastName(sim.by.WR1.name)) + ' ' + K('S') + esc(lastName(sim.by.WR2.name)) + ' ' + K('D') + esc(lastName(sim.by.TE.name)) + ' ' + K('F') + esc(lastName(sim.by.HB.name)) + '. Hold ' + K('Shift') + ' to lob it over the defense · ' + K('Space') + ' throws it away. Run past the line to scramble.';
+          info = 'You are <b>' + esc(lastName(sim.by[pz].name)) + '</b>, ' + (pz === 'QB' ? 'the quarterback' : 'throwing the halfback pass') + '. ' + K('←↑↓→') + ' move. Throw to ' + K('A') + esc(lastName(sim.by.WR1.name)) + ' ' + K('S') + esc(lastName(sim.by.WR2.name)) + ' ' + K('D') + esc(lastName(sim.by.TE.name)) + ' ' + K('F') + esc(lastName(sim.by.HB.name)) + '. Hold ' + K('Shift') + ' to lob it over the defense · ' + K('Space') + ' throws it away. Run past the line to scramble.';
           acts = ['1', '2', '3', '4'].map((k, i) => '<button class="ab" data-lvk="' + k + '">' + THROWLAB[i] + '</button>').join('') + '<button class="ab wide' + (LV.lobArm ? ' on' : '') + '" data-lvk="lob">Lob</button><button class="ab wide" data-lvk="5">Throw away</button>';
         } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. ' + K('←↑↓→') + ' move.'; acts = ''; }
+        else if (sim.fake && sim.ball.car !== sim.ctlId.o) { info = 'Trick play: sell it. The ball comes to you in a moment. ' + K('←↑↓→') + ' move.'; acts = ''; }
+        else if (sim.pm.trick === 'lat' && sim.ball.car === sim.pm.tgt && !sim.latT) { info = 'Hook and lateral: ' + K('E') + ' pitches it to <b>' + esc(lastName(sim.by[sim.pm.mate].name)) + '</b> trailing you (do it before they wrap you up). ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="6">Lateral</button><button class="ab wide" data-lvk="5">Juke</button>'; }
         else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
       } else {
         info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch player. Steer at the ball carrier and you are guided onto him. When a blocker has you: ' + K('Q') + ' bull rush builds leverage, ' + K('Space') + ' swims past him (best with your meter in the green, or the moment he touches you).';
