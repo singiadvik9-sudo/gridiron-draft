@@ -34,3 +34,25 @@ for (let n = 0; n < 200; n++) { const b = throwAt(n, false), l = throwAt(n, true
 ok(n0 > 150 && lPeak > bPeak * 1.8 && lN > bN * 1.3, 'Shift + throw key lobs it: higher (' + (lPeak / n0).toFixed(1) + ' vs ' + (bPeak / n0).toFixed(1) + ') and longer in the air (' + (lN / n0 / LV.TPS).toFixed(2) + 's vs ' + (bN / n0 / LV.TPS).toFixed(2) + 's)');
 ok(lYd > bYd, 'and deep lobs gain more than deep bullets (' + (lYd / n0).toFixed(1) + ' vs ' + (bYd / n0).toFixed(1) + ' yards a throw)');
 { const r = throwAt(5, true); ok(r.a.lob === true && JSON.stringify(throwAt(5, true).out) === JSON.stringify(r.out), 'lobs replay exactly'); }
+// trick plays on the field: each one does its thing in the live sim, and replays exactly
+{ const evOf = (play, k, tr) => { const R = LV.run({ seed: 300 + k, playNo: k, ballOn: 35, toGo: 8, offPick: play, defPick: ['ZONE', 'MAN', 'COV3', 'BLITZ'][k % 4], OS: T.a.squad, DS: T.b.squad, ctlO: !!tr, ctlD: !tr }, tr || [], []); return { R, ev: R.sim.evt.map(e => e[0] + ':' + (e[2] || '')) }; };
+  const flea = evOf('TRICK', 1).ev;
+  ok(flea.indexOf('hand:HB') >= 0 && flea.indexOf('pitch:HB') >= 0 && flea.indexOf('pitched:QB') >= 0 && flea.indexOf('throw:WR1') + flea.indexOf('throw:WR2') + flea.indexOf('throw:TE') > -3, 'flea flicker: handoff, the back pitches it back to the quarterback, then the throw (' + flea.join(' ') + ')');
+  const hbp = evOf('HBPASS', 2).ev;
+  ok(hbp.indexOf('pitch:QB') >= 0 && hbp.indexOf('pitched:HB') >= 0 && hbp.some(e => /^throw:/.test(e)), 'halfback pass: the toss to the back, then he throws it (' + hbp.join(' ') + ')');
+  let lat = 0, rev = 0; for (let k = 0; k < 40; k++) { if (evOf('HOOKLAT', k).ev.indexOf('pitched:WR2') >= 0) lat++; if (evOf('REVERSE', k).ev.indexOf('hand:WR2') >= 0) rev++; }
+  ok(lat >= 10 && rev === 40, 'hook and lateral pitches it to the trailer (' + lat + ' of 40 snaps; the others are not caught), the reverse goes to the receiver every time');
+  const s1 = JSON.stringify(evOf('TRICK', 5).R.out), s2 = JSON.stringify(evOf('TRICK', 5).R.out);
+  ok(s1 === s2, 'trick plays replay exactly');
+  // hand control: E pitches it on the hook and lateral
+  { const ctx = { seed: 77, playNo: 3, ballOn: 35, toGo: 8, offPick: 'HOOKLAT', defPick: 'SOFT', OS: T.a.squad, DS: T.b.squad, ctlO: true, ctlD: false }, sim = LV.create(ctx);
+    let co = LV.cursor([LV.enc(1, 0, 0, 0), LV.enc(18, 0, 0, 1)]), cd = LV.cursor([]), done = false;
+    while (!sim.out && sim.t < LV.MAXT + 5) { LV.advance(sim, co, cd); if (!done && sim.ball.car === 'WR1' && sim.thrown) { done = true; co = LV.cursor([LV.enc(sim.t + 1, 0, 0, 6)]); } }
+    ok(!done || sim.evt.some(e => e[0] === 'pitch' && e[2] === 'WR1'), 'with the hook man in your hands, E pitches it' + (done ? '' : ' (not caught here)')); } }
+// the coach's picks: legal calls for the side asking, a run and a pass on offense, a field goal in range on 4th down
+{ const R = E.replay(401, T, {}, ['a', 'b']), st = Object.assign({}, st0, { down: 2, toGo: 7, ballOn: 40 });
+  const o = E.suggest(st, R.log, T, R.U, 'a', 'off'), d = E.suggest(st, R.log, T, R.U, 'b', 'def');
+  ok(o.picks.length === 3 && o.picks.every(id => E.legalOff(st, id) === id && E.OFF[id].cat !== 'TRICK') && o.picks.some(id => E.OFF[id].kind === 'run') && o.picks.some(id => E.OFF[id].kind === 'pass'), 'coach\'s picks on offense: three legal calls, a run and a pass among them (' + o.picks.join(', ') + ')');
+  ok(d.picks.length >= 2 && d.picks.every(id => E.DEF_CALLS[id]) && /Expect/.test(d.why), 'and on defense, with the reason (' + d.picks.join(', ') + ': ' + d.why + ')');
+  ok(E.suggest(Object.assign({}, st, { down: 4, toGo: 6, ballOn: 72 }), R.log, T, R.U, 'a', 'off').id === 'FG', 'on 4th down in range the coach says kick it');
+  ok(JSON.stringify(E.suggest(st, R.log, T, R.U, 'a', 'off')) === JSON.stringify(o), 'the same spot gets the same advice'); }

@@ -490,8 +490,7 @@ i.up { color: var(--good); font-style: normal; font-size: 14px; } i.dn { color: 
   body.ingame:not(.gover) .sb-mid { padding: 4px 12px; gap: 2px; }
   body.ingame:not(.gover) .fieldhost { min-height: 0; display: grid; place-items: center; overflow: hidden; }
   body.ingame:not(.gover) canvas.field { width: 100%; height: 100%; object-fit: contain; min-height: 0; }
-  body.ingame:not(.gover) .deck { max-height: 42vh; max-height: 42dvh; min-height: 0; }
-  body.ingame:not(.gover) .callpanel { max-height: 42vh; max-height: 42dvh; overflow-y: auto; padding: 12px 14px; gap: 10px; }
+  body.ingame:not(.gover) .deck { max-height: 28vh; max-height: 28dvh; min-height: 0; }
   body.ingame:not(.gover) .side { max-height: 42vh; max-height: 42dvh; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; gap: 8px; }
   body.ingame:not(.gover) .log { max-height: none; min-height: 0; }
   body.ingame:not(.gover) .banner { padding: 8px 12px; }
@@ -513,8 +512,8 @@ body.ingame.fs.gover .mast { display: flex; }
   body.ingame:not(.gover) .ctlrow { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; min-width: 0; }
   body.ingame:not(.gover) .ctlrow .hint { font-size: 14px; line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   body.ingame:not(.gover) .cats { margin: 0 0 4px; }
-  body.ingame:not(.gover) .deck { max-height: 46vh; max-height: 46dvh; }
-  body.ingame:not(.gover) .callpanel, body.ingame:not(.gover) .side { max-height: 46vh; max-height: 46dvh; }
+  body.ingame:not(.gover) .deck { max-height: 30vh; max-height: 30dvh; }
+  body.ingame:not(.gover) .side { max-height: 30vh; max-height: 30dvh; }
 }
 
 /* wide screens: the field on the left, the calls on the right */
@@ -522,9 +521,8 @@ body.ingame.fs.gover .mast { display: flex; }
   body.ingame:not(.gover) .game { grid-template-columns: minmax(0, 1fr) 440px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "sb sb" "field deck"; }
   body.ingame:not(.gover) .sb { grid-area: sb; }
   body.ingame:not(.gover) .fieldhost { grid-area: field; }
-  body.ingame:not(.gover) .deck { grid-area: deck; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; max-height: none; min-height: 0; gap: 8px; }
-  body.ingame:not(.gover) .callpanel { max-height: none; min-height: 0; align-self: stretch; }
-  body.ingame:not(.gover) .side { max-height: 240px; }
+  body.ingame:not(.gover) .deck { grid-area: deck; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); max-height: none; min-height: 0; gap: 8px; }
+  body.ingame:not(.gover) .side { max-height: none; }
   body.ingame:not(.gover) .calls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   body.ingame:not(.gover) .call small { -webkit-line-clamp: 3; }
 }
@@ -537,6 +535,29 @@ body.ingame.fs.gover .mast { display: flex; }
 .rotl { opacity: .85; }
 .rel { display: grid; gap: 6px; }
 .rel .news li { line-height: 1.4; }
+
+/* play calling on the field, Madden style: the panel covers the field while you pick a play and shrinks to a strip at the bottom
+   otherwise (locked in, waiting); it is hidden while a snap is played by hand (body.lvon), when the controls are in the side column */
+.fieldhost .callpanel { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 2; line-height: normal; display: grid; gap: 10px; align-content: start; padding: 10px 14px; background: rgba(11, 16, 32, .9); border: 2px solid var(--line); max-height: calc(100% - 20px); overflow-y: auto; }
+.fieldhost .callpanel:not(.full) { right: auto; max-width: min(560px, calc(100% - 20px)); }
+.fieldhost .callpanel.full { top: 10px; background: rgba(11, 16, 32, .86); }
+.fieldhost .callpanel:empty, body.lvon .fieldhost .callpanel { display: none; }
+body.ingame .fieldhost .callpanel .calls { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.lvpanel:empty { display: none; }
+.coach { display: grid; gap: 6px; padding: 8px 10px; border: 2px solid var(--flag); background: rgba(255, 207, 63, .08); }
+.cpicks { display: flex; flex-wrap: wrap; gap: 6px; }
+.coach .hint { margin: 0; font-size: 14px; }
+.call { position: relative; }
+.call.rec { border-color: var(--flag); box-shadow: inset 0 0 0 2px rgba(255, 207, 63, .35); }
+.cbadge { position: absolute; top: 4px; right: 6px; font-style: normal; font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #1a1405; background: var(--flag); padding: 2px 4px; }
+body.gover .fieldhost .callpanel { position: static; max-height: none; max-width: none; }
+/* phones: the field is too short to hold the calls, so they sit under it */
+@media (max-width: 760px) { .fieldhost .callpanel, .fieldhost .callpanel.full, .fieldhost .callpanel:not(.full) { position: static; max-height: none; max-width: none; background: var(--ink); border-width: 3px 0 0; } }
+.fieldhost .callpanel.full .cp-head { padding-right: 130px; }
+.log li.to { border-left: 4px solid var(--tc, var(--flag)); background: rgba(255, 255, 255, .04); }
+.tochip { font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #0b1020; background: var(--tc, var(--flag)); padding: 2px 4px; margin-right: 4px; vertical-align: 2px; }
+body.fbusy .fieldhost .callpanel { display: none; }   /* a play is being shown on the field: the call screen comes back after it */
+@media (max-width: 760px) { body.fbusy .fieldhost .callpanel { display: grid; } }
 
 </style>
 <div class="wrap">
@@ -817,8 +838,10 @@ const OFF = {
   BUBBLE:  { cat: 'SCREEN', kind: 'pass', label: 'Bubble Screen', depth: 1, base: 0.88, avg: 4.5, oob: 0.35, sack: -0.035, int: -0.02, hb: 0, big: 0.05, fbq: true, tw: { WR1: 0.4, WR2: 1.6, TE: 0 }, desc: 'Quick toss to the wideout, who has blockers in front of him. Shuts down the blitz.', vs: { BLITZ: -0.6, STACK: -0.5, MAN: 0.3 } },
   TUNNEL:  { cat: 'SCREEN', kind: 'pass', label: 'Tunnel Screen', depth: 2, base: 0.84, avg: 6, oob: 0.2, sack: -0.03, int: -0.02, hb: 0, big: 0.03, fbq: true, tw: { WR1: 1.6, WR2: 0.4, TE: 0 }, desc: 'Wideout catches behind the line and follows his linemen. More yardage than the bubble.', vs: { BLITZ: -0.5, ZONE: 0.2 } },
   // trick plays: boom or bust. Aggressive defenses bite, the prevent sees them coming (live: run like the play named in live)
-  TRICK:   { cat: 'TRICK', kind: 'pass', live: 'PASS_D', label: 'Flea Flicker', depth: 30, base: 0.36, avg: 30, oob: 0.15, int: 0.04, spd: 1, big: 0.05, tw: { WR1: 1.3, WR2: 1.3, TE: 0.4 }, sack: 0.01, desc: 'Hand off, the back pitches it back, then bomb it. The defense bites on the run. A sack or a pick if it does not.', vs: { STACK: -0.3, BLITZ: -0.15, PREVENT: 0.5 } },
-  HOOKLAT: { cat: 'TRICK', kind: 'pass', live: 'PASS_M', label: 'Hook and Lateral', depth: 9, base: 0.66, avg: 8, oob: 0.1, big: 0.17, tw: { WR1: 1.4, WR2: 1.4, TE: 0.3 }, desc: 'A hook at 9 yards, then he pitches it to a teammate running by. Sometimes it goes the distance, sometimes nowhere.', vs: { ZONE: -0.2, MAN: 0.1, PREVENT: -0.4 } },
+  TRICK:   { cat: 'TRICK', kind: 'pass', live: 'PASS_D', label: 'Flea Flicker', depth: 30, base: 0.44, avg: 31, oob: 0.15, int: 0.03, spd: 1, big: 0.05, tw: { WR1: 1.3, WR2: 1.3, TE: 0.4 }, sack: 0.01, desc: 'Hand off, the back pitches it back, then bomb it. The defense bites on the run. A sack or a pick if it does not.', vs: { STACK: -0.3, BLITZ: -0.15, PREVENT: 0.5 } },
+  HOOKLAT: { cat: 'TRICK', kind: 'pass', live: 'PASS_M', label: 'Hook and Lateral', depth: 9, base: 0.68, avg: 11, oob: 0.1, big: 0.2, tw: { WR1: 1.4, WR2: 1.4, TE: 0.3 }, desc: 'A hook at 9 yards, then he pitches it to a teammate running by. Sometimes it goes the distance, sometimes nowhere.', vs: { ZONE: -0.2, MAN: 0.1, PREVENT: -0.4 } },
+  HBPASS:  { cat: 'TRICK', kind: 'pass', live: 'PASS_D', label: 'Halfback Pass', depth: 28, base: 0.42, avg: 30, oob: 0.15, int: 0.05, big: 0.06, tw: { WR1: 1.6, WR2: 0.2, TE: 0.8 }, sack: -0.01, desc: 'Toss to the back, who rolls out like a sweep, then pulls up and throws deep. Burns defenses that crash on the run.', vs: { STACK: -0.5, BLITZ: -0.2, ZONE: 0.2, MAN: 0.1, PREVENT: 0.6 } },
+  REVERSE: { cat: 'TRICK', kind: 'run', live: 'RUN_OUT', label: 'WR Reverse', ym: 1.5, sd: 1.7, bp: 0.12, fl: -6, fum: 0.01, desc: 'The back fakes one way, a receiver comes around and takes it the other way. Great against fast pursuit, a big loss if they stay home.', vs: { BLITZ: -0.5, STACK: -0.4, ZONE: 0.3, PREVENT: 0.2 } },
   FAKEPUNT: { cat: 'TRICK', kind: 'run', live: 'RUN_OUT', label: 'Fake Punt', ym: 2.6, sd: 1.6, bp: 0.05, fl: -3, desc: 'Line up to punt, then run it. 4th down only. Huge if they are setting up the return, a disaster if they are not.', vs: { ZONE: -0.6, MAN: -0.5, PREVENT: -0.9, STACK: 0.6, BLITZ: 0.3 } },
   // clock and kicks
   SPIKE:   { cat: 'SPEC', label: 'Spike',       kind: 'clock', desc: 'Throw it into the turf. Stops the clock, costs a down.' },
@@ -1128,6 +1151,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
     let y = Math.round((inside ? 3.6 : 4.0) + (OC.ym || 0) + diff * 0.10 + gauss() * (inside ? 2.8 : 3.8) * (OC.sd || 1));
     const bigP = (inside ? 0.035 : 0.07) + (OC.bp || 0) + Math.max(0, OU.hSpd - 55) / 700;
     if (R() < bigP * (1 - m * 0.25)) y += Math.round(8 + R() * 20);
+    if (OC.cat === 'TRICK') y -= Math.round(1.5 * ((st.tricks && st.tricks[o]) || 0) * (1 + R()));   // a trick run they have seen coming
     y = Math.max(y, OC.fl == null ? -4 : OC.fl);
     if (OC.sy && st.toGo <= 2 && y < st.toGo && R() < 0.3) y = st.toGo;   // a dive picks up the hard yard
     if (R() < (inside ? 0.03 : 0.2) + (OC.oob || 0)) stopFlag = true;   // ran out of bounds
@@ -1595,11 +1619,79 @@ function cpuDefense(st, rnd) {
   return pickWeighted(ids, w, rnd);
 }
 
+/* ================= coach's pick (like Ask Madden) =================
+   A suggestion for the side about to call a play: what the other team has called in this kind of spot this game (from the log, so it
+   never sees this snap's call), blended with what teams usually do there, and the call that fares best against that, nudged by the
+   situation and by what the team is good at. Returns { id, why }. */
+const SIT_PRIOR = {
+  off: { s: { RUN_IN: .40, RUN_OUT: .20, PASS_S: .20, PASS_M: .12, PASS_D: .05, SCREEN: .03 }, m: { RUN_IN: .25, RUN_OUT: .17, PASS_S: .20, PASS_M: .17, PASS_D: .12, SCREEN: .09 },
+         l: { RUN_IN: .05, RUN_OUT: .20, PASS_S: .20, PASS_M: .25, PASS_D: .20, SCREEN: .10 } },
+  def: { s: { STACK: .45, BLITZ: .25, MAN: .15, ZONE: .15, PREVENT: 0 }, m: { ZONE: .30, MAN: .20, STACK: .20, BLITZ: .20, PREVENT: .10 }, l: { ZONE: .35, PREVENT: .20, MAN: .25, BLITZ: .20, STACK: 0 } }
+};
+const sitOf = b => b.toGo <= 3 ? 's' : b.toGo >= 8 ? 'l' : 'm';
+const sitLabel = st => (st.down === 1 ? '1st' : st.down === 2 ? '2nd' : st.down === 3 ? '3rd' : '4th') + ' and ' + (st.toGo === 10 && st.down === 1 ? '10' : st.toGo <= 3 ? 'short' : st.toGo >= 8 ? 'long' : 'medium');
+// expected points for the team with the ball, roughly: field position, down and distance (the coach's pick compares snaps by it)
+const EP_DOWN = [0, 0, 0.45, 1.0, 1.9], COACH = { risk: 0.6, chains: 0.4 };
+const epOf = (s, me) => { if (s.over || s.kick) return 0; const v = 0.075 * s.ballOn - 1.6 - EP_DOWN[s.down] - 0.045 * s.toGo; return s.poss === me ? v : -v; };
+function suggest(st, log, teams, U, me, role) {
+  const opp = oth(me), lead = st.score[me] - st.score[opp];
+  if (st.kick) { const k = cpuKick(st, me, () => 0.5); return { id: k, picks: [k], why: k === 'ONSIDE' ? 'You need the ball back: try the onside kick.' : 'Kick it deep and make them go the length of the field.' }; }
+  if (role === 'off') {
+    const c = cpuOffCat(st, U, me, () => 0.5);
+    if (OFF[c] && OFF[c].cat === 'SPEC' && legalOff(st, c) === c) return { id: c, picks: [c], why: { KNEEL: 'Kneel: you have the lead and the clock does the rest.', SPIKE: 'Spike it to stop the clock.', FG: 'Take the points: a ' + fgDist(st) + '-yard field goal.', PUNT: 'Too far to go for it here: punt it away.' }[c] || '' };
+  }
+  // what they are likely to call: their calls this game (the same kind of down and distance counts most), blended with the usual
+  const prior = SIT_PRIOR[role === 'off' ? 'def' : 'off'][sitOf(st)], cnt = {}; let seen = 0, same = 0;
+  (log || []).forEach(e => {
+    if (!e.offPick || !e.defPick || !e.before || e.before.kick) return;
+    const theirs = role === 'off' ? (e.off === me ? DEF_CALLS[e.defPick] && DEF_CALLS[e.defPick].cat : null) : (e.off === opp && OFF[e.offPick] ? OFF[e.offPick].cat : null);
+    if (!theirs || !(theirs in prior)) return;
+    const w = sitOf(e.before) === sitOf(st) ? 1 + (e.before.down >= 3) * (st.down >= 3) * 0.5 : 0.3;
+    cnt[theirs] = (cnt[theirs] || 0) + w; seen += w; if (sitOf(e.before) === sitOf(st)) same++;
+  });
+  const P = {}; Object.keys(prior).forEach(k => { P[k] = (prior[k] * 3 + (cnt[k] || 0)) / (3 + seen); });
+  const top = Object.keys(P).sort((a, b) => P[b] - P[a])[0];
+  // play each pairing out a few times with the stat engine (seeded, so the same spot gives the same advice) and score it in expected points
+  // (a little risk-averse: a coach would rather move the chains than chase the long ball every snap)
+  const K = 16, base = Object.assign({}, st), ep0 = epOf(st, me), sc0 = st.score[me] - st.score[opp];
+  const value = (o, d) => { let v = 0, v2 = 0; for (let k = 0; k < K; k++) { const r = stepGame(Object.assign({}, base, { playNo: 9000 + k }), teams, U, 'coach:' + st.playNo, o, d).state, x = (r.score[me] - r.score[opp] - sc0) + epOf(r, me) - ep0 + (r.poss === base.poss && r.down === 1 && r.score[me] === base.score[me] && r.score[opp] === base.score[opp] ? COACH.chains : 0) * (base.poss === me ? 1 : -1); v += x; v2 += x * x; } v /= K; return v - COACH.risk * Math.sqrt(Math.max(0, v2 / K - v * v)); };
+  const offIds = Object.keys(OFF).filter(id => OFF[id].cat !== 'SPEC' && legalOff(st, id) === id), coachIds = offIds.filter(id => OFF[id].cat !== 'TRICK');   // (tricks are your call, not the coach's)
+  const scored = [];
+  if (role === 'off') {
+    const defs = Object.keys(DEF_CALLS).filter(d => P[DEF_CALLS[d].cat] > 0), per = c => defs.filter(d => DEF_CALLS[d].cat === c).length;
+    coachIds.forEach(id => scored.push({ id, sc: defs.reduce((t, d) => t + P[DEF_CALLS[d].cat] / per(DEF_CALLS[d].cat) * value(id, d), 0) }));
+  } else {
+    const plays = offIds.filter(id => P[OFF[id].cat] > 0), per = c => plays.filter(id => OFF[id].cat === c).length;
+    const goal = st.ballOn >= 93, endgame = st.q >= 4 && st.clock <= 45 && lead > 0;
+    Object.keys(DEF_CALLS).forEach(d => {
+      if (d === 'GOALLINE' && !goal) return;
+      let sc = plays.reduce((t, id) => t + P[OFF[id].cat] / per(OFF[id].cat) * value(id, d), 0);
+      if (endgame && DEF_CALLS[d].cat === 'PREVENT') sc += 0.3;   // nothing deep
+      scored.push({ id: d, sc });
+    });
+  }
+  // the best call, and the best of two other sections as alternatives (so the advice is not the same play every snap)
+  const catOf = id => role === 'off' ? OFF[id].cat : DEF_CALLS[id].cat;
+  scored.sort((a, b) => b.sc - a.sc || (a.id < b.id ? -1 : 1));
+  const picks = [], add = f => { const x = scored.find(x => picks.indexOf(x.id) < 0 && !picks.some(p => catOf(p) === catOf(x.id)) && f(x.id)); if (x) picks.push(x.id); };
+  add(() => true);
+  if (role === 'off') { const run = id => OFF[id].kind === 'run'; add(id => run(id) !== run(picks[0])); }   // a run and a pass, like Ask Madden
+  add(() => true);
+  if (role === 'def') add(() => true);
+  const best = picks[0];
+  const catName = id => ((role === 'off' ? DEF_CATS : OFF_CATS).find(c => c.id === id) || {}).label || id;
+  const seenTxt = same >= 2 ? 'they have shown it about ' + Math.round(P[top] * 100) + '% of the time' : 'what teams usually do';
+  const why = role === 'off'
+    ? 'Expect ' + catName(top) + ' on ' + sitLabel(st) + ' (' + seenTxt + '). ' + OFF[best].label + ' gains the most against what they are likely to call.'
+    : 'Expect ' + catName(top).toLowerCase() + ' on ' + sitLabel(st) + ' (' + seenTxt + '). ' + DEF_CALLS[best].label + ' gives up the least against it.';
+  return { id: best, why, picks };
+}
+
 const E = {
   DATA: D, QLEN, CAP, noDef, TEAMS, PLAYERS, OLU, DFU, SLOTS, GROUPS, OFF, OFF_CATS, DEF_CALLS, DEF_CATS, MATCH, matchup, defOptions,
   KICK, KRS, PRS, STU, stSquad, stFrom, personnel, snapTeams, energy, FAT_DROP, onFire, FIRE_BOOST, FIRE_SNAPS, RET_FROM, normRoster, returnerCands, bestReturner, withReturner, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
   drawOptions, autoDraft, fgDist, legalOff, offOptions, initState, clockInfo,
-  KICKS, cpuKick, boxScore, stepGame, replay, lastCtl, retInfo, cpuOffense, cpuDefense, cleanMoves, cleanTrace, cpuTO
+  KICKS, cpuKick, boxScore, stepGame, replay, lastCtl, retInfo, cpuOffense, cpuDefense, suggest, COACH, cleanMoves, cleanTrace, cpuTO
 };
 if (typeof module !== 'undefined' && module.exports) { module.exports = E; require('./live.js'); }
 else root.E = E;
@@ -1646,7 +1738,11 @@ const ROUTES = {
   PA_DEEP: { WR1: [[42, 0]], WR2: [[12, 0], [32, -4]], TE: [[8, 0], [10, -3]], HB: [[-2, 0], [3, 2]] },
   SCREEN: { WR1: [[7, 0]], WR2: [[7, 0]], TE: [[4, 2]], HB: [[-3, 5]] },
   BUBBLE: { WR1: [[6, 0]], WR2: [[-0.5, -2.2]], TE: [[4, 2]], HB: [[-1, 3], [2, 6]] },
-  TUNNEL: { WR1: [[-0.5, -2], [0.5, -3]], WR2: [[6, 0]], TE: [[4, 2]], HB: [[-1, 3], [2, 6]] }
+  TUNNEL: { WR1: [[-0.5, -2], [0.5, -3]], WR2: [[6, 0]], TE: [[4, 2]], HB: [[-1, 3], [2, 6]] },
+  // trick plays (the back has a part of his own in the first two, so he has no route)
+  TRICK:   { WR1: [[42, 0]], WR2: [[12, 0], [30, -5]], TE: [[6, 0], [9, -2]], HB: null },                                        // flea flicker
+  HBPASS:  { WR1: [[44, 0]], WR2: [[8, 0], [9.5, 1]], TE: [[4, 0], [18, 3]], HB: null },                                           // halfback pass
+  HOOKLAT: { WR1: [[9, 0], [8, 0.4]], WR2: [[2, 0], [5, -6], [6.5, -9.5]], TE: [[6, 0], [7, 2]], HB: [[-1, 3], [2, 6]] }             // the hook, and the man who trails it
 };
 const DECIDE = { PASS_S: [12, 26], PASS_M: [24, 40], PASS_D: [34, 54], SCREEN: [22, 36] };
 const DROP = { PASS_S: -3.8, PASS_M: -5, PASS_D: -7, SCREEN: -5 };
@@ -1658,7 +1754,12 @@ const PM = {
   POST: { dec: [34, 54] }, GO: { dec: [38, 60], drop: -7 }, PA_DEEP: { dec: [34, 52], drop: -6.5, pa: 1 },
   BUBBLE: { dec: [8, 16], drop: -2.5, tgt: 'WR2', blk: [['TE', 'RCB']] }, TUNNEL: { dec: [10, 18], drop: -2.8, tgt: 'WR1', blk: [['HB', 'LCB']] },
   DIVE: { hoT: 4, rb: 0.004 }, POWER: { hoT: 7, rb: 0.006 }, DRAW: { hoT: 12, read: 4 },
-  SWEEP: { hoT: 5, rb: 0, wide: 7.5 }, COUNTER: { hoT: 9, flip: 1, rb: 0.002 }
+  SWEEP: { hoT: 5, rb: 0, wide: 7.5 }, COUNTER: { hoT: 9, flip: 1, rb: 0.002 },
+  // trick: 'flea' (handoff, the back pitches it back, then the bomb), 'hbp' (toss to the back, who rolls out and throws), 'lat' (hook and
+  // lateral: the hook man pitches it to the trailer, E when you have him); carrier: a reverse (the receiver takes it the other way)
+  TRICK: { trick: 'flea', dec: [36, 58], drop: -6.5 }, HBPASS: { trick: 'hbp', dec: [26, 46], drop: -3 },
+  HOOKLAT: { trick: 'lat', tgt: 'WR1', mate: 'WR2', dec: [16, 26], drop: -3.6, safe: 0.4 },
+  REVERSE: { carrier: 'WR2', hoT: 8, wide: 7.5, read: 5, rb: 0.002 }
 };
 
 function vmaxOf(grp, o, s) {
@@ -1676,7 +1777,47 @@ function vmaxOf(grp, o, s) {
 }
 const ACC = 16, ACC_HUMAN = 25;
 // pass protection tuning: bias per tick (base, plus extra while the line is still setting up), help per free lineman, skill weight, noise, how hard a losing block gets driven back, when a block is beaten
-const PRO = { flyDB: 0.19, flyLB: 0.12, flyDL: 0.05, flyPick: 0.10, fum: 0.042, fumSack: 2.2, ball: 4, blitzDelay: 6, blitzEdge: 0.006, base: 0.0038, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82, swim: 0.2, swimLev: 0.9, bull: 0.5, bullCool: 8, getoff: 0.2, getoffT: 6, burst: 14 };
+const PRO = { flyDB: 0.19, flyLB: 0.12, flyDL: 0.05, flyPick: 0.10, fum: 0.042, fumSack: 2.2, ball: 4, blitzDelay: 6, blitzEdge: 0.006, base: 0.0038, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82, latLoose: 0.3, swim: 0.2, swimLev: 0.9, bull: 0.5, bullCool: 8, getoff: 0.2, getoffT: 6, burst: 14 };
+// trick plays on the field
+function pitch(sim, from, to) {
+  const B = sim.ball, f = sim.by[from], r = sim.by[to];
+  B.st = 'air'; B.car = null; B.air = { sx: f.x, sy: f.y, ex: r.x, ey: r.y, n: 7, k: 0, peak: 0.9, pitch: to };
+  sim.evt.push(['pitch', sim.t, from, to]);
+}
+// hook and lateral: the man with the ball pitches it to the trailer (once), if the trailer is free and not ahead of him
+function lateral(sim) {
+  const B = sim.ball, car = sim.by[B.car], mate = sim.by[sim.pm.mate];
+  if (sim.latT || !car || !mate || mate.eng || mate.hold > 0 || mate.x > car.x + 0.5 || dist(car, mate) > 7) return;
+  sim.latT = sim.t; pitch(sim, car.id, mate.id);
+}
+function trickOff(sim, p, carrier, t) {
+  const B = sim.ball, pm = sim.pm, QB = sim.by.QB, HB = sim.by.HB;
+  if (pm.trick === 'flea') {
+    if (p.id === 'QB' && B.car === 'QB' && !sim.fleaT) { steer(p, -3.2, 0, 0.4); if (t >= 5 && dist(p, HB) < 1.9) { B.car = 'HB'; sim.fleaT = t; sim.evt.push(['hand', t, 'HB']); } return true; }
+    if (p.id === 'QB' && sim.fleaT && B.car !== 'QB' && !sim.thrown) { steer(p, -6.5, 0, 0.6); return true; }   // drops back for the pitch
+    if (p.id === 'HB' && !sim.fleaT) { steer(p, -3.4, 0, 0.8); return true; }
+    if (p.id === 'HB' && B.car === 'HB' && !sim.thrown && sim.fake) { steer(p, 0.2, 0, 0.55); if (t >= sim.fleaT + 10) { pitch(sim, 'HB', 'QB'); p.mode = 'pocket'; } return true; }
+  } else if (pm.trick === 'hbp') {
+    if (p.id === 'QB' && B.car === 'QB' && !sim.tossT) { steer(p, -3.4, 0.4, 0.4); if (t >= 4) { sim.tossT = t; pitch(sim, 'QB', 'HB'); } return true; }
+    if (p.id === 'QB' && sim.tossT) { steer(p, -2.5, -2.5, 0.4); return true; }
+    if (p.id === 'HB' && B.car !== 'HB' && !sim.thrown && !sim.out) { steer(p, -5, YB * 0.45, 0.9); return true; }   // swings out for the toss
+    if (p.id === 'HB' && B.car === 'HB' && !sim.thrown) { qbPass(sim, p, t); return true; }
+  } else if (pm.trick === 'lat') {
+    if (p.id === pm.mate && sim.thrown && B.car === pm.tgt && !sim.latT) { const c = sim.by[pm.tgt]; steer(p, c.x - 1.2, c.y + (c.y < 0 ? 2.2 : -2.2), 1); return true; }   // trail the hook
+  } else if (pm.carrier) {
+    if (p.id === pm.carrier && !sim.handoff) { steer(p, -3.8, -sim.runSide * 0.4, 1); return true; }   // comes around behind the quarterback
+    if (p.id === 'HB' && !sim.handoff) { steer(p, -3, -sim.runSide * 4.5, 0.95); return true; }           // the fake the other way
+  }
+  return false;
+}
+// the hook man pitches it on his own when a tackler closes in (or a beat after the catch); you do it with E
+function latCheck(sim) {
+  const B = sim.ball, pm = sim.pm;
+  if (pm.trick !== 'lat' || sim.latT || !sim.thrown || B.car !== pm.tgt || sim.out) return;
+  const car = sim.by[B.car]; if (sim.human.o && sim.ctlId.o === car.id) return;
+  const near = sim.D.some(d => d.hold === 0 && dist(d, car) < 2.3);
+  if (near || sim.t - (sim.catchT || sim.t) >= 10) lateral(sim);
+}
 const RUNMOD = { STACK: -0.010, BLITZ: -0.004, MAN: 0, ZONE: 0.004, PREVENT: 0.012 };
 
 /* ---------- construction ---------- */
@@ -1719,6 +1860,9 @@ function create(ctx) {
     p.route = rt[id].map(w => [p.x + w[0], p.y + w[1] * s]); if (id === 'HB') p.route = rt[id].map(w => [w[0], w[1] * (p.y === 0 ? 1 : s)]);
     p.mode = 'route';
   });
+  sim.passer = pm.trick === 'hbp' ? 'HB' : 'QB';   // who throws it
+  if (pm.trick === 'flea' || pm.trick === 'hbp') { sim.fake = 1; sim.stay = (sim.stay || []).filter(id => id !== 'HB'); sim.by.HB.mode = 'trick'; }   // the defense sees a run
+  if (pm.carrier) { const c = sim.by[pm.carrier]; sim.runSide = c.y > 0 ? -1 : 1; c.x = -1.8; c.y = -sim.runSide * 2.8; c.mode = 'trick'; }   // in motion at the snap   // a reverse goes away from the side the receiver lines up on
   if (dplay === 'BLITZ' && spec !== 'SCREEN' && !pm.tgt && sim.by.TE.route) { sim.by.TE.route = null; sim.by.TE.mode = 'idle'; sim.stay = (sim.stay || []).concat('TE'); }   // hot: the tight end stays in against the house
   const byPos = n => sim.D.find(p => p.pos === n);
   const dbs = sim.D.filter(p => p.grp === 'CB' || p.grp === 'S'), lbs = sim.D.filter(p => p.grp === 'LB'), dls = sim.D.filter(p => p.grp === 'DL');
@@ -1865,6 +2009,7 @@ function setupBlocks(sim) {
     const te = sim.by.TE; const ex = free.filter(r => !taken[r.id]).sort((a, b) => abs(a.y - te.y) - abs(b.y - te.y))[0];
     if (ex) { te.mode = 'block'; te.route = null; sim.pairs.push({ b: 'TE', r: ex.id, L: 0 }); ex.tgtBlk = 'TE'; taken[ex.id] = 1; }
     [['WR1', 'LCB'], ['WR2', 'RCB']].forEach(([w, c]) => {
+      if (w === sim.pm.carrier) return;   // (the man on the reverse)
       const cb = sim.D.find(p => p.pos === c); if (cb) { const wr = sim.by[w]; wr.mode = 'block'; wr.route = null; wr.rat = wr.rat * 0.62; sim.pairs.push({ b: w, r: cb.id, L: 0 }); cb.tgtBlk = w; }
     });
   }
@@ -1905,12 +2050,13 @@ function step(sim, inO, inD, acts) {
 
   // ----- actions -----
   if (sim.human.o) aO.forEach(c => {
-    const behind = !sim.by.QB || sim.by.QB.x <= 0;   // a quarterback past the line of scrimmage is a runner: no more passes (returns have none)
-    if (c >= 1 && c <= 4 && B.st === 'carried' && B.car === 'QB' && sim.thrown === 0 && sim.kind === 'pass' && behind) throwTo(sim, ['WR1', 'WR2', 'TE', 'HB'][c - 1], true, aO.indexOf(8) >= 0);   // 8 in the same tick (Shift held) = a lob
+    const ps = sim.by[sim.passer || 'QB'], behind = !ps || ps.x <= 0;   // a passer past the line of scrimmage is a runner: no more passes (returns have none)
+    if (c >= 1 && c <= 4 && B.st === 'carried' && B.car === sim.passer && sim.thrown === 0 && sim.kind === 'pass' && behind && ['WR1', 'WR2', 'TE', 'HB'][c - 1] !== sim.passer) throwTo(sim, ['WR1', 'WR2', 'TE', 'HB'][c - 1], true, aO.indexOf(8) >= 0);   // 8 in the same tick (Shift held) = a lob
+    else if (c === 6 && sim.pm.trick === 'lat' && B.car === sim.pm.tgt && ctlO && ctlO.id === B.car) lateral(sim);   // E: pitch it to the trailer
     else if (c === 7) { const q = sim.by[B.car]; if (q && q === ctlO && q.cool === 0) { q.spin = 12; q.stumble = Math.max(q.stumble || 0, 5); q.cool = 40; } }   // spin: harder to bring down for a moment, at some speed
     else if (c === 5) {
       const q = sim.by[B.car] || ctlO;
-      if (q && B.car === 'QB' && sim.kind === 'pass' && sim.thrown === 0 && behind) sim.throwAway = true;
+      if (q && B.car === sim.passer && sim.kind === 'pass' && sim.thrown === 0 && behind) sim.throwAway = true;
       else if (q && B.car === q.id && q.cool === 0) { const dy = inO.dy || (q.vy >= 0 ? 1 : -1); q.y = clamp(q.y + dy * 1.3, -YB, YB); q.x += 0.4; q.imm = 8; q.cool = 36; }
     }
   });
@@ -1967,6 +2113,7 @@ function step(sim, inO, inD, acts) {
   sim.pairs.forEach(pr => { const b = sim.by[pr.b], r = sim.by[pr.r]; if (b.eng === r.id) { b.x = r.x - 0.85; b.y = r.y; } });
 
   // ----- ball -----
+  latCheck(sim);
   ballLogic(sim, carrier);
   if (sim.t >= MAXT && !sim.out) timeout(sim);
   return sim.out;
@@ -1988,13 +2135,15 @@ function think(sim, p, carrier, t) {
 
 function thinkOff(sim, p, carrier, t) {
   const B = sim.ball, pass = sim.kind === 'pass';
+  if ((sim.pm.trick || sim.pm.carrier) && trickOff(sim, p, carrier, t)) return;
   if (carrier && carrier.id === p.id && p.id !== 'QB') { carrierAI(sim, p); return; }
   if (p.id === 'QB') {
     if (B.car === 'QB') {
       if (pass) { qbPass(sim, p, t); return; }
       // handoff
       const hb = sim.by.HB;
-      if (!sim.handoff) { steer(p, -3.2, 0, 0.3); if (dist(p, hb) < 1.6 || t >= sim.hoT + 5) { if (t >= sim.hoT) giveBall(sim, 'HB'); } }
+      const rb = sim.by[sim.pm.carrier || 'HB'];
+      if (!sim.handoff) { steer(p, -3.2, 0, 0.3); if (dist(p, rb) < 1.6 || t >= sim.hoT + 5) { if (t >= sim.hoT) giveBall(sim, rb.id); } }
       else steer(p, p.x, p.y, 0);
     } else if (sim.handoff || sim.thrown) steer(p, p.x - 1, p.y, 0.15);
     return;
@@ -2053,11 +2202,12 @@ function runRoute(sim, p) {
 }
 
 function qbPass(sim, q, t) {
-  const spec = sim.offPick, human = sim.human.o && sim.ctlId.o === 'QB';
+  const spec = sim.offPick, human = sim.human.o && sim.ctlId.o === q.id;
   const dec = sim.dec;
   // drop back (a play-action fake keeps the quarterback close to the line for a moment)
   const dx = sim.pm.pa && t < 8 ? -2.4 : sim.drop;
-  steer(q, dx, q.y * 0.9, 0.7);
+  if (q.id === 'HB') steer(q, -3.5, YB * 0.5, 0.7);   // the halfback pass: he rolls out to throw
+  else steer(q, dx, q.y * 0.9, 0.7);
   if (sim.thrown) return;
   if (sim.throwAway) { throwAwayBall(sim); return; }
   const hold = human ? 160 : dec[1];
@@ -2066,7 +2216,7 @@ function qbPass(sim, q, t) {
   const tgtId = sim.pm.tgt || (spec === 'SCREEN' ? 'HB' : null);
   if (tgtId) best = { id: tgtId, open: 3 };
   else ['WR1', 'WR2', 'TE', 'HB'].forEach(id => {
-    const r = sim.by[id]; if (!r || r.mode === 'block') return;
+    const r = sim.by[id]; if (!r || r.mode === 'block' || id === q.id || r.mode === 'trick' || r.mode === 'pocket') return;
     const open = openness(sim, r);
     const depthW = spec === 'PASS_D' ? 0.22 : spec === 'PASS_M' ? 0.16 : 0.25, hbPen = spec === 'PASS_D' ? -7 : spec === 'PASS_M' ? -3.6 : -2.5;
     const done = r.route && r.ri >= r.route.length - (id === 'HB' ? 0 : 0);
@@ -2097,7 +2247,7 @@ function openness(sim, r) {
 
 // a bullet is fast and flat (underneath defenders can get a hand on it); a lob floats over them but hangs in the air for the safeties
 function throwTo(sim, id, humanThrow, lob) {
-  const B = sim.ball, q = sim.by.QB, r = sim.by[id], R = sim.R;
+  const B = sim.ball, q = sim.by[sim.passer || 'QB'], r = sim.by[id], R = sim.R;
   if (!r || sim.thrown) return;
   sim.thrown = sim.t; sim.byTarget = id;
   let ex = r.x, ey = r.y;
@@ -2105,7 +2255,7 @@ function throwTo(sim, id, humanThrow, lob) {
   for (let k = 0; k < 3; k++) { const d = sqrt((ex - q.x) * (ex - q.x) + (ey - q.y) * (ey - q.y)); const ft = d / vb; const pp = predict(r, ft); ex = pp[0]; ey = pp[1]; }
   if (lob) { const sp = sqrt(r.vx * r.vx + r.vy * r.vy); if (sp > 1) { ex += r.vx / sp * 2.2; ey += r.vy / sp * 2.2; } }   // a lob leads him: he runs under it, away from the man on his hip
   const pres = nearestFree(sim, q), pr = pres ? clamp(1 - dist(pres, q) / 5, 0, 1) : 0;
-  const sig = clamp(1.9 - (q.rat - 50) * 0.03, 0.35, 2.1) * (1 + pr * 0.7) * (1 + sqrt((r.x - q.x) * (r.x - q.x)) / 45) * (sim.offPick === 'SCREEN' ? 0.55 : 1) * (lob ? 0.85 : 1);
+  const sig = clamp(1.9 - ((q.id === 'QB' ? q.rat : q.rat * 0.7) - 50) * 0.03, 0.35, 2.1) * (1 + pr * 0.7) * (1 + sqrt((r.x - q.x) * (r.x - q.x)) / 45) * (sim.offPick === 'SCREEN' ? 0.55 : 1) * (lob ? 0.85 : 1);
   ex += gauss(R) * sig * 0.8; ey += gauss(R) * sig * 0.6;
   ey = clamp(ey, -YB - 1, YB + 1);
   const d = sqrt((ex - q.x) * (ex - q.x) + (ey - q.y) * (ey - q.y)), n = max(4, Math.ceil(d / (vb * DT)));
@@ -2128,7 +2278,7 @@ function predict(r, ft) {
   return [r.x + r.vx * ft, r.y + r.vy * ft];
 }
 function throwAwayBall(sim) {
-  const B = sim.ball, q = sim.by.QB;
+  const B = sim.ball, q = sim.by[sim.passer || 'QB'];
   sim.thrown = sim.t; sim.byTarget = null;
   const ey = q.y >= 0 ? YB + 4 : -YB - 4;
   B.st = 'air'; B.car = null; B.air = { sx: q.x, sy: q.y, ex: q.x + 4, ey, n: 10, k: 0, peak: 1.5, away: true, react: sim.t };
@@ -2145,11 +2295,13 @@ function autoSwitch(sim, ref) {
 }
 
 function carrierAI(sim, p) {
-  const out = sim.offPick === 'RUN_OUT' && p.id === 'HB' && sim.t - sim.handoff < 14 && p.x < 3;
+  const runner = sim.pm.carrier || 'HB', win = sim.pm.carrier ? 24 : 14;   // a reverse has further to go to get the edge
+  const out = sim.offPick === 'RUN_OUT' && p.id === runner && sim.t - sim.handoff < win && p.x < 3;
   if (p.side === 'd') { dirSeek(sim, p, -1); return; }
-  if (p.id === 'HB' && sim.kind === 'run' && p.x < 0.5 && sim.t - sim.handoff < 10) {
+  if (p.id === runner && sim.kind === 'run' && p.x < 0.5 && sim.t - sim.handoff < win - 4) {
     const side = sim.runSide || 1;
-    if (out) steer(p, 2.5, side * sim.wideY, 1); else { let ty = laneY(sim); steer(p, 1.8, ty, 1); }
+    if (out && sim.pm.carrier) { if (p.y * side < sim.wideY - 1) steer(p, -1.5, side * (sim.wideY + 0.5), 1); else steer(p, 4, side * (sim.wideY + 0.5), 1); }   // the reverse bows wide, then turns up
+    else if (out) steer(p, 2.5, side * sim.wideY, 1); else { let ty = laneY(sim); steer(p, 1.8, ty, 1); }
     return;
   }
   if (sim.kind === 'ret' && !p.human && sim.t < RETP.wait) { steer(p, p.x + 1, p.y, 0.5); return; }
@@ -2190,6 +2342,10 @@ function thinkDef(sim, p, carrier, t) {
   if (carrier && carrier.side === 'd') { // a teammate has the ball: lead block for him
     steer(p, carrier.x - 4 * attackDir(carrier), carrier.y + (p.y > carrier.y ? 1.4 : -1.4), 0.9); return;
   }
+  // a reverse: until they read it, the front and the linebackers flow with the back's fake (that is what the reverse runs away from)
+  if (sim.pm.carrier && (!sim.handoff || sim.t < sim.handoff + sim.read + 4) && !p.eng && (p.mode === 'rush' || p.grp === 'DL' || p.grp === 'LB' || p.x < 9)) {
+    const hb = sim.by.HB; steer(p, max(hb.x + 1, p.x - 0.5), hb.y + (hb.y - p.y > 0 ? 1.5 : -1.5), 0.85); return;
+  }
   // the offense has the ball in the open: everybody converges, after a read delay on runs
   const breaker = carrier && carrier.side === 'o' && (carrier.id !== 'QB' || carrier.x > 1.0);
   if (breaker) {
@@ -2221,7 +2377,7 @@ function thinkDef(sim, p, carrier, t) {
   if (p.mode === 'zone') {
     if (sim.thrown && B.air && !B.air.away) { const dl = dist(p, { x: B.air.ex, y: B.air.ey }); if (dl < p.zone.r + 5 && sim.t - sim.thrown >= p.lag - 1) { steer(p, B.air.ex, B.air.ey, 1, false); return; } }
     let tx = p.zone.x, ty = p.zone.y, bd = 1e9;
-    if (sim.pm.pa && sim.t < 10 && (p.grp === 'LB' || p.pos === 'SS') && !sim.thrown) { steer(p, p.zone.x - 3.2, p.zone.y, 0.7); return; }
+    if (((sim.pm.pa && sim.t < 10) || sim.fake) && (p.grp === 'LB' || p.pos === 'SS' || (sim.fake && sim.pm.trick === 'hbp' && p.grp === 'CB')) && !sim.thrown) { steer(p, p.zone.x - 3.2, p.zone.y, 0.7); return; }   // play-action, or a trick play: they come up for the run
     if (p.grp === 'S' || p.grp === 'CB') { // deep defenders play over the top of whoever runs through their lane
       let deep = null;
       sim.O.forEach(r => { if (r.mode !== 'route' || r.grp === 'HB') return; if (abs(r.y - p.zone.y) < p.zone.r + 1.5 && r.x > p.zone.x - p.zone.r * 0.6 && (!deep || r.x > deep.x)) deep = r; });
@@ -2328,9 +2484,10 @@ function ballLogic(sim, carrier) {
   if (car) { B.x = car.x; B.y = car.y; B.z = 0; }
   if (B.st === 'air') {
     const a = B.air; a.k++;
+    if (a.pitch) { const r = sim.by[a.pitch]; a.ex = r.x; a.ey = r.y; }   // a pitch or lateral goes to the man, wherever he is
     const f = a.k / a.n; B.x = a.sx + (a.ex - a.sx) * f; B.y = a.sy + (a.ey - a.sy) * f; B.z = 4 * a.peak * f * (1 - f);
     if (a.k >= a.n) { landBall(sim); return; }
-    if (!a.away && contestFlight(sim)) return;
+    if (!a.away && !a.pitch && contestFlight(sim)) return;
     return;
   }
   if (!car) return;
@@ -2437,6 +2594,13 @@ function contestFlight(sim) {
 function landBall(sim) {
   const B = sim.ball, a = B.air, R = sim.R;
   B.x = a.ex; B.y = a.ey; B.z = 0;
+  if (a.pitch) {   // a pitch or a lateral: caught, unless a defender is right there and knocks it loose
+    const r = sim.by[a.pitch], d = sim.D.filter(q => q.hold === 0 && !q.eng && dist(q, r) < 1.4)[0];
+    if (d && R() < PRO.latLoose) { B.air = null; return finish(sim, { k: 'fumble', x: Math.max(0, r.x), who: r.id, by: d.id, pass: !!sim.thrown, tgt: sim.byTarget }); }
+    B.air = null; B.car = r.id; B.st = 'carried'; sim.ctlId.o = r.id; r.seek = null; sim.evt.push(['pitched', sim.t, r.id]);
+    if (sim.pm.trick !== 'lat') sim.fake = 0;   // the flea flicker or halfback pass is on: the defense finds out
+    return;
+  }
   if (a.away || abs(a.ey) > YB + 0.6) { B.air = null; return finish(sim, { k: 'inc', x: a.ex, tgt: sim.byTarget, away: !!a.away }); }
   // who is in range?
   const cands = [];
@@ -4523,18 +4687,27 @@ const Field = {
       x.textBaseline = 'alphabetic';
     }
     // flash text
+    if (this.flash && this.flash.until && performance.now() > this.flash.until) this.flash = null;
     if (this.flash) {
+      const f = this.flash, cy = H / 2 - 8;
+      // a turnover gets a band across the field in the team that won the ball's colour, saying so, and who made the play
+      if (f.turn) {
+        x.globalAlpha = 0.82; x.fillStyle = '#0b1020'; x.fillRect(0, cy - 46, W, f.sub ? 96 : 76); x.globalAlpha = 1;
+        x.fillStyle = f.color; x.fillRect(0, cy - 46, W, 4); x.fillRect(0, cy + (f.sub ? 46 : 26), W, 4);
+        x.textAlign = 'center'; x.font = '12px Silkscreen, monospace'; x.fillStyle = f.color; x.fillText('TURNOVER · ' + f.turn.toUpperCase() + ' BALL', W / 2, cy - 28);
+      }
       x.textAlign = 'center'; x.font = '34px Silkscreen, monospace';
-      x.lineWidth = 6; x.strokeStyle = '#0b1020'; x.strokeText(this.flash.text, W / 2, H / 2 - 8);
-      x.fillStyle = this.flash.color; x.fillText(this.flash.text, W / 2, H / 2 - 8);
+      x.lineWidth = 6; x.strokeStyle = '#0b1020'; x.strokeText(f.text, W / 2, cy + (f.turn ? 6 : 0));
+      x.fillStyle = f.color; x.fillText(f.text, W / 2, cy + (f.turn ? 6 : 0));
+      if (f.sub) { x.font = '13px Silkscreen, monospace'; x.lineWidth = 4; x.strokeText(f.sub, W / 2, cy + 32); x.fillStyle = '#efe9d6'; x.fillText(f.sub, W / 2, cy + 32); }
     }
   },
   enqueue(entry, teams) { this.queue.push({ entry, teams }); if (!this.busy) this.next(); },
   next() {
     const job = this.queue.shift();
-    if (!job) { this.busy = false; return; }
+    if (!job) { this.busy = false; document.body.classList.remove('fbusy'); return; }
     if (job.seen) { const a = job.seen.after; this.set({ poss: a.poss, ballOn: a.ballOn, down: a.down, toGo: a.toGo, teams: job.teams }); this.next(); return; }
-    this.busy = true;
+    this.busy = true; document.body.classList.add('fbusy');   // (the call screen waits until the play has been shown)
     this.play(job.entry, job.teams, () => this.next());
   },
   play(entry, teams, done) {
@@ -4555,7 +4728,8 @@ const Field = {
     if (entry.onside) FL.kickoff = entry.onside === 'kept' ? ['ONSIDE KICK RECOVERED', b.poss] : ['ONSIDE KICK FAILS', other(b.poss)];
     const fl = FL[entry.ev] || (entry.firstDown ? ['FIRST DOWN', b.poss] : null);
     const after = { poss: entry.after.poss, ballOn: entry.after.ballOn, down: entry.after.down, toGo: entry.after.toGo, teams };
-    const t0 = performance.now(), hold = fl ? 650 : 110, settle = 220;
+    const turnover = entry.after.poss !== b.poss && /^(int|fumble|downs)$/.test(entry.ev);   // these get the turnover band and a longer look
+    const t0 = performance.now(), hold = turnover ? 1500 : fl ? 650 : 110, settle = 220;
     let finished = false;
     const finish = () => { if (finished) return; finished = true; this.flash = null; this.fxFire = 0; this.anim = null; this.set(after); done(); };
     const camStart = this.cam;
@@ -4570,7 +4744,11 @@ const Field = {
         this.cam = this.clampCam(los + (endX - los) * e * 0.8);
       } else if (el < dur + hold) {
         this.ballX = endX; this.ballLift = 0;
-        if (fl && !this.flash) { this.flash = { text: fl[0], color: fl[1] ? TEAM_COL[fl[1]] : '#efe9d6' }; this.celebrate(fl[0], this.flash.color); }
+        if (fl && !this.flash) {
+          this.flash = { text: fl[0], color: fl[1] ? TEAM_COL[fl[1]] : '#efe9d6' };
+          if (turnover) { this.flash.turn = (teams[entry.after.poss] || {}).name || ''; this.flash.sub = turnoverLine(entry); }
+          this.celebrate(fl[0], this.flash.color);
+        }
         if (entry.fire && !this.fxFire) { this.fxFire = 1; if (!fl) this.flash = { text: 'ON FIRE', color: '#ff7a1a' }; this.celebrate('ON FIRE', '#ff7a1a'); }
       } else if (el < dur + hold + settle) {
         if (this.scene !== after) { this.scene = after; this.ballX = null; this.flash = null; this.cam0 = this.cam; }
@@ -4585,6 +4763,14 @@ const Field = {
   }
 };
 
+
+// who made the turnover, from the play's own line ("Josh Allen is picked off by Jaylen Watson." -> "PICKED OFF BY JAYLEN WATSON")
+function turnoverLine(e) {
+  const t = String(e.text || ''), m = t.match(/picked off by ([^.,]+)/i) || t.match(/forced out by ([^.,]+)/i) || t.match(/strip[- ]sack(?:ed)? by ([^.,]+)/i);
+  if (e.ev === 'int') return m ? 'PICKED OFF BY ' + m[1].toUpperCase() : 'PICKED OFF';
+  if (e.ev === 'fumble') return m ? 'FORCED BY ' + m[1].toUpperCase() : 'BALL IS LOOSE';
+  return e.ev === 'downs' ? 'STOPPED SHORT ON 4TH DOWN' : '';
+}
 
 /* ---------- header ---------- */
 function renderHeader() {
@@ -4668,7 +4854,7 @@ async function api(body, ep) {
 function resetForMode() {
   stopPoll();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
-  S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; Field.scene = null;
+  S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.scene = null;
   S.ctlN = {}; S.toN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
 }
 function startLocal() {
@@ -5026,10 +5212,11 @@ function buildGame() {
     '<div class="sb-mid"><div class="sb-q" id="sb-q"></div><div class="sb-dd" id="sb-dd"></div><div class="sb-ball" id="sb-ball"></div><div class="sb-to" id="sb-to"></div></div>' +
     '<div class="sb-team b"><div class="sb-name" id="sb-bn"></div><div class="sb-score" id="sb-bs">0</div></div></div>' +
     '<div class="fieldhost" id="fieldHost"></div>' +
-    '<div class="deck"><div class="callpanel panel" id="callpanel"></div>' +
+    '<div class="deck"><div class="lvpanel panel" id="lvpanel"></div>' +
     '<div class="side"><div class="banner" id="banner"></div><ol class="log" id="log"></ol>' +
     '<div class="row"><button class="btn small" data-act="rosters">Rosters</button><button class="btn small" data-act="matchups">Matchups</button></div></div></div></section>';
   $('#fieldHost').appendChild(Field.cv);
+  $('#fieldHost').insertAdjacentHTML('beforeend', '<div class="callpanel playcall" id="callpanel"></div>');   // play calling happens on the field, Madden style
   $('#fieldHost').insertAdjacentHTML('beforeend', '<div class="fvbar"><button class="fsbtn" data-act="fullscreen" title="Full screen (F)" aria-label="Toggle full screen">' + fsLabel() + '</button></div>');
   S.shown = null; S.callSig = null;
 }
@@ -5083,7 +5270,8 @@ function renderLog(G) {
   const T = G.teams, rows = [];
   for (let i = G.log.length - 1; i >= 0 && rows.length < 14; i--) {
     const e = G.log[i], c = Math.max(0, e.clk), q = e.q + ' ' + Math.floor(c / 60) + ':' + ('0' + (c % 60)).slice(-2);
-    rows.push('<li class="ev-' + e.ev + '"><span class="lg-n" style="color:' + TEAM_COL[e.off] + '">' + q + '</span><span class="lg-t">' + esc(e.text) + '</span></li>');
+    const to = e.after && e.after.poss !== e.off && /^(int|fumble|downs)$/.test(e.ev);   // turnovers stand out in the log
+    rows.push('<li class="ev-' + e.ev + (to ? ' to' : '') + '"' + (to ? ' style="--tc:' + TEAM_COL[e.after.poss] + '"' : '') + '><span class="lg-n" style="color:' + TEAM_COL[e.off] + '">' + q + '</span><span class="lg-t">' + (to ? '<b class="tochip">Turnover</b> ' : '') + esc(e.text) + '</span></li>');
   }
   const html = rows.join('');
   if (el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; }
@@ -5117,7 +5305,12 @@ function boxHTML(G) {
   };
   return '<div class="boxwrap">' + tbl + '<div class="boxsides">' + side('a') + side('b') + '</div></div>';
 }
+// the call panel sits on the field: it covers it while you pick a play (or for the final score) and shrinks to a strip otherwise
 function renderCall(G) {
+  renderCall0(G);
+  const p = $('#callpanel'); if (p) p.classList.toggle('full', !!p.querySelector('.calls, .final'));
+}
+function renderCall0(G) {
   const p = $('#callpanel'); if (!p) return;
   const st = G.state, T = G.teams;
   if (st.over) {
@@ -5160,9 +5353,9 @@ function renderCall(G) {
   const cats = callCats(role, st), cat = callCat(role, st), shown = callOpts(role, st).filter(o => o.cat === cat);
   let k = 0;
   p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
-    fireRowHTML(st, role) + ctlRowHTML(role) + toRowHTML(st) + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
+    coachRowHTML(G, role) + fireRowHTML(st, role) + ctlRowHTML(role) + toRowHTML(st) + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
     '<div class="cats" role="tablist" aria-label="Play type">' + cats.map(c => '<button class="cat' + (c.id === cat ? ' on' : '') + '" role="tab" aria-selected="' + (c.id === cat) + '" data-act="cat" data-cat="' + c.id + '">' + esc(c.label) + '<i>' + c.n + '</i></button>').join('') + '</div>' +
-    '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k; return '<button class="call" data-act="call" data-id="' + o.id + '" title="' + esc(o.desc) + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span><b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
+    '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k, rec = coachPicks(G, role).indexOf(o.id); return '<button class="call' + (rec >= 0 ? ' rec' : '') + '" data-act="call" data-id="' + o.id + '" title="' + esc(o.desc) + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span>' + (rec >= 0 ? '<i class="cbadge">' + (rec ? 'Coach' : '★ Coach') + '</i>' : '') + '<b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
 }
 // play calls come in sections (Inside Run, Quick Pass, Cover 2/3/4 ...): one section is open at a time
 function callOpts(role, st) {
@@ -5176,6 +5369,8 @@ function callCat(role, st) {
   const cats = callCats(role, st), has = id => cats.some(c => c.id === id), n = st.playNo;
   if (S.catSel && S.catSel.n === n && S.catSel.role === role && has(S.catSel.cat)) return S.catSel.cat;
   if (role === 'off' && st.down === 4 && has('SPEC')) return 'SPEC';
+  const cp = S.G && coachFor(S.G, role), cc = cp && cp.id && (role === 'off' ? E.OFF[cp.id] && E.OFF[cp.id].cat : E.DEF_CALLS[cp.id] && E.DEF_CALLS[cp.id].cat);
+  if (cc && has(cc)) return cc;   // open on the coach's pick
   const last = lsGet('gd_cat_' + role);
   if (last && last !== 'SPEC' && has(last)) return last;
   const dflt = role === 'off' ? 'PASS_M' : 'ZONE';
@@ -5207,6 +5402,21 @@ function ctlRowHTML(role) {
   return '<div class="ctlrow"><button class="btn small ctl' + (on ? ' on' : '') + '" data-act="ctl-toggle" aria-pressed="' + on + '">Control your players: ' + (on ? 'ON' : 'OFF') + '</button>' +
     '<span class="hint">' + (on ? (role === 'off' ? 'You play the quarterback, then whoever has the ball.' : 'You play one defender and can switch.') + ' Everyone else moves on their own. You also run back kickoffs and punts.' : 'You only call the plays. The computer runs everyone.') + ' Press C to switch.</span></div>';
 }
+// coach's picks (like Ask Madden): E.suggest reads what the other team has called in this kind of spot and plays the options out
+// with the stat engine; the best pick and two alternatives, worked out once per snap. G calls the best one.
+function coachFor(G, role) {
+  const st = G.state, key = st.playNo + role;
+  if (S.coach && S.coach.key === key && S.coach.G === G.log.length) return S.coach.r;
+  let r = null; try { r = E.suggest(st, G.log, G.teams, G.U, S.me, role); } catch (e) { r = null; }
+  S.coach = { key, G: G.log.length, r }; return r;
+}
+const coachPicks = (G, role) => { const r = G && coachFor(G, role); return r ? r.picks : []; };
+const pickLabel = (role, id) => role === 'off' ? offLabel(id) : E.DEF_CALLS[id].label;
+function coachRowHTML(G, role) {
+  const r = coachFor(G, role); if (!r || !r.picks.length) return '';
+  return '<div class="coach"><span class="eyebrow">Coach\'s picks</span><div class="cpicks">' + r.picks.map((id, i) => '<button class="btn small' + (i ? '' : ' primary') + '" data-act="call" data-id="' + id + '">' + (i ? '' : '★ ') + esc(pickLabel(role, id)) + (i ? '' : ' (G)') + '</button>').join('') + '</div><p class="hint">' + esc(r.why) + '</p></div>';
+}
+function coachCall() { const G = S.G; if (!G || G.state.over) return; const role = S.me === G.state.poss ? 'off' : 'def', r = coachFor(G, role); if (r && r.id && S.mine[G.state.playNo] == null) submitCall(r.id); }
 // who is on fire right now (st.fire[id] = { f: snaps left, n: name }): a line over the calls
 function fireRowHTML(st, role) {
   const hot = Object.values(st.fire || {}).filter(f => f.f > 0 && f.n);
@@ -5312,11 +5522,11 @@ const LV = {
     if (part && part[me] && m.myCtl) { m.stream[me].ev = part[me].ev.slice(); m.stream[me].upto = part[me].upto; }
     this.build(m);
     const sc = { poss: off, ballOn: st.ballOn, down: st.down, toGo: st.toGo, teams: T };
-    Field.queue = []; Field.busy = false; Field.flash = null; Field.scene = sc; Field.live = { items: [], ball: { wx: 0, sy: 0 }, los: Field.losX(sc), dir: m.dir };
+    Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.flash = null; Field.scene = sc; Field.live = { items: [], ball: { wx: 0, sy: 0 }, los: Field.losX(sc), dir: m.dir };
     m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
     Field.cam = Field.clampCam(Field.losX(sc) + (ret ? m.dir * 9 : 0));
     this.panel(true);
-    window.GD_LIVE = this;
+    window.GD_LIVE = this; document.body.classList.add('lvon');
     m.readyAt = performance.now() + 1000 / this.speedNow();
     this.raf = requestAnimationFrame(t => { m.last = t; this.frame(t); });
     clearInterval(this.netT); this.netT = setInterval(() => this.netTick(), 130);
@@ -5340,6 +5550,7 @@ const LV = {
   stop() {
     cancelAnimationFrame(this.raf); this.raf = 0; clearInterval(this.netT); this.netT = 0;
     this.on = null; this.held = {}; if (Field.live) { Field.live = null; Field.flash = null; }
+    document.body.classList.remove('lvon'); const lp = $('#lvpanel'); if (lp) lp.innerHTML = '';
     Field.YPP = Field.BASE_YPP;   // back to the normal zoom
     window.GD_LIVE = null;
   },
@@ -5361,7 +5572,7 @@ const LV = {
   frame(ts) {
     const m = this.on; if (!m) return;
     this.raf = requestAnimationFrame(t => this.frame(t));
-    const dt = Math.min(120, ts - m.last) * this.speedNow(); m.last = ts;
+    const dt = Math.min(120, ts - m.last) * this.speedNow() * (m.slowUntil && ts < m.slowUntil ? 0.35 : 1); m.last = ts;   // a moment of slow motion on a pick
     if (ts < m.readyAt) { this.draw(m); if (ts - m.panT > 120) { m.panT = ts; this.panel(false); } return; }
     if (!m.sim.out) m.acc = Math.min(m.acc + dt, 200);
     let guard = 0;
@@ -5374,6 +5585,7 @@ const LV = {
       if (!catching) m.acc -= 50;
       this.tick(m);
     }
+    this.callouts(m, ts);
     if (m.sim.out && !m.ended) { m.ended = ts; this.flashResult(m); this.flush(m); }
     if (m.sim.out && ts - m.ended > 1250 / Math.max(1, this.speedNow() > 2 ? 4 : 1)) { this.finish(m); return; }
     this.draw(m);
@@ -5461,25 +5673,38 @@ const LV = {
   },
 
   /* ----- finishing ----- */
+  // the moment the ball changes hands mid-snap (an interception): a call-out and a beat of slow motion, before the return plays out
+  callouts(m, ts) {
+    const ev = m.sim.evt; m.evSeen = m.evSeen || 0;
+    for (; m.evSeen < ev.length; m.evSeen++) {
+      const e = ev[m.evSeen];
+      if (e[0] !== 'int' || m.sim.out) continue;
+      const by = m.sim.by[e[2]], col = TEAM_COL[m.def];
+      Field.flash = { text: 'PICKED OFF!', color: col, turn: (m.T[m.def] || {}).name || '', sub: by ? lastName(by.name).toUpperCase() + ' HAS IT' : '', until: performance.now() + 1300 };
+      Field.celebrate('INTERCEPTED', col); m.slowUntil = ts + 900;
+    }
+  },
   flashResult(m) {
     const o = m.sim.out, own = k => TEAM_COL[k];
-    let text = '', col = '#efe9d6';
+    let text = '', col = '#efe9d6', turn = 0, sub = '';
     if (o.k === 'ret') {
       const sp = Math.round(m.ret.at + o.x);
       if (o.td) { text = 'TOUCHDOWN'; col = own(m.off); }
-      else if (o.fumble) { text = 'FUMBLE'; col = own(m.def); }
+      else if (o.fumble) { text = 'FUMBLE'; col = own(m.def); turn = 1; }
       else if (o.fc) text = 'FAIR CATCH';
       else if (o.tb) text = 'TOUCHBACK';
       else text = 'TO THE ' + (sp > 50 ? 'OPP ' + (100 - sp) : 'OWN ' + sp);
     }
     else if (o.td || o.tdRet) { text = 'TOUCHDOWN'; col = own(o.tdRet ? m.def : m.off); }
     else if (o.k === 'sack') { text = 'SACK'; col = own(m.def); }
-    else if (o.k === 'int') { text = 'INTERCEPTED'; col = own(m.def); }
-    else if (o.k === 'fumble') { text = 'FUMBLE'; col = own(m.def); }
+    else if (o.k === 'int') { text = 'INTERCEPTED'; col = own(m.def); turn = 1; const by = m.sim.by[o.by]; sub = by ? 'PICKED OFF BY ' + lastName(by.name).toUpperCase() + (o.tdRet ? ' · RETURNED FOR A TOUCHDOWN' : '') : ''; }
+    else if (o.k === 'fumble') { text = 'FUMBLE'; col = own(m.def); turn = 1; const by = m.sim.by[o.by]; sub = by ? 'FORCED BY ' + lastName(by.name).toUpperCase() + (o.sack ? ' ON THE SACK' : '') : ''; }
     else if (o.k === 'safety') { text = 'SAFETY'; col = own(m.def); }
     else if (o.k === 'inc') text = o.away ? 'THROWN AWAY' : 'INCOMPLETE';
     else { const y = Math.round(o.x); text = y > 0 ? '+' + y + ' YARDS' : y === 0 ? 'NO GAIN' : y + ' YARDS'; if (y >= m.st.toGo) { text += ' · 1ST DOWN'; col = own(m.off); } }
-    Field.flash = { text, color: col }; Field.celebrate(text, col);
+    if (o.fum && !turn && o.k !== 'ret') sub = 'FUMBLE! ' + ((m.T[m.off] || {}).name || 'THE OFFENSE').toUpperCase() + ' FALL ON IT';   // loose, but kept
+    Field.flash = { text, color: col }; if (turn) Field.flash.turn = (m.T[m.def] || {}).name || ''; if (sub) Field.flash.sub = sub;
+    Field.celebrate(text, col);
   },
   finish(m) {
     const n = m.n, lv = { a: m.stream.a.ev.slice(), b: m.stream.b.ev.slice() };
@@ -5499,7 +5724,8 @@ const LV = {
     const lerp = (a, b) => a + (b - a) * alpha;
     const items = [];
     const hot = []; if (m.ctl[m.off] && sim.human.o) hot.push([m.off, sim.ctlId.o]); if (m.ctl[m.def] && sim.human.d) hot.push([m.def, sim.ctlId.d]);
-    const tags = (m.me === m.off && m.myCtl && sim.human.o && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass') ? { WR1: 'A', WR2: 'S', TE: 'D', HB: 'F' } : null;
+    const passer = sim.passer || 'QB';   // (the back on a halfback pass)
+    const tags = (m.me === m.off && m.myCtl && sim.human.o && sim.ball.car === passer && !sim.thrown && sim.kind === 'pass') ? Object.assign({ WR1: 'A', WR2: 'S', TE: 'D', HB: 'F' }, { [passer]: undefined }) : null;
     sim.P.forEach((p, i) => {
       const a = pv.p[i] || cu.p[i], b = cu.p[i], x = lerp(a[0], b[0]), y = lerp(a[1], b[1]);
       const fx = p.vx * dir, face = Math.abs(fx) > 0.8 ? (fx > 0 ? 1 : -1) : (p.side === 'o' ? dir : -dir);
@@ -5524,11 +5750,12 @@ const LV = {
     L.mine = items.some(i => i.mine); L.meOff = m.me === m.off;
     L.hud = null;
     if (m.myCtl && !m.handed && !sim.out && performance.now() >= m.readyAt) {
-      const off = m.me === m.off, qbHas = off && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass' && sim.by.QB.x <= 0;
+      const off = m.me === m.off, qbHas = off && sim.ball.car === passer && !sim.thrown && sim.kind === 'pass' && sim.by[passer].x <= 0, latOn = off && sim.pm.trick === 'lat' && sim.ball.car === sim.pm.tgt && !sim.latT;
       const mv = ['ARROWS', 'MOVE'];
       L.hud = m.ret ? [mv, ['SPACE', 'JUKE']].concat(m.ret.kind === 'pr' ? [['E', 'FAIR CATCH']] : [])
         : qbHas ? [mv, ['A S D F', 'BULLET'], ['SHIFT+', 'LOB'], ['SPACE', 'THROW AWAY']]
-        : off ? (sim.kind === 'run' && sim.ball.car === 'QB' ? [mv] : [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN']])
+        : latOn ? [mv, ['E', 'LATERAL'], ['SPACE', 'JUKE'], ['Q', 'SPIN']]
+        : off ? ((sim.kind === 'run' || sim.fake) && sim.ball.car !== sim.ctlId.o ? [mv] : [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN']])
         : (sim.by[sim.ctlId.d] || {}).eng ? [mv, ['SPACE', 'SWIM'], ['Q', 'BULL RUSH'], ['E', 'SWITCH']]
         : [mv, ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
     }
@@ -5548,7 +5775,7 @@ const LV = {
 
   /* ----- the panel under the field ----- */
   panel(force) {
-    const m = this.on, p = $('#callpanel'); if (!m || !p) return;
+    const m = this.on, p = $('#lvpanel'); if (!m || !p) return;
     const sim = m.sim, me = m.me, role = me === m.off ? 'off' : 'def';
     const sit = (m.ret ? (m.ret.kind === 'ko' ? 'Kickoff return' : 'Punt return') : ddLabel(m.st)) + ' at ' + spotLabel(m.st, m.T);
     if (force || !p.querySelector('#lvinfo')) {
@@ -5568,12 +5795,14 @@ const LV = {
         info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b>, the ' + (pr ? 'punt' : 'kick') + ' returner. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke' + (pr ? ' · ' + K('E') + ' fair catch' : '') + '. Follow your blockers.';
         acts = '<button class="ab wide" data-lvk="5">Juke</button>' + (pr ? '<button class="ab wide" data-lvk="6">Fair catch</button>' : '');
       } else if (role === 'off') {
-        const qbHas = sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass', scramble = qbHas && sim.by.QB.x > 0;
+        const pz = sim.passer || 'QB', qbHas = sim.ball.car === pz && !sim.thrown && sim.kind === 'pass', scramble = qbHas && sim.by[pz].x > 0;
         if (scramble) { info = 'You are scrambling with <b>' + esc(lastName(sim.by.QB.name)) + '</b>: past the line you can only run. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
         else if (qbHas) {
-          info = 'You are <b>' + esc(lastName(sim.by.QB.name)) + '</b>, the quarterback. ' + K('←↑↓→') + ' move. Throw to ' + K('A') + esc(lastName(sim.by.WR1.name)) + ' ' + K('S') + esc(lastName(sim.by.WR2.name)) + ' ' + K('D') + esc(lastName(sim.by.TE.name)) + ' ' + K('F') + esc(lastName(sim.by.HB.name)) + '. Hold ' + K('Shift') + ' to lob it over the defense · ' + K('Space') + ' throws it away. Run past the line to scramble.';
+          info = 'You are <b>' + esc(lastName(sim.by[pz].name)) + '</b>, ' + (pz === 'QB' ? 'the quarterback' : 'throwing the halfback pass') + '. ' + K('←↑↓→') + ' move. Throw to ' + K('A') + esc(lastName(sim.by.WR1.name)) + ' ' + K('S') + esc(lastName(sim.by.WR2.name)) + ' ' + K('D') + esc(lastName(sim.by.TE.name)) + ' ' + K('F') + esc(lastName(sim.by.HB.name)) + '. Hold ' + K('Shift') + ' to lob it over the defense · ' + K('Space') + ' throws it away. Run past the line to scramble.';
           acts = ['1', '2', '3', '4'].map((k, i) => '<button class="ab" data-lvk="' + k + '">' + THROWLAB[i] + '</button>').join('') + '<button class="ab wide' + (LV.lobArm ? ' on' : '') + '" data-lvk="lob">Lob</button><button class="ab wide" data-lvk="5">Throw away</button>';
         } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. ' + K('←↑↓→') + ' move.'; acts = ''; }
+        else if (sim.fake && sim.ball.car !== sim.ctlId.o) { info = 'Trick play: sell it. The ball comes to you in a moment. ' + K('←↑↓→') + ' move.'; acts = ''; }
+        else if (sim.pm.trick === 'lat' && sim.ball.car === sim.pm.tgt && !sim.latT) { info = 'Hook and lateral: ' + K('E') + ' pitches it to <b>' + esc(lastName(sim.by[sim.pm.mate].name)) + '</b> trailing you (do it before they wrap you up). ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="6">Lateral</button><button class="ab wide" data-lvk="5">Juke</button>'; }
         else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
       } else {
         info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch player. Steer at the ball carrier and you are guided onto him. When a blocker has you: ' + K('Q') + ' bull rush builds leverage, ' + K('Space') + ' swims past him (best with your meter in the green, or the moment he touches you).';
@@ -5676,6 +5905,7 @@ document.addEventListener('keydown', ev => {
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && $('#callpanel .cats')) { ev.preventDefault(); stepCat(ev.key === 'ArrowRight' ? 1 : -1); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'r' || ev.key === 'R')) { hurry(); return; }
+  if (S.screen === 'game' && !LV.on && (ev.key === 'g' || ev.key === 'G') && !ev.ctrlKey && !ev.metaKey) { coachCall(); return; }
   if (S.screen === 'game' && !LV.on && /^[1-9]$/.test(ev.key)) {
     const btns = document.querySelectorAll('#callpanel .call:not([disabled])');
     const b = btns[+ev.key - 1]; if (b) submitCall(b.dataset.id);
@@ -5718,6 +5948,12 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-23-3', title: 'Play calling on the field, Coach\'s picks, clearer turnovers, more trick plays', items: [
+    'Play calling happens on the field now, Madden style, instead of in a side panel. It steps aside while each play is shown.',
+    'Coach\'s picks: every call screen suggests three plays (on offense a run and a pass) with the reason, based on what the other team has been calling. Press G to call the starred one.',
+    'Interceptions and fumbles are much clearer: the action stops with a turnover banner saying whose ball it is and who made the play, the log marks it, and a pick you play by hand gets a call-out and a moment of slow motion.',
+    'Trick plays work on the field now: the flea flicker really hands off and pitches back, and on the hook and lateral E pitches it to the trailer. New: Halfback Pass and WR Reverse. All of them pay off more against the wrong defense.'
+  ] },
   { id: '2026-10-23-2', title: 'New keys: arrows move, left hand does the rest', items: [
     'Arrow keys move your player. Everything else is on the left side of the keyboard: A S D F throw to the receiver with that letter (Shift + the letter lobs it), Space jukes, dives, swims or throws it away, Q spins, big hits or bull rushes, E switches player or calls a fair catch.',
     'WASD no longer moves, and J K L ; no longer throw. Number keys 1-4 still throw.'
