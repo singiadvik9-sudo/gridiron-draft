@@ -8,6 +8,7 @@ const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r' }
 const lastName = n => { const w = String(n || '').trim().split(/\s+/); while (w.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(w[w.length - 1])) w.pop(); return w[w.length - 1] || ''; };   // (not "II" for a Jr. or a II)
 const K = t => '<kbd>' + t + '</kbd>';
 // the left hand rests on the home row: A S D F throw to the four tagged targets (1-4 still work), Shift with one lobs it
+const CATCH_POP = { contested: 'CONTESTED CATCH!', dive: 'DIVING GRAB!', toe: 'TOE TAP!', basket: 'OVER THE SHOULDER!' };
 const THROWKEY = { a: 1, s: 2, d: 3, f: 4 }, THROWLAB = ['A', 'S', 'D', 'F'];
 const LVLAB = { QB: 'quarterback', HB: 'running back', WR1: 'receiver', WR2: 'receiver', TE: 'tight end' };
 
@@ -272,6 +273,7 @@ const LV = {
     const hot = []; if (m.ctl[m.off] && sim.human.o) hot.push([m.off, sim.ctlId.o]); if (m.ctl[m.def] && sim.human.d) hot.push([m.def, sim.ctlId.d]);
     const passer = sim.passer || 'QB';   // (the back on a halfback pass)
     const tags = (m.me === m.off && m.myCtl && sim.human.o && sim.ball.car === passer && !sim.thrown && sim.kind === 'pass') ? Object.assign({ WR1: 'A', WR2: 'S', TE: 'D', HB: 'F' }, { [passer]: undefined }) : null;
+    const catchOf = {}; sim.evt.forEach(e => { if (e[0] === 'catch' && sim.t - e[1] < 18) catchOf[e[2]] = e; });
     sim.P.forEach((p, i) => {
       const a = pv.p[i] || cu.p[i], b = cu.p[i], x = lerp(a[0], b[0]), y = lerp(a[1], b[1]);
       const fx = p.vx * dir, face = Math.abs(fx) > 0.8 ? (fx > 0 ? 1 : -1) : (p.side === 'o' ? dir : -dir);
@@ -282,6 +284,9 @@ const LV = {
       it.mine = mineHot;
       if (mineHot) { it.ring = '#ffcf3f'; it.tag = lastName(p.name); if (p.side === 'd' && p.eng) it.lev = p.pairL || 0; }
       if (p.moveT != null && sim.t - p.moveT < 16) it.pop = { win: 'BEAT HIM!', stuck: 'STONEWALLED', bull: 'BULL RUSH' }[p.move];
+      const ce = catchOf[p.id];   // the catch, for a moment after it: he leaps (or lays out), a ring bursts and the grab is named
+      if (ce) { const age = sim.t - ce[1]; it.catchAge = age; it.catchK = ce[4] || (ce[3] >= 2 ? 'contested' : ''); if (it.catchK === 'dive' && age < 10) it.dive = true; else if (age < 12) it.lift = Math.round(Math.sin(Math.PI * age / 12) * (it.catchK === 'contested' ? 14 : 8)); if (CATCH_POP[it.catchK]) { it.pop = CATCH_POP[it.catchK]; it.popCol = '#ffcf3f'; } }
+      if (p.conf) it.conf = true;
       else if (anyHot) { it.ring = TEAM_COL[other(m.me)]; }
       if (tags && tags[p.id]) it.num = tags[p.id];
       items.push(it);

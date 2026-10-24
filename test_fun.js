@@ -56,3 +56,15 @@ ok(lYd > bYd, 'and deep lobs gain more than deep bullets (' + (lYd / n0).toFixed
   ok(d.picks.length >= 2 && d.picks.every(id => E.DEF_CALLS[id]) && /Expect/.test(d.why), 'and on defense, with the reason (' + d.picks.join(', ') + ': ' + d.why + ')');
   ok(E.suggest(Object.assign({}, st, { down: 4, toGo: 6, ballOn: 72 }), R.log, T, R.U, 'a', 'off').id === 'FG', 'on 4th down in range the coach says kick it');
   ok(JSON.stringify(E.suggest(st, R.log, T, R.U, 'a', 'off')) === JSON.stringify(o), 'the same spot gets the same advice'); }
+// contested catches and the confidence they give: a catch over two or more defenders, then a boost for a few snaps
+{ let comp = 0, ct = 0, conf = 0, ex = null;
+  for (let g = 0; g < 20; g++) { const R = E.replay(600 + g, T, {}, ['a', 'b']); R.log.forEach(e => { if (e.anim === 'pass' && (e.ev === 'pass' || e.ev === 'td')) comp++; if (e.contested) ct++; if (e.conf) { conf++; ex = ex || e; } }); }
+  ok(ct / comp > 0.04 && ct / comp < 0.2 && conf / 20 > 0.8 && conf / 20 < 5, 'some catches are contested (' + Math.round(100 * ct / comp) + '% of completions) and give a confidence boost (' + (conf / 20).toFixed(1) + ' a game): "' + (ex && ex.text) + '"');
+  const sq = T.a.squad, wr = sq.wr[0], st = Object.assign({}, st0, { conf: { [wr.i]: { f: 3, b: E.CONF_BOOST, n: wr.n } } }), up = E.onFire(sq, st);
+  ok(up.wr[0].o === Math.min(99, wr.o + E.CONF_BOOST) && up.wr[0].conf === 1, 'a receiver with confidence plays ' + E.CONF_BOOST + ' points better (' + wr.o + ' -> ' + up.wr[0].o + ')');
+  const R = E.replay(605, T, {}, ['a', 'b']); ok(JSON.stringify(E.replay(605, T, {}, ['a', 'b']).log) === JSON.stringify(R.log), 'and replays exactly');
+  const k = {}; for (let i = 0; i < 300; i++) { const o = LV.run({ seed: 900 + i, playNo: i, ballOn: 30, toGo: 10, offPick: ['PASS_M', 'PASS_S', 'PASS_D', 'FLOOD'][i % 4], defPick: Object.keys(E.DEF_CALLS)[i % 14], OS: T.a.squad, DS: T.b.squad, ctlO: false, ctlD: true }, [], []).out; if (o.k === 'pass') { const key = o.ct ? 'contested' : o.ck || 'plain'; k[key] = (k[key] || 0) + 1; } }
+  ok(k.contested > 3 && k.dive > 3 && k.plain > k.contested, 'on the field, catches are told apart: ' + JSON.stringify(k)); }
+// the play has to end: a quarterback who just holds it gets the late rush (zone defenders with nobody to cover come after him)
+{ let tt = 0, sk = 0, n = 120; for (let i = 0; i < n; i++) { const R = LV.run({ seed: 900 + i, playNo: i, ballOn: 30, toGo: 10, offPick: ['PASS_M', 'PASS_S', 'PASS_D', 'FLOOD'][i % 4], defPick: Object.keys(E.DEF_CALLS)[i % 14], OS: T.a.squad, DS: T.b.squad, ctlO: true, ctlD: false }, [LV.enc(1, 0, 0, 0)], []); tt += R.out.t; if (R.out.k === 'sack' || R.out.sack) sk++; }
+  ok(tt / n < 110 && sk / n > 0.8, 'a quarterback who holds the ball is brought down in about ' + (tt / n / LV.TPS).toFixed(1) + ' s (' + Math.round(100 * sk / n) + '% sacks; it was about 11 s)'); }

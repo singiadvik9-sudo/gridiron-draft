@@ -553,3 +553,4 @@ body.gover .fieldhost .callpanel { position: static; max-height: none; max-width
 .tochip { font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #0b1020; background: var(--tc, var(--flag)); padding: 2px 4px; margin-right: 4px; vertical-align: 2px; }
 body.fbusy .fieldhost .callpanel { display: none; }   /* a play is being shown on the field: the call screen comes back after it */
 @media (max-width: 760px) { body.fbusy .fieldhost .callpanel { display: grid; } }
+.confrow { color: #7fe0ff; font-weight: 600; }
