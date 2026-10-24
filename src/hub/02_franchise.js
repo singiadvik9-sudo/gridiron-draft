@@ -8,8 +8,15 @@ const plLabel = (L, id) => {
 };
 const trend = p => { const h = p.h || []; if (!h.length) return ''; const d = p.o - h[h.length - 1]; return d > 0 ? '<i class="up">▲' + d + '</i>' : d < 0 ? '<i class="dn">▼' + (-d) + '</i>' : ''; };
 const gradeCls = o => 'g-' + E.grade(o);
+// potential: the scouts' estimate (~) until he has played a season, then the real thing, with SLEEPER or BUST when the scouts were way off
+function potHTML(p) {
+  const tag = p.was == null ? '' : p.pt - p.was >= 8 ? ' <b class="slp" title="The scouts had him at ' + p.was + '">Sleeper</b>' : p.was - p.pt >= 8 ? ' <i class="bust" title="The scouts had him at ' + p.was + '">Bust</i>' : '';
+  const v = LG.potSeen(p);
+  if (p.vp != null) return v > p.o ? '<span title="Scouting estimate: his real potential shows after his first season">pot ~' + v + '</span>' : '';
+  return (p.a <= 26 && p.pt > p.o ? 'pot ' + p.pt : '') + tag;
+}
 function plRows(L, list, btn) {
-  return list.map(p => '<tr><td class="pos">' + p.p + '</td><td class="nm">' + esc(p.n) + '</td><td>' + p.a + '</td><td><b class="ov ' + gradeCls(p.o) + '">' + p.o + '</b> ' + trend(p) + '</td><td class="pt">' + (p.a <= 26 && p.pt > p.o ? 'pot ' + p.pt : '') + '</td><td class="act">' + (btn ? btn(p) : '') + '</td></tr>').join('');
+  return list.map(p => '<tr><td class="pos">' + p.p + '</td><td class="nm">' + esc(p.n) + '</td><td>' + p.a + '</td><td><b class="ov ' + gradeCls(p.o) + '">' + p.o + '</b> ' + trend(p) + '</td><td class="pt">' + potHTML(p) + '</td><td class="act">' + (btn ? btn(p) : '') + '</td></tr>').join('');
 }
 const tbl = (head, rows) => '<div class="tbl-wrap"><table class="tb"><thead><tr>' + head.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 function teamOvr(L, tid) { const r = LG.teamRating(L, tid); return r; }
@@ -69,6 +76,8 @@ FRV.home = A => {
   if (L.progress && (L.phase === 'draft' || L.phase === 'preseason')) {
     const mine = LG.rosterOf(L, tid).filter(p => (L.progress.up.indexOf(p.i) >= 0 || L.progress.down.indexOf(p.i) >= 0));
     const ret = L.progress.retired.map(id => PL(L, id)).filter(p => p && p.lt === tid);
+    const sl = (L.progress.sleepers || []).map(id => PL(L, id)).filter(p => p && p.t === tid), bu = (L.progress.busts || []).map(id => PL(L, id)).filter(p => p && p.t === tid);
+    if (sl.length || bu.length) h += '<div class="panel"><h3>The scouts were wrong</h3><ul class="news">' + sl.map(p => '<li><b class="slp">Sleeper</b> ' + esc(p.n) + ' (' + p.p + ', ' + p.o + '): potential <b>' + p.pt + '</b>, the scouts said ' + p.was + '. Get him on the field.</li>').join('') + bu.map(p => '<li><i class="bust">Bust</i> ' + esc(p.n) + ' (' + p.p + ', ' + p.o + '): potential ' + p.pt + ', the scouts said ' + p.was + '.</li>').join('') + '</ul></div>';
     if (mine.length) h += '<div class="panel"><h3>Player development</h3><ul class="news">' + mine.map(p => '<li>' + esc(p.n) + ' (' + p.p + ') ' + (p.h && p.h.length ? (p.h[p.h.length - 1] + ' → <b>' + p.o + '</b>') : p.o) + ' ' + trend(p) + '</li>').join('') + '</ul></div>';
   }
   h += '<div class="panel"><h3>League news</h3>' + (L.news.length ? '<ul class="news">' + L.news.slice(0, 8).map(n => '<li><span>' + n.s + '</span> ' + esc(n.t) + '</li>').join('') + '</ul>' : '<p class="hint">Nothing yet.</p>') + '</div>';
@@ -286,7 +295,7 @@ FRV.draft = A => {
   const q = FR.dq.toLowerCase(), mineTurn = on === tid && tid >= 0;
   let pool = d.pool.map(id => PL(L, id)).filter(p => p && (FR.dpos === 'ALL' || p.p === FR.dpos) && (!q || p.n.toLowerCase().indexOf(q) >= 0));
   const units = d.units ? d.pool.filter(id => LG.isUnitId(id)) : [], nd = d.units && tid >= 0 ? LG.unitNeeds(L, tid) : null;
-  pool.sort((a, b) => (b.o + (d.kind === 'rookie' ? b.pt * 0.5 : 0)) - (a.o + (d.kind === 'rookie' ? a.pt * 0.5 : 0)));
+  pool.sort((a, b) => (b.o + (d.kind === 'rookie' ? LG.potSeen(b) * 0.5 : 0)) - (a.o + (d.kind === 'rookie' ? LG.potSeen(a) * 0.5 : 0)));   // by what the scouts see
   pool = pool.slice(0, 50);
   const auto = d.auto && (d.auto[tid] === true || d.auto.all === true);
   const myPicks = d.picks.filter(x => x.t === tid && !LG.isUnitId(x.p)).map(x => PL(L, x.p)).filter(Boolean), myUnits = d.picks.filter(x => x.t === tid && LG.isUnitId(x.p)).map(x => LG.draftLabel(L, x.p));
