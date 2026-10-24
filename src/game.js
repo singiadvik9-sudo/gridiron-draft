@@ -198,7 +198,7 @@ const Field = {
   clampCam(x) { const half = this.W / this.YPP / 2; return Math.max(-10 + half, Math.min(110 - half, x)); },
   // big moments: the field shakes, and a touchdown throws confetti in the scoring team's colour (fx is drawn by draw / drawOverlay)
   celebrate(text, color) {
-    const big = /TOUCHDOWN|INTERCEPTED|FUMBLE|SAFETY|ON FIRE/.test(text), hit = /SACK|BIG HIT/.test(text);
+    const big = /TOUCHDOWN|INTERCEPTED|FUMBLE|SAFETY|ON FIRE/.test(text), hit = /SACK|BIG HIT|CONTESTED/.test(text);
     if (!big && !hit) return;
     const parts = /TOUCHDOWN|ON FIRE/.test(text) ? Array.from({ length: 46 }, (_, i) => ({ x: Math.random() * this.W, y: -10 - Math.random() * 120, vx: (Math.random() - 0.5) * 60, vy: 90 + Math.random() * 140, c: i % 3 ? color : '#ffcf3f', s: 3 + Math.random() * 4, fire: /ON FIRE/.test(text) })) : [];
     this.fx = { t0: performance.now(), shake: big ? 9 : 6, parts };
@@ -283,13 +283,22 @@ const Field = {
         x.strokeStyle = p.ring; x.lineWidth = p.tag ? 3 : 2; x.beginPath(); x.ellipse(px, p.sy + 9, 15 + pulse * 3, 6.5 + pulse * 1.5, 0, 0, Math.PI * 2); x.stroke();
         if (p.tag) { x.globalAlpha = 0.18 + 0.12 * pulse; x.fillStyle = p.ring; x.beginPath(); x.ellipse(px, p.sy + 9, 15 + pulse * 3, 6.5 + pulse * 1.5, 0, 0, Math.PI * 2); x.fill(); x.globalAlpha = 1; }
       }
-      const face = p.face != null ? p.face : (p.team === sc.poss ? dir : -dir), spx = Math.round(p.sy) - 21;
+      const face = p.face != null ? p.face : (p.team === sc.poss ? dir : -dir), spx = Math.round(p.sy) - 21 - (p.lift || 0);
+      if (p.catchAge != null && p.catchAge < 14) {   // the catch: a ring bursting out from him
+        const k = p.catchAge / 14; x.strokeStyle = p.catchK === 'contested' ? '#ffcf3f' : '#efe9d6'; x.globalAlpha = 1 - k; x.lineWidth = 3;
+        x.beginPath(); x.ellipse(px, p.sy + 9, 10 + k * 26, 4 + k * 10, 0, 0, Math.PI * 2); x.stroke(); x.globalAlpha = 1;
+      }
+      if (p.conf) {   // confidence after a tough catch: sparks circling him
+        const t = performance.now() / 260; x.fillStyle = '#7fe0ff';
+        for (let k = 0; k < 3; k++) { const a = t + k * 2.1; x.fillRect(Math.round(px + Math.cos(a) * 13) - 2, Math.round(spx + 12 + Math.sin(a) * 6) - 2, 4, 4); }
+      }
       if (p.fire) {   // on fire: flickering flames behind him
         const t = performance.now() / 90;
         for (let k = 0; k < 6; k++) { const fh = 10 + 8 * Math.abs(Math.sin(t + k * 1.7)); x.fillStyle = k % 2 ? '#ff7a1a' : '#ffcf3f'; x.globalAlpha = 0.75; x.fillRect(px - 12 + k * 4, spx + 22 - fh, 4, fh); }
         x.globalAlpha = 1;
       }
-      if (face < 0) { x.save(); x.translate(px, 0); x.scale(-1, 1); x.drawImage(getSprite(p.key), -14, spx, 28, 28); x.restore(); }
+      if (p.dive) { x.save(); x.translate(px, spx + 24); x.rotate(face * 1.2); x.scale(face < 0 ? -1 : 1, 1); x.drawImage(getSprite(p.key), -14, -24, 28, 28); x.restore(); }   // laid out: a diving catch or tackle
+      else if (face < 0) { x.save(); x.translate(px, 0); x.scale(-1, 1); x.drawImage(getSprite(p.key), -14, spx, 28, 28); x.restore(); }
       else x.drawImage(getSprite(p.key), px - 14, spx, 28, 28);
       if (p.ring && p.tag) {
         const bob = Math.round(Math.sin(performance.now() / 200) * 2);
@@ -304,7 +313,7 @@ const Field = {
         x.fillStyle = f > 0.25 ? '#3fdc6a' : f > -0.2 ? '#ffcf3f' : '#ff5a4a'; x.fillRect(bx + w / 2, by, Math.round(f * w / 2), 4);
         x.fillStyle = '#efe9d6'; x.fillRect(bx + w / 2, by - 1, 1, 6);
       }
-      if (p.pop) { x.font = '12px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020'; x.strokeText(p.pop, px, spx - 34); x.fillStyle = p.pop === 'STONEWALLED' ? '#ff7a6a' : '#3fdc6a'; x.fillText(p.pop, px, spx - 34); }
+      if (p.pop) { x.font = '12px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020'; x.strokeText(p.pop, px, spx - 34); x.fillStyle = p.popCol || (p.pop === 'STONEWALLED' ? '#ff7a6a' : '#3fdc6a'); x.fillText(p.pop, px, spx - 34); }
       if (p.num) {
         x.fillStyle = '#ffcf3f'; x.strokeStyle = '#0b1020'; x.lineWidth = 2; x.fillRect(px - 10, spx - 20, 20, 18); x.strokeRect(px - 10, spx - 20, 20, 18);
         x.fillStyle = '#10152a'; x.font = '15px Silkscreen, monospace'; x.textAlign = 'center'; x.fillText(p.num, px, spx - 5);
@@ -411,7 +420,7 @@ const Field = {
     const fl = FL[entry.ev] || (entry.firstDown ? ['FIRST DOWN', b.poss] : null);
     const after = { poss: entry.after.poss, ballOn: entry.after.ballOn, down: entry.after.down, toGo: entry.after.toGo, teams };
     const turnover = entry.after.poss !== b.poss && /^(int|fumble|downs)$/.test(entry.ev);   // these get the turnover band and a longer look
-    const t0 = performance.now(), hold = turnover ? 1500 : fl ? 650 : 110, settle = 220;
+    const t0 = performance.now(), hold = turnover ? 1500 : fl || entry.contested || entry.conf ? 650 : 110, settle = 220;
     let finished = false;
     const finish = () => { if (finished) return; finished = true; this.flash = null; this.fxFire = 0; this.anim = null; this.set(after); done(); };
     const camStart = this.cam;
@@ -431,6 +440,8 @@ const Field = {
           if (turnover) { this.flash.turn = (teams[entry.after.poss] || {}).name || ''; this.flash.sub = turnoverLine(entry); }
           this.celebrate(fl[0], this.flash.color);
         }
+        if (entry.contested && !this.flash) { this.flash = { text: 'CONTESTED CATCH', color: '#ffcf3f', sub: 'OVER ' + (entry.contested >= 3 ? 'THREE' : 'TWO') + ' DEFENDERS' + (entry.conf ? ' · +' + (entry.contested >= 3 ? E.CONF_BOOST + 2 : E.CONF_BOOST) + ' CONFIDENCE' : '') }; this.celebrate('CONTESTED', '#ffcf3f'); }
+        else if (entry.conf && this.flash && !this.flash.sub) this.flash.sub = entry.conf.toUpperCase() + ' IS FEELING IT';
         if (entry.fire && !this.fxFire) { this.fxFire = 1; if (!fl) this.flash = { text: 'ON FIRE', color: '#ff7a1a' }; this.celebrate('ON FIRE', '#ff7a1a'); }
       } else if (el < dur + hold + settle) {
         if (this.scene !== after) { this.scene = after; this.ballX = null; this.flash = null; this.cam0 = this.cam; }
@@ -1101,9 +1112,10 @@ function coachRowHTML(G, role) {
 function coachCall() { const G = S.G; if (!G || G.state.over) return; const role = S.me === G.state.poss ? 'off' : 'def', r = coachFor(G, role); if (r && r.id && S.mine[G.state.playNo] == null) submitCall(r.id); }
 // who is on fire right now (st.fire[id] = { f: snaps left, n: name }): a line over the calls
 function fireRowHTML(st, role) {
-  const hot = Object.values(st.fire || {}).filter(f => f.f > 0 && f.n);
-  if (!hot.length) return '';
-  return '<div class="ctlrow firerow"><span>🔥 ' + hot.map(f => esc(f.n) + ' (' + f.f + ' snaps)').join(', ') + ' on fire: +' + E.FIRE_BOOST + ' rating until he is stopped.' + '</span></div>';
+  const hot = Object.values(st.fire || {}).filter(f => f.f > 0 && f.n), cf = Object.values(st.conf || {}).filter(c => c.f > 0 && c.n);
+  const confRow = cf.length ? '<div class="ctlrow confrow"><span>⚡ ' + cf.map(c => esc(c.n) + ' +' + c.b + ' (' + c.f + ' snaps)').join(', ') + ': confidence after a tough catch.</span></div>' : '';
+  if (!hot.length) return confRow;
+  return '<div class="ctlrow firerow"><span>🔥 ' + hot.map(f => esc(f.n) + ' (' + f.f + ' snaps)').join(', ') + ' on fire: +' + E.FIRE_BOOST + ' rating until he is stopped.' + '</span></div>' + confRow;
 }
 // hurry-up: run the same call again (no huddle); the button shows it, R does it
 function lastCallFor(G) {

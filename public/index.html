@@ -558,6 +558,7 @@ body.gover .fieldhost .callpanel { position: static; max-height: none; max-width
 .tochip { font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #0b1020; background: var(--tc, var(--flag)); padding: 2px 4px; margin-right: 4px; vertical-align: 2px; }
 body.fbusy .fieldhost .callpanel { display: none; }   /* a play is being shown on the field: the call screen comes back after it */
 @media (max-width: 760px) { body.fbusy .fieldhost .callpanel { display: grid; } }
+.confrow { color: #7fe0ff; font-weight: 600; }
 
 </style>
 <div class="wrap">
@@ -1137,6 +1138,8 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
              : y >= 15 ? who + ' breaks free for ' + yds(y) + '.' : lv.who === 'QB' ? who + ' scrambles for ' + yds(y) + '.' : who + ' runs for ' + yds(y) + '.';
       }
       if (lv.fum && !lv.td) { entry.fum = 'kept'; entry.defId = lv.fum; desc += ' The ball comes loose but ' + who + ' falls on it.'; }
+      if (passed && lv.ct >= 2) { entry.contested = lv.ct; desc += ' ' + who + ' makes the catch over ' + (lv.ct >= 3 ? 'three' : 'two') + ' defenders!'; }
+      else if (passed && lv.ck) { entry.catchK = lv.ck; desc += { dive: ' What a diving catch by ' + who + '!', toe: ' ' + who + ' gets both feet down on the sideline!', basket: ' ' + who + ' tracks it over his shoulder.' }[lv.ck] || ''; }
       entry.text = advance(y, desc);
       if (entry.ev === 'play') entry.ev = passed ? 'pass' : 'run';
     }
@@ -1238,6 +1241,9 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
         entry.text = qb + ' finds ' + rec + ' for ' + yds(y) + ', but ' + nm(d, wid) + ' rips it out and ' + teams[d].name + ' recover.';
       } else {
         if (cf) { entry.fum = 'kept'; desc += ' The ball comes loose but ' + rec + ' falls on it.'; }
+        // a contested catch (the defense was all over him): drawn from a stream of its own, so every other result stays as it was
+        const CR = mulberry32(hashStr(seed + ':ct:' + st.playNo));
+        if (y > 0 && CR() < clamp(0.08 + (cov * eff - O) * 0.005, 0.03, 0.22)) { entry.contested = CR() < 0.25 ? 3 : 2; desc += ' ' + rec + ' makes the catch over ' + (entry.contested === 3 ? 'three' : 'two') + ' defenders!'; }
         entry.text = advance(y, desc);
         if (entry.ev === 'play') entry.ev = 'pass';
       }
@@ -1365,9 +1371,16 @@ function personnel(sq, st, pick, seed, side) {
    team's next FIRE_SNAPS offensive snaps, unless the defense cools him off first (a pass at him falls incomplete or is picked, or he is
    stopped for no gain). st.fire[id] = { s: touches in a row, f: snaps left on fire, n: name }. Part of the game state, like fatigue. */
 const FIRE_BOOST = 8, FIRE_SNAPS = 6, FIRE_YDS = 15;
+// confidence: a catch over two or more defenders (a contested catch) gives the receiver CONF_BOOST (+2 over three) for his next
+// CONF_SNAPS snaps. st.conf[id] = { f: snaps left, b: boost, n: name }. Part of the game state, like fire, and it stacks with it.
+const CONF_BOOST = 5, CONF_SNAPS = 5;
 function onFire(sq, st) {
-  const F = st.fire; if (!F) return sq;
-  const hot = p => p && F[p.i] && F[p.i].f > 0 ? Object.assign({}, p, { o: Math.min(99, p.o + FIRE_BOOST), fire: 1 }) : p;
+  const F = st.fire || {}, C = st.conf || {}; if (!st.fire && !st.conf) return sq;
+  const hot = p => {
+    if (!p) return p;
+    const f = F[p.i] && F[p.i].f > 0, c = C[p.i] && C[p.i].f > 0 ? C[p.i].b : 0;
+    return f || c ? Object.assign({}, p, { o: Math.min(99, p.o + (f ? FIRE_BOOST : 0) + c) }, f ? { fire: 1 } : {}, c ? { conf: 1 } : {}) : p;
+  };
   const qb = hot(sq.qb), hb = hot(sq.hb), w0 = hot(sq.wr[0]), w1 = hot(sq.wr[1]), te = hot(sq.te);
   return qb === sq.qb && hb === sq.hb && w0 === sq.wr[0] && w1 === sq.wr[1] && te === sq.te ? sq : Object.assign({}, sq, { qb, hb, wr: [w0, w1], te });
 }
@@ -1393,6 +1406,18 @@ function fireAfter(st, nst, e, teams) {
   }
   Object.keys(fire).forEach(id => { if (!fire[id].s && !(fire[id].f > 0)) delete fire[id]; });
   if (Object.keys(fire).length || st.fire) nst.fire = fire;
+}
+function confAfter(st, nst, e, teams) {
+  const oc = OFF[e.offPick];
+  if (!oc || (oc.kind !== 'run' && oc.kind !== 'pass')) { if (st.conf) nst.conf = st.conf; return; }
+  const conf = Object.assign({}, st.conf || {}), T0 = teams[e.off];
+  ['QB', 'HB', 'WR1', 'WR2', 'TE'].forEach(r => { const id = idOf(T0, r), c = conf[id]; if (c) { if (c.f > 1) conf[id] = Object.assign({}, c, { f: c.f - 1 }); else delete conf[id]; } });
+  const caught = e.recId && e.anim === 'pass' && (e.ev === 'pass' || e.ev === 'td' || e.ev === 'downs');
+  if (caught && e.contested >= 2) {
+    const id = idOf(T0, e.recId), nm = nameOf(T0, e.recId), b = CONF_BOOST + (e.contested >= 3 ? 2 : 0);
+    conf[id] = { f: CONF_SNAPS, b, n: nm }; e.conf = nm; e.text += ' ' + nm + ' is feeling it after that catch (+' + b + ').';
+  }
+  if (Object.keys(conf).length || st.conf) nst.conf = conf;
 }
 // the teams for one snap: the offense with this snap's personnel (and anyone on fire); U for the offense worked out again when it changed
 function snapTeams(teams, U, st, pick, seed, cache) {
@@ -1443,6 +1468,7 @@ function replay(seed, teams, moves, cpuSides) {
     if (sn.on) res.entry.on = sn.on;   // who played the snap: [id, name] per offensive spot
     if (teams.a.squad.rot || teams.b.squad.rot) fatigueAfter(st, res.state, sn, teams, legalOff(st, om.pick));
     fireAfter(st, res.state, res.entry, sn.teams);
+    confAfter(st, res.state, res.entry, sn.teams);
     st = res.state; log.push(res.entry);
   }
   return { state: st, log, U, wait };
@@ -1689,7 +1715,7 @@ function suggest(st, log, teams, U, me, role) {
 
 const E = {
   DATA: D, QLEN, CAP, noDef, TEAMS, PLAYERS, OLU, DFU, SLOTS, GROUPS, OFF, OFF_CATS, DEF_CALLS, DEF_CATS, MATCH, matchup, defOptions,
-  KICK, KRS, PRS, STU, stSquad, stFrom, personnel, snapTeams, energy, FAT_DROP, onFire, FIRE_BOOST, FIRE_SNAPS, RET_FROM, normRoster, returnerCands, bestReturner, withReturner, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
+  KICK, KRS, PRS, STU, stSquad, stFrom, personnel, snapTeams, energy, FAT_DROP, onFire, FIRE_BOOST, FIRE_SNAPS, CONF_BOOST, CONF_SNAPS, RET_FROM, normRoster, returnerCands, bestReturner, withReturner, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
   drawOptions, autoDraft, fgDist, legalOff, offOptions, initState, clockInfo,
   KICKS, cpuKick, boxScore, stepGame, replay, lastCtl, retInfo, cpuOffense, cpuDefense, suggest, COACH, cleanMoves, cleanTrace, cpuTO
 };
@@ -1777,7 +1803,7 @@ function vmaxOf(grp, o, s) {
 }
 const ACC = 16, ACC_HUMAN = 25;
 // pass protection tuning: bias per tick (base, plus extra while the line is still setting up), help per free lineman, skill weight, noise, how hard a losing block gets driven back, when a block is beaten
-const PRO = { flyDB: 0.19, flyLB: 0.12, flyDL: 0.05, flyPick: 0.10, fum: 0.042, fumSack: 2.2, ball: 4, blitzDelay: 6, blitzEdge: 0.006, base: 0.0038, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82, latLoose: 0.3, swim: 0.2, swimLev: 0.9, bull: 0.5, bullCool: 8, getoff: 0.2, getoffT: 6, burst: 14 };
+const PRO = { flyDB: 0.19, flyLB: 0.12, flyDL: 0.05, flyPick: 0.10, fum: 0.042, fumSack: 2.2, ball: 4, blitzDelay: 6, blitzEdge: 0.006, base: 0.0038, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82, latLoose: 0.3, lateT: 46, lateT2: 80, swim: 0.2, swimLev: 0.9, bull: 0.5, bullCool: 8, getoff: 0.2, getoffT: 6, burst: 14 };
 // trick plays on the field
 function pitch(sim, from, to) {
   const B = sim.ball, f = sim.by[from], r = sim.by[to];
@@ -1842,7 +1868,7 @@ function create(ctx) {
   add('WR1', 'o', 'WR', OS.wr[0].n, OS.wr[0].o, OS.wr[0].s, -0.8, -5.4);
   add('WR2', 'o', 'WR', OS.wr[1].n, OS.wr[1].o, OS.wr[1].s, -0.8, 5.4);
   add('TE', 'o', 'TE', OS.te.n, OS.te.o, OS.te.s, -0.8, 3.4);
-  [['QB', OS.qb], ['HB', OS.hb], ['WR1', OS.wr[0]], ['WR2', OS.wr[1]], ['TE', OS.te]].forEach(([id, q]) => { if (q.fire) sim.by[id].fire = 1; });   // on fire (drawn with flames)
+  [['QB', OS.qb], ['HB', OS.hb], ['WR1', OS.wr[0]], ['WR2', OS.wr[1]], ['TE', OS.te]].forEach(([id, q]) => { if (q.fire) sim.by[id].fire = 1; if (q.conf) sim.by[id].conf = 1; });   // on fire (drawn with flames)
   OS.ol.p.forEach((p, i) => add('OL' + i, 'o', 'OL', p[0], p[1], 70, -0.8, (i - 2) * 1.1));
   const T = DS.df.sch === '43' ? T43 : T34;
   DS.df.p.forEach((p, i) => {
@@ -2365,6 +2391,12 @@ function thinkDef(sim, p, carrier, t) {
     steer(p, p.x, p.y, 0.2); return;
   }
   if (p.mode === 'rush') { if (p.grp !== 'DL' && sim.t < PRO.blitzDelay) { steer(p, p.x, p.y, 0.3); return; } rushAt(sim, p, qb); return; }
+  // the quarterback has held it a long time: a zone defender with nobody left to cover comes after him (later, all of them but the
+  // deep safety), so the play has to end
+  if (sim.kind === 'pass' && B.car === sim.passer && !sim.thrown && t >= PRO.lateT && p.mode === 'zone' && p.pos !== 'FS' && !(sim.human.d && sim.ctlId.d === p.id)) {
+    const busy = sim.O.some(r => r.mode === 'route' && dist(r, p.zone) < p.zone.r + 2.5);
+    if (!busy || t >= PRO.lateT2) { p.mode = 'rush'; sim.evt.push(['late', t, p.id]); rushAt(sim, p, sim.by[sim.passer]); return; }
+  }
   if (p.mode === 'man') {
     const r = sim.by[p.man]; if (!r) return;
     const h = sim.hist[r.id] || [], lag = p.lag, i = max(0, h.length / 2 - 1 - lag);
@@ -2551,7 +2583,7 @@ function retOut(sim, o) {
   if (o.by && !r.by) r.by = o.by;
   return r;
 }
-function finish(sim, out) { if (sim.kind === 'ret') out = retOut(sim, out); else if (sim.fumKept && !out.fum && out.k !== 'fumble' && out.k !== 'inc') out.fum = sim.fumKept; out.t = sim.t; sim.out = out; sim.ball.st = 'dead'; sim.ball.car = null; return out; }
+function finish(sim, out) { if (sim.catchInfo && out.k === 'pass' && out.who === sim.catchInfo.id) { if (sim.catchInfo.n >= 2) out.ct = sim.catchInfo.n; else if (sim.catchInfo.k) out.ck = sim.catchInfo.k; } if (sim.kind === 'ret') out = retOut(sim, out); else if (sim.fumKept && !out.fum && out.k !== 'fumble' && out.k !== 'inc') out.fum = sim.fumKept; out.t = sim.t; sim.out = out; sim.ball.st = 'dead'; sim.ball.car = null; return out; }
 
 // a defender whose hands are in the way of a throw gets a chance at it on the way to the receiver: he may pick it off or knock it down
 function contestFlight(sim) {
@@ -2622,7 +2654,11 @@ function landBall(sim) {
   if (w.p.side === 'o') {
     const drop = clamp(0.07 - (w.p.rat - 55) * 0.0018, 0.01, 0.12);
     if (marg < 5 && R() < drop) return finish(sim, { k: 'inc', x: a.ex, tgt: sim.byTarget, drop: true });
-    B.car = w.p.id; B.st = 'carried'; sim.catchT = sim.t; sim.ctlId.o = w.p.id; sim.catchAt = w.p.x; w.p.seek = null; w.p.stumble = 3; w.p.imm = 4; sim.evt.push(['catch', sim.t, w.p.id]); autoSwitch(sim, w.p);
+    // how he caught it: over defenders (contested), at full stretch (dive), on the sideline (toe), over his shoulder on a lob (basket)
+    const near = sim.D.filter(q => q.hold === 0 && dist(q, w.p) < 1.5).length, reach = sqrt((w.p.x - a.ex) * (w.p.x - a.ex) + (w.p.y - a.ey) * (w.p.y - a.ey));
+    const ck = near >= 2 ? 'contested' : reach > 1.45 ? 'dive' : abs(a.ey) > YB - 0.8 ? 'toe' : a.lob ? 'basket' : '';
+    sim.catchInfo = { id: w.p.id, n: near, k: ck };
+    B.car = w.p.id; B.st = 'carried'; sim.catchT = sim.t; sim.ctlId.o = w.p.id; sim.catchAt = w.p.x; w.p.seek = null; w.p.stumble = ck === 'dive' ? 7 : 3; w.p.imm = 4; sim.evt.push(['catch', sim.t, w.p.id, near, ck]); autoSwitch(sim, w.p);
     return;
   }
   // defense won the ball
@@ -4516,7 +4552,7 @@ const Field = {
   clampCam(x) { const half = this.W / this.YPP / 2; return Math.max(-10 + half, Math.min(110 - half, x)); },
   // big moments: the field shakes, and a touchdown throws confetti in the scoring team's colour (fx is drawn by draw / drawOverlay)
   celebrate(text, color) {
-    const big = /TOUCHDOWN|INTERCEPTED|FUMBLE|SAFETY|ON FIRE/.test(text), hit = /SACK|BIG HIT/.test(text);
+    const big = /TOUCHDOWN|INTERCEPTED|FUMBLE|SAFETY|ON FIRE/.test(text), hit = /SACK|BIG HIT|CONTESTED/.test(text);
     if (!big && !hit) return;
     const parts = /TOUCHDOWN|ON FIRE/.test(text) ? Array.from({ length: 46 }, (_, i) => ({ x: Math.random() * this.W, y: -10 - Math.random() * 120, vx: (Math.random() - 0.5) * 60, vy: 90 + Math.random() * 140, c: i % 3 ? color : '#ffcf3f', s: 3 + Math.random() * 4, fire: /ON FIRE/.test(text) })) : [];
     this.fx = { t0: performance.now(), shake: big ? 9 : 6, parts };
@@ -4601,13 +4637,22 @@ const Field = {
         x.strokeStyle = p.ring; x.lineWidth = p.tag ? 3 : 2; x.beginPath(); x.ellipse(px, p.sy + 9, 15 + pulse * 3, 6.5 + pulse * 1.5, 0, 0, Math.PI * 2); x.stroke();
         if (p.tag) { x.globalAlpha = 0.18 + 0.12 * pulse; x.fillStyle = p.ring; x.beginPath(); x.ellipse(px, p.sy + 9, 15 + pulse * 3, 6.5 + pulse * 1.5, 0, 0, Math.PI * 2); x.fill(); x.globalAlpha = 1; }
       }
-      const face = p.face != null ? p.face : (p.team === sc.poss ? dir : -dir), spx = Math.round(p.sy) - 21;
+      const face = p.face != null ? p.face : (p.team === sc.poss ? dir : -dir), spx = Math.round(p.sy) - 21 - (p.lift || 0);
+      if (p.catchAge != null && p.catchAge < 14) {   // the catch: a ring bursting out from him
+        const k = p.catchAge / 14; x.strokeStyle = p.catchK === 'contested' ? '#ffcf3f' : '#efe9d6'; x.globalAlpha = 1 - k; x.lineWidth = 3;
+        x.beginPath(); x.ellipse(px, p.sy + 9, 10 + k * 26, 4 + k * 10, 0, 0, Math.PI * 2); x.stroke(); x.globalAlpha = 1;
+      }
+      if (p.conf) {   // confidence after a tough catch: sparks circling him
+        const t = performance.now() / 260; x.fillStyle = '#7fe0ff';
+        for (let k = 0; k < 3; k++) { const a = t + k * 2.1; x.fillRect(Math.round(px + Math.cos(a) * 13) - 2, Math.round(spx + 12 + Math.sin(a) * 6) - 2, 4, 4); }
+      }
       if (p.fire) {   // on fire: flickering flames behind him
         const t = performance.now() / 90;
         for (let k = 0; k < 6; k++) { const fh = 10 + 8 * Math.abs(Math.sin(t + k * 1.7)); x.fillStyle = k % 2 ? '#ff7a1a' : '#ffcf3f'; x.globalAlpha = 0.75; x.fillRect(px - 12 + k * 4, spx + 22 - fh, 4, fh); }
         x.globalAlpha = 1;
       }
-      if (face < 0) { x.save(); x.translate(px, 0); x.scale(-1, 1); x.drawImage(getSprite(p.key), -14, spx, 28, 28); x.restore(); }
+      if (p.dive) { x.save(); x.translate(px, spx + 24); x.rotate(face * 1.2); x.scale(face < 0 ? -1 : 1, 1); x.drawImage(getSprite(p.key), -14, -24, 28, 28); x.restore(); }   // laid out: a diving catch or tackle
+      else if (face < 0) { x.save(); x.translate(px, 0); x.scale(-1, 1); x.drawImage(getSprite(p.key), -14, spx, 28, 28); x.restore(); }
       else x.drawImage(getSprite(p.key), px - 14, spx, 28, 28);
       if (p.ring && p.tag) {
         const bob = Math.round(Math.sin(performance.now() / 200) * 2);
@@ -4622,7 +4667,7 @@ const Field = {
         x.fillStyle = f > 0.25 ? '#3fdc6a' : f > -0.2 ? '#ffcf3f' : '#ff5a4a'; x.fillRect(bx + w / 2, by, Math.round(f * w / 2), 4);
         x.fillStyle = '#efe9d6'; x.fillRect(bx + w / 2, by - 1, 1, 6);
       }
-      if (p.pop) { x.font = '12px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020'; x.strokeText(p.pop, px, spx - 34); x.fillStyle = p.pop === 'STONEWALLED' ? '#ff7a6a' : '#3fdc6a'; x.fillText(p.pop, px, spx - 34); }
+      if (p.pop) { x.font = '12px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020'; x.strokeText(p.pop, px, spx - 34); x.fillStyle = p.popCol || (p.pop === 'STONEWALLED' ? '#ff7a6a' : '#3fdc6a'); x.fillText(p.pop, px, spx - 34); }
       if (p.num) {
         x.fillStyle = '#ffcf3f'; x.strokeStyle = '#0b1020'; x.lineWidth = 2; x.fillRect(px - 10, spx - 20, 20, 18); x.strokeRect(px - 10, spx - 20, 20, 18);
         x.fillStyle = '#10152a'; x.font = '15px Silkscreen, monospace'; x.textAlign = 'center'; x.fillText(p.num, px, spx - 5);
@@ -4729,7 +4774,7 @@ const Field = {
     const fl = FL[entry.ev] || (entry.firstDown ? ['FIRST DOWN', b.poss] : null);
     const after = { poss: entry.after.poss, ballOn: entry.after.ballOn, down: entry.after.down, toGo: entry.after.toGo, teams };
     const turnover = entry.after.poss !== b.poss && /^(int|fumble|downs)$/.test(entry.ev);   // these get the turnover band and a longer look
-    const t0 = performance.now(), hold = turnover ? 1500 : fl ? 650 : 110, settle = 220;
+    const t0 = performance.now(), hold = turnover ? 1500 : fl || entry.contested || entry.conf ? 650 : 110, settle = 220;
     let finished = false;
     const finish = () => { if (finished) return; finished = true; this.flash = null; this.fxFire = 0; this.anim = null; this.set(after); done(); };
     const camStart = this.cam;
@@ -4749,6 +4794,8 @@ const Field = {
           if (turnover) { this.flash.turn = (teams[entry.after.poss] || {}).name || ''; this.flash.sub = turnoverLine(entry); }
           this.celebrate(fl[0], this.flash.color);
         }
+        if (entry.contested && !this.flash) { this.flash = { text: 'CONTESTED CATCH', color: '#ffcf3f', sub: 'OVER ' + (entry.contested >= 3 ? 'THREE' : 'TWO') + ' DEFENDERS' + (entry.conf ? ' · +' + (entry.contested >= 3 ? E.CONF_BOOST + 2 : E.CONF_BOOST) + ' CONFIDENCE' : '') }; this.celebrate('CONTESTED', '#ffcf3f'); }
+        else if (entry.conf && this.flash && !this.flash.sub) this.flash.sub = entry.conf.toUpperCase() + ' IS FEELING IT';
         if (entry.fire && !this.fxFire) { this.fxFire = 1; if (!fl) this.flash = { text: 'ON FIRE', color: '#ff7a1a' }; this.celebrate('ON FIRE', '#ff7a1a'); }
       } else if (el < dur + hold + settle) {
         if (this.scene !== after) { this.scene = after; this.ballX = null; this.flash = null; this.cam0 = this.cam; }
@@ -5419,9 +5466,10 @@ function coachRowHTML(G, role) {
 function coachCall() { const G = S.G; if (!G || G.state.over) return; const role = S.me === G.state.poss ? 'off' : 'def', r = coachFor(G, role); if (r && r.id && S.mine[G.state.playNo] == null) submitCall(r.id); }
 // who is on fire right now (st.fire[id] = { f: snaps left, n: name }): a line over the calls
 function fireRowHTML(st, role) {
-  const hot = Object.values(st.fire || {}).filter(f => f.f > 0 && f.n);
-  if (!hot.length) return '';
-  return '<div class="ctlrow firerow"><span>🔥 ' + hot.map(f => esc(f.n) + ' (' + f.f + ' snaps)').join(', ') + ' on fire: +' + E.FIRE_BOOST + ' rating until he is stopped.' + '</span></div>';
+  const hot = Object.values(st.fire || {}).filter(f => f.f > 0 && f.n), cf = Object.values(st.conf || {}).filter(c => c.f > 0 && c.n);
+  const confRow = cf.length ? '<div class="ctlrow confrow"><span>⚡ ' + cf.map(c => esc(c.n) + ' +' + c.b + ' (' + c.f + ' snaps)').join(', ') + ': confidence after a tough catch.</span></div>' : '';
+  if (!hot.length) return confRow;
+  return '<div class="ctlrow firerow"><span>🔥 ' + hot.map(f => esc(f.n) + ' (' + f.f + ' snaps)').join(', ') + ' on fire: +' + E.FIRE_BOOST + ' rating until he is stopped.' + '</span></div>' + confRow;
 }
 // hurry-up: run the same call again (no huddle); the button shows it, R does it
 function lastCallFor(G) {
@@ -5462,6 +5510,7 @@ const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r' }
 const lastName = n => { const w = String(n || '').trim().split(/\s+/); while (w.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(w[w.length - 1])) w.pop(); return w[w.length - 1] || ''; };   // (not "II" for a Jr. or a II)
 const K = t => '<kbd>' + t + '</kbd>';
 // the left hand rests on the home row: A S D F throw to the four tagged targets (1-4 still work), Shift with one lobs it
+const CATCH_POP = { contested: 'CONTESTED CATCH!', dive: 'DIVING GRAB!', toe: 'TOE TAP!', basket: 'OVER THE SHOULDER!' };
 const THROWKEY = { a: 1, s: 2, d: 3, f: 4 }, THROWLAB = ['A', 'S', 'D', 'F'];
 const LVLAB = { QB: 'quarterback', HB: 'running back', WR1: 'receiver', WR2: 'receiver', TE: 'tight end' };
 
@@ -5726,6 +5775,7 @@ const LV = {
     const hot = []; if (m.ctl[m.off] && sim.human.o) hot.push([m.off, sim.ctlId.o]); if (m.ctl[m.def] && sim.human.d) hot.push([m.def, sim.ctlId.d]);
     const passer = sim.passer || 'QB';   // (the back on a halfback pass)
     const tags = (m.me === m.off && m.myCtl && sim.human.o && sim.ball.car === passer && !sim.thrown && sim.kind === 'pass') ? Object.assign({ WR1: 'A', WR2: 'S', TE: 'D', HB: 'F' }, { [passer]: undefined }) : null;
+    const catchOf = {}; sim.evt.forEach(e => { if (e[0] === 'catch' && sim.t - e[1] < 18) catchOf[e[2]] = e; });
     sim.P.forEach((p, i) => {
       const a = pv.p[i] || cu.p[i], b = cu.p[i], x = lerp(a[0], b[0]), y = lerp(a[1], b[1]);
       const fx = p.vx * dir, face = Math.abs(fx) > 0.8 ? (fx > 0 ? 1 : -1) : (p.side === 'o' ? dir : -dir);
@@ -5736,6 +5786,9 @@ const LV = {
       it.mine = mineHot;
       if (mineHot) { it.ring = '#ffcf3f'; it.tag = lastName(p.name); if (p.side === 'd' && p.eng) it.lev = p.pairL || 0; }
       if (p.moveT != null && sim.t - p.moveT < 16) it.pop = { win: 'BEAT HIM!', stuck: 'STONEWALLED', bull: 'BULL RUSH' }[p.move];
+      const ce = catchOf[p.id];   // the catch, for a moment after it: he leaps (or lays out), a ring bursts and the grab is named
+      if (ce) { const age = sim.t - ce[1]; it.catchAge = age; it.catchK = ce[4] || (ce[3] >= 2 ? 'contested' : ''); if (it.catchK === 'dive' && age < 10) it.dive = true; else if (age < 12) it.lift = Math.round(Math.sin(Math.PI * age / 12) * (it.catchK === 'contested' ? 14 : 8)); if (CATCH_POP[it.catchK]) { it.pop = CATCH_POP[it.catchK]; it.popCol = '#ffcf3f'; } }
+      if (p.conf) it.conf = true;
       else if (anyHot) { it.ring = TEAM_COL[other(m.me)]; }
       if (tags && tags[p.id]) it.num = tags[p.id];
       items.push(it);
@@ -5948,6 +6001,11 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-23-5', title: 'Catches with style, and confidence', items: [
+    'Catch animations: receivers leap for contested balls, lay out for diving grabs and tap their toes on the sideline, and the catch is named on screen.',
+    'Confidence: a catch over two or more defenders boosts that receiver by +5 (+7 over three) for his next 5 snaps. Look for the sparks around him.',
+    'No more standing in the pocket forever: if the quarterback holds the ball, defenders with nobody left to cover come after him.'
+  ] },
   { id: '2026-10-23-4', title: 'Updated ratings', items: [
     'Every player\'s rating is updated to Madden NFL 27\'s latest (Week 6): 240 changed, for example C.J. Stroud 77 to 81 and Trevon Diggs 83 to 74. New quick games, campaigns and leagues use them; saved ones keep their own players.'
   ] },

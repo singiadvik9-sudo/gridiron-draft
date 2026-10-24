@@ -2,6 +2,11 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-23-5', title: 'Catches with style, and confidence', items: [
+    'Catch animations: receivers leap for contested balls, lay out for diving grabs and tap their toes on the sideline, and the catch is named on screen.',
+    'Confidence: a catch over two or more defenders boosts that receiver by +5 (+7 over three) for his next 5 snaps. Look for the sparks around him.',
+    'No more standing in the pocket forever: if the quarterback holds the ball, defenders with nobody left to cover come after him.'
+  ] },
   { id: '2026-10-23-4', title: 'Updated ratings', items: [
     'Every player\'s rating is updated to Madden NFL 27\'s latest (Week 6): 240 changed, for example C.J. Stroud 77 to 81 and Trevon Diggs 83 to 74. New quick games, campaigns and leagues use them; saved ones keep their own players.'
   ] },
