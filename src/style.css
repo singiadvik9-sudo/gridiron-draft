@@ -554,3 +554,5 @@ body.gover .fieldhost .callpanel { position: static; max-height: none; max-width
 body.fbusy .fieldhost .callpanel { display: none; }   /* a play is being shown on the field: the call screen comes back after it */
 @media (max-width: 760px) { body.fbusy .fieldhost .callpanel { display: grid; } }
 .confrow { color: #7fe0ff; font-weight: 600; }
+.slp { font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #0b1020; background: #7fe0ff; padding: 1px 4px; }
+.bust { font-style: normal; font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #efe9d6; background: #8a3a3a; padding: 1px 4px; }

@@ -2,6 +2,11 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-24', title: 'Better campaign draft classes, with sleepers', items: [
+    'Every draft class now has a few future superstars (potential 93-99) and a couple of dozen future stars, and rookies start like rookies.',
+    'Potential is scouted, not known: the draft board shows the scouts\' estimate (pot ~88). Some players who look like stars are busts, and some late-round players are sleepers who can become stars.',
+    'After a player\'s first season his real potential shows, tagged Sleeper or Bust when the scouts were way off, and the league news calls out the best sleepers.'
+  ] },
   { id: '2026-10-23-5', title: 'Catches with style, and confidence', items: [
     'Catch animations: receivers leap for contested balls, lay out for diving grabs and tap their toes on the sideline, and the catch is named on screen.',
     'Confidence: a catch over two or more defenders boosts that receiver by +5 (+7 over three) for his next 5 snaps. Look for the sparks around him.',

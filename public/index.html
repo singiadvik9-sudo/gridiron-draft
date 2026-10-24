@@ -559,6 +559,8 @@ body.gover .fieldhost .callpanel { position: static; max-height: none; max-width
 body.fbusy .fieldhost .callpanel { display: none; }   /* a play is being shown on the field: the call screen comes back after it */
 @media (max-width: 760px) { body.fbusy .fieldhost .callpanel { display: grid; } }
 .confrow { color: #7fe0ff; font-weight: 600; }
+.slp { font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #0b1020; background: #7fe0ff; padding: 1px 4px; }
+.bust { font-style: normal; font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #efe9d6; background: #8a3a3a; padding: 1px 4px; }
 
 </style>
 <div class="wrap">
@@ -3402,7 +3404,7 @@ function snapShare(L, p) {
   return den > 0 ? clamp(((L.snaps && L.snaps[p.i]) || 0) / den, 0, 1) : null;
 }
 function progress(L) {
-  const r = rng(L, 'prog' + L.season), report = { up: [], down: [], retired: [] };
+  const r = rng(L, 'prog' + L.season), report = { up: [], down: [], retired: [], sleepers: [], busts: [] };
   // keep each season's stat line for players on a team a person runs (career totals)
   Object.keys(L.stats || {}).forEach(id => {
     const p = L.players[id]; if (!p || p.t < 0 || !L.teams[p.t] || !L.teams[p.t].owner) return;
@@ -3413,7 +3415,7 @@ function progress(L) {
     if (p.t === -2 || p.t === -3) return;
     delete p.inj; delete p.ir; delete p.irw;   // healthy again for the new season
     p.h = (p.h || []).concat([p.o]).slice(-8);
-    const a = p.a, bonus = p.o < p.pt ? Math.min(3, Math.round((p.pt - p.o) * 0.2)) : 0;
+    const a = p.a, bonus = p.o < p.pt ? Math.min(4, Math.round((p.pt - p.o) * 0.22)) : 0;
     let d;
     if (a <= 22) d = ri(r, 1, 5); else if (a === 23) d = ri(r, 0, 4); else if (a === 24) d = ri(r, -1, 3);
     else if (a <= 27) d = ri(r, -2, 2); else if (a <= 29) d = ri(r, -3, 1); else if (a <= 31) d = ri(r, -4, 0);
@@ -3432,6 +3434,10 @@ function progress(L) {
     const old = p.o;
     p.o = clamp(p.o + d, 40, 99);
     if (p.o > p.pt) p.pt = p.o;
+    if (p.vp != null) {   // after his first season everybody knows what he can be
+      if (p.pt - p.vp >= 8) report.sleepers.push(p.i); else if (p.vp - p.pt >= 8) report.busts.push(p.i);
+      p.was = p.vp; delete p.vp;
+    }
     if (p.s) p.s = clamp(p.s + (a <= 24 ? ri(r, 0, 2) : a >= 29 ? -ri(r, 0, 3) : ri(r, -1, 1)), 50, 99);
     p.a++;
     // a contract that ran out this season: he re-signs at the market price for his new rating, for one to four more seasons
@@ -3445,22 +3451,36 @@ function progress(L) {
   L.lastStats = L.stats; L.stats = {};
   L.teams.forEach(t => { fillDepth(L, t.id, r); });
   L.snaps = {}; L.tsnaps = {};   // a new season counts from zero
+  report.sleepers.slice().sort((x, y) => L.players[y].pt - L.players[x].pt).slice(0, 3).forEach(id => { const p = L.players[id], t = L.teams[p.t];
+    L.news.unshift({ s: L.season, t: 'Sleeper: ' + p.n + ' (' + p.p + (t ? ', ' + t.nick : '') + ') shows he can be a star (potential ' + p.pt + ', the scouts said ' + p.was + ').' }); });
   return report;
 }
 
 /* ---------------- draft ---------------- */
 const PROSPECT_POS = { QB: 10, HB: 18, WR: 28, TE: 12, OL: 40, DE: 22, DT: 20, LB: 28, CB: 28, S: 18, K: 4, P: 4, KR: 0, PR: 0 };
+/* A class looks like a real one: a few future superstars (potential 93-99), a dozen or so future stars, a lot of starters and more depth.
+   Nobody's potential is known for sure: the draft board, the roster and every CPU team see the scouts' estimate (vp), a few points off
+   the truth. Some who look like stars are busts with little room to grow, and some late-round looking players are sleepers: the scouts
+   rate them low, but they can grow into stars. The true potential (pt) shows after a player's first season (reveal in progress). */
+const TIERS = [   // [name, share of the class, rookie rating lo/hi, potential lo/hi]
+  ['super', 0.016, 70, 81, 93, 99], ['star', 0.05, 66, 78, 86, 92], ['starter', 0.28, 60, 72, 78, 86], ['depth', 1, 50, 64, 0, 0]
+];
+const DRAFT_SCOUT = { bust: 0.12, sleeper: 0.07, noise: 3 };
+const potSeen = p => p.vp != null ? p.vp : p.pt;   // the potential everybody can see
 function genProspects(L, n) {
   const r = rng(L, 'class' + L.season), list = [];
   const bag = []; POS.forEach(p => { for (let k = 0; k < PROSPECT_POS[p]; k++) bag.push(p); });
   for (let k = 0; k < n; k++) {
-    const pos = pickOf(r, bag), q = k / n, a = ri(r, 21, 23);
-    let o = clamp(Math.round(80 - 28 * Math.pow(q, 0.8) + (r() - 0.5) * 9 - (pos === 'QB' && k > 4 ? 3 : 0)), 44, 90);
-    if (pos === 'K' || pos === 'P') o = clamp(Math.round(52 + (o - 44) * 0.6 + (r() - 0.5) * 6), 50, 82);   // kickers and punters are rated on a tighter scale
-    const pt = clamp(o + ri(r, 4, 16) - Math.round(q * 6), o, 99);
-    list.push(mkPlayer(L, { p: pos, o, a, pt, t: -3 }));
+    const pos = pickOf(r, bag), a = ri(r, 21, 23), x = r();
+    let acc = 0; const tier = TIERS.find(t => (acc += t[1]) > x) || TIERS[3];
+    let o = ri(r, tier[2], tier[3]), pt = tier[4] ? ri(r, tier[4], tier[5]) : Math.min(82, o + ri(r, 2, 10)), vp;
+    if (pos === 'K' || pos === 'P') { o = clamp(Math.round(52 + (o - 44) * 0.6 + (r() - 0.5) * 6), 50, 82); pt = Math.min(90, o + ri(r, 2, 10)); }   // kickers and punters: a tighter scale
+    else if (tier[4] && tier[0] !== 'super' && r() < DRAFT_SCOUT.bust) { vp = pt; pt = o + ri(r, 1, 4); }   // a bust: he looks the part
+    else if (!tier[4] && r() < DRAFT_SCOUT.sleeper) { pt = ri(r, 84, 97); vp = o + ri(r, 2, 6); }        // a sleeper: nobody sees it yet
+    if (vp == null) vp = clamp(pt + ri(r, -DRAFT_SCOUT.noise, DRAFT_SCOUT.noise), o, 99);
+    list.push(mkPlayer(L, { p: pos, o, a, pt, vp: Math.max(o, vp), t: -3 }));
   }
-  list.sort((x, y) => (y.o + y.pt * 0.5) - (x.o + x.pt * 0.5));
+  list.sort((x, y) => (y.o + potSeen(y) * 0.5) - (x.o + potSeen(x) * 0.5));
   return list.map(p => p.i);
 }
 function draftOrder(L) {
@@ -3516,7 +3536,7 @@ function cpuPickFor(L, tid, pool) {
   pool.forEach(id => {
     const p = L.players[id];
     if (ci && !affordable(L, tid, p)) return;
-    let s = p.o * 0.9 + (p.pt - p.o) * 0.35 - (p.a - 21) * 0.4 + needScore(ctx, p);
+    let s = p.o * 0.9 + (potSeen(p) - p.o) * 0.35 - (p.a - 21) * 0.4 + needScore(ctx, p);   // (CPU scouts see what you see)
     if (ci) s -= 1.1 * Math.max(0, salOf(p) - 1.7 * fair);
     if (s > bs) { bs = s; best = id; }
   });
@@ -3784,7 +3804,7 @@ function playerValue(p) {
   if (p.inj) return playerValue(Object.assign({}, p, { inj: 0 })) * (p.inj >= SEASON_OUT ? 0.25 : Math.max(0.3, 1 - p.inj / 12));   // out for weeks: worth less
   const ageF = p.a <= 25 ? 1.15 : p.a <= 28 ? 1 : p.a <= 30 ? 0.85 : p.a <= 32 ? 0.62 : 0.4;
   const base = Math.pow(Math.max(0, p.o - 48), 1.9) * 0.08;
-  return base * POS_W[p.p] * ageF * (1 + Math.max(0, p.pt - p.o) * 0.02) + 0.5;
+  return base * POS_W[p.p] * ageF * (1 + Math.max(0, potSeen(p) - p.o) * 0.02) + 0.5;
 }
 function tradeCheck(L, ta, tb, give, get) {
   // give: ids leaving ta for tb; get: ids leaving tb for ta. An id is a player or a draft pick ("pk:year:round:team").
@@ -4140,7 +4160,7 @@ function setSeries(br, matchId, winnerSide) { // manager override
 const ROUND_NAMES = n => n === 1 ? 'Final' : n === 2 ? 'Semifinals' : n === 3 ? 'Quarterfinals' : 'Round of ' + (1 << n);
 
 const LG = {
-  POS, POS_NAME, ROSTER_MAX, upgradePositions, FRONT, SLOT_POS, TRADE_DEADLINE, DIV_NAMES, CONF_DIVS, counts, MIN_DEPTH, COLORS, ROUND_NAMES,
+  POS, POS_NAME, ROSTER_MAX, upgradePositions, potSeen, TIERS, genProspects, FRONT, SLOT_POS, TRADE_DEADLINE, DIV_NAMES, CONF_DIVS, counts, MIN_DEPTH, COLORS, ROUND_NAMES,
   newNFL, rosterOf, posCount, lineup, squadOf, teamsFor, teamRating, gameSeed,
   divisionRanks, nflMatchups, STAT_KEYS, sumStats, gameLog, teamStats, ensurePicks, picksOf, pickOf_, isPick, pickId, pickValue, pickProjection, pickLabel, assetValue, strengthFrac, pickOpen, simGame, forfeit, playVerified, weekGames, simWeek, advanceWeek, runUntilHuman, humanSides, checkFinal,
   records, standings, overallRank, rank, startPlayoffs, advancePlayoffs,
@@ -6001,6 +6021,11 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-24', title: 'Better campaign draft classes, with sleepers', items: [
+    'Every draft class now has a few future superstars (potential 93-99) and a couple of dozen future stars, and rookies start like rookies.',
+    'Potential is scouted, not known: the draft board shows the scouts\' estimate (pot ~88). Some players who look like stars are busts, and some late-round players are sleepers who can become stars.',
+    'After a player\'s first season his real potential shows, tagged Sleeper or Bust when the scouts were way off, and the league news calls out the best sleepers.'
+  ] },
   { id: '2026-10-23-5', title: 'Catches with style, and confidence', items: [
     'Catch animations: receivers leap for contested balls, lay out for diving grabs and tap their toes on the sideline, and the catch is named on screen.',
     'Confidence: a catch over two or more defenders boosts that receiver by +5 (+7 over three) for his next 5 snaps. Look for the sparks around him.',
@@ -6259,8 +6284,15 @@ const plLabel = (L, id) => {
 };
 const trend = p => { const h = p.h || []; if (!h.length) return ''; const d = p.o - h[h.length - 1]; return d > 0 ? '<i class="up">▲' + d + '</i>' : d < 0 ? '<i class="dn">▼' + (-d) + '</i>' : ''; };
 const gradeCls = o => 'g-' + E.grade(o);
+// potential: the scouts' estimate (~) until he has played a season, then the real thing, with SLEEPER or BUST when the scouts were way off
+function potHTML(p) {
+  const tag = p.was == null ? '' : p.pt - p.was >= 8 ? ' <b class="slp" title="The scouts had him at ' + p.was + '">Sleeper</b>' : p.was - p.pt >= 8 ? ' <i class="bust" title="The scouts had him at ' + p.was + '">Bust</i>' : '';
+  const v = LG.potSeen(p);
+  if (p.vp != null) return v > p.o ? '<span title="Scouting estimate: his real potential shows after his first season">pot ~' + v + '</span>' : '';
+  return (p.a <= 26 && p.pt > p.o ? 'pot ' + p.pt : '') + tag;
+}
 function plRows(L, list, btn) {
-  return list.map(p => '<tr><td class="pos">' + p.p + '</td><td class="nm">' + esc(p.n) + '</td><td>' + p.a + '</td><td><b class="ov ' + gradeCls(p.o) + '">' + p.o + '</b> ' + trend(p) + '</td><td class="pt">' + (p.a <= 26 && p.pt > p.o ? 'pot ' + p.pt : '') + '</td><td class="act">' + (btn ? btn(p) : '') + '</td></tr>').join('');
+  return list.map(p => '<tr><td class="pos">' + p.p + '</td><td class="nm">' + esc(p.n) + '</td><td>' + p.a + '</td><td><b class="ov ' + gradeCls(p.o) + '">' + p.o + '</b> ' + trend(p) + '</td><td class="pt">' + potHTML(p) + '</td><td class="act">' + (btn ? btn(p) : '') + '</td></tr>').join('');
 }
 const tbl = (head, rows) => '<div class="tbl-wrap"><table class="tb"><thead><tr>' + head.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 function teamOvr(L, tid) { const r = LG.teamRating(L, tid); return r; }
@@ -6320,6 +6352,8 @@ FRV.home = A => {
   if (L.progress && (L.phase === 'draft' || L.phase === 'preseason')) {
     const mine = LG.rosterOf(L, tid).filter(p => (L.progress.up.indexOf(p.i) >= 0 || L.progress.down.indexOf(p.i) >= 0));
     const ret = L.progress.retired.map(id => PL(L, id)).filter(p => p && p.lt === tid);
+    const sl = (L.progress.sleepers || []).map(id => PL(L, id)).filter(p => p && p.t === tid), bu = (L.progress.busts || []).map(id => PL(L, id)).filter(p => p && p.t === tid);
+    if (sl.length || bu.length) h += '<div class="panel"><h3>The scouts were wrong</h3><ul class="news">' + sl.map(p => '<li><b class="slp">Sleeper</b> ' + esc(p.n) + ' (' + p.p + ', ' + p.o + '): potential <b>' + p.pt + '</b>, the scouts said ' + p.was + '. Get him on the field.</li>').join('') + bu.map(p => '<li><i class="bust">Bust</i> ' + esc(p.n) + ' (' + p.p + ', ' + p.o + '): potential ' + p.pt + ', the scouts said ' + p.was + '.</li>').join('') + '</ul></div>';
     if (mine.length) h += '<div class="panel"><h3>Player development</h3><ul class="news">' + mine.map(p => '<li>' + esc(p.n) + ' (' + p.p + ') ' + (p.h && p.h.length ? (p.h[p.h.length - 1] + ' → <b>' + p.o + '</b>') : p.o) + ' ' + trend(p) + '</li>').join('') + '</ul></div>';
   }
   h += '<div class="panel"><h3>League news</h3>' + (L.news.length ? '<ul class="news">' + L.news.slice(0, 8).map(n => '<li><span>' + n.s + '</span> ' + esc(n.t) + '</li>').join('') + '</ul>' : '<p class="hint">Nothing yet.</p>') + '</div>';
@@ -6537,7 +6571,7 @@ FRV.draft = A => {
   const q = FR.dq.toLowerCase(), mineTurn = on === tid && tid >= 0;
   let pool = d.pool.map(id => PL(L, id)).filter(p => p && (FR.dpos === 'ALL' || p.p === FR.dpos) && (!q || p.n.toLowerCase().indexOf(q) >= 0));
   const units = d.units ? d.pool.filter(id => LG.isUnitId(id)) : [], nd = d.units && tid >= 0 ? LG.unitNeeds(L, tid) : null;
-  pool.sort((a, b) => (b.o + (d.kind === 'rookie' ? b.pt * 0.5 : 0)) - (a.o + (d.kind === 'rookie' ? a.pt * 0.5 : 0)));
+  pool.sort((a, b) => (b.o + (d.kind === 'rookie' ? LG.potSeen(b) * 0.5 : 0)) - (a.o + (d.kind === 'rookie' ? LG.potSeen(a) * 0.5 : 0)));   // by what the scouts see
   pool = pool.slice(0, 50);
   const auto = d.auto && (d.auto[tid] === true || d.auto.all === true);
   const myPicks = d.picks.filter(x => x.t === tid && !LG.isUnitId(x.p)).map(x => PL(L, x.p)).filter(Boolean), myUnits = d.picks.filter(x => x.t === tid && LG.isUnitId(x.p)).map(x => LG.draftLabel(L, x.p));
