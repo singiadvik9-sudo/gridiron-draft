@@ -64,3 +64,14 @@ ok(hit.tk > base.tk + 0.04, 'a big hit (Q on defense) tackles more often (' + Ma
 const r1 = LV.run(ctx(7), [LV.enc(1, 0, 0, 0), LV.enc(9, 1, 1, 0), LV.enc(30, 1, 0, 7)], []), r2 = LV.run(ctx(7), [LV.enc(1, 0, 0, 0), LV.enc(9, 1, 1, 0), LV.enc(30, 1, 0, 7)], []);
 ok(JSON.stringify(r1.out) === JSON.stringify(r2.out), 'the same inputs give the same snap');
 console.log('ALL DONE');
+// the ball is spotted where it is: a gain short of the line to gain is short (no rounding up to a first down)
+{ const U = { a: E.teamUnits(T.a), b: E.teamUnits(T.b) }, st = Object.assign(E.initState(5), { kick: false, poss: 'a', down: 3, toGo: 10, ballOn: 30 });
+  const short = E.stepGame(st, T, U, 5, 'PASS_M', 'ZONE', { k: 'pass', x: 9.6, who: 'WR1', tgt: 'WR1', t: 40 }, {}).state, made = E.stepGame(st, T, U, 5, 'PASS_M', 'ZONE', { k: 'pass', x: 10.1, who: 'WR1', tgt: 'WR1', t: 40 }, {}).state;
+  ok(short.down === 4 && short.toGo === 1 && made.down === 1, '9.6 yards on 3rd and 10 is 4th and 1, 10.1 is a first down'); }
+// a runner in the open is not stopped by the snap clock, and whoever tackles him is on him when he goes down
+{ let late = 0, far = 0, n = 0;
+  for (let i = 0; i < 300; i++) { const R = LV.run(ctx(i, { offPick: ['RUN_OUT', 'SWEEP', 'PASS_D', 'SCREEN'][i % 4], defPick: ['PREVENT', 'SOFT'][i % 2], ctlO: false, ctlD: true }), [], []), o = R.out, s = R.sim;
+    if (o.k !== 'run' && o.k !== 'pass') continue; n++;
+    if (o.t >= 260 && !o.by && !o.td && !o.oob) late++;
+    if (o.by) { const q = s.by[o.by], c = s.by[o.who]; if (Math.hypot(q.x - c.x, q.y - c.y) > 0.85) far++; } }
+  ok(late === 0 && far === 0, 'no run is cut off by the clock, and every tackler ends up on the man he tackled (' + n + ' plays)'); }

@@ -1136,7 +1136,8 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
       entry.yards = -st.ballOn; entry.travel = -st.ballOn; entry.ev = 'safety'; entry.anim = 'run';
       entry.text = safety(nm(o, lv.who || 'QB') + ' is tackled in the end zone.');
     } else { // 'run' or 'pass': the ball carrier was brought down (or scored)
-      const y = lv.td ? 100 - st.ballOn : clampY(lv.x), who = nm(o, lv.who || 'HB');
+      // spotted where the ball is: a gain only reaches the line to gain when the ball got there (9.6 yards on 3rd and 10 is short)
+      const y = lv.td ? 100 - st.ballOn : lv.x >= st.toGo ? Math.max(clampY(lv.x), st.toGo) : Math.min(clampY(lv.x), st.toGo - 1), who = nm(o, lv.who || 'HB');
       const passed = lv.k === 'pass';
       entry.travel = y;
       let desc;
@@ -1751,7 +1752,8 @@ else root.E = E;
 'use strict';
 const E = root.E || require('./engine.js');
 const { mulberry32, hashStr, clamp, fit } = E;
-const DT = 0.05, MAXT = 260, YB = 7.4, TPS = 20;
+// PLAYT: a snap is called after 13 s, unless someone is running with the ball in the open (then MAXT, 19.5 s: inputs are stamped up to tick 399)
+const DT = 0.05, PLAYT = 260, MAXT = 390, YB = 7.4, TPS = 20;
 const sqrt = Math.sqrt, abs = Math.abs, min = Math.min, max = Math.max;
 const DIAG = 0.70710678;
 
@@ -2160,7 +2162,7 @@ function step(sim, inO, inD, acts) {
   // ----- ball -----
   latCheck(sim);
   ballLogic(sim, carrier);
-  if (sim.t >= MAXT && !sim.out) timeout(sim);
+  if (!sim.out && (sim.t >= MAXT || (sim.t >= PLAYT && !runningFree(sim)))) timeout(sim);
   return sim.out;
 }
 
@@ -2585,6 +2587,7 @@ function ballLogic(sim, carrier) {
 }
 function tackled(sim, car, q) {
   const R = sim.R, B = sim.ball;
+  const gap = dist(q, car); if (gap > 0.8) { q.x = car.x + (q.x - car.x) / gap * 0.8; q.y = car.y + (q.y - car.y) / gap * 0.8; }   // (a dive from a body length away ends with him on the runner)
   const isSack = car.side === 'o' && car.id === 'QB' && !sim.handoff && sim.kind === 'pass' && sim.thrown === 0 && car.x <= 0;   // past the line it is a run
   // the ball comes loose on some tackles (more on a sack, where the quarterback is holding it out): about half the time the offense falls on it
   const fumbleP = (PRO.fum + (q.rat - car.rat) * 0.00008 + (q.dive > 0 ? 0.012 : 0)) * (isSack ? PRO.fumSack : 1) * (q.hit > 0 ? 2 : 1);
@@ -2701,6 +2704,10 @@ function landBall(sim) {
     return;
   }
   return finish(sim, { k: 'inc', x: a.ex, tgt: sim.byTarget, pbu: w.p.id });
+}
+function runningFree(sim) {   // a runner, a receiver after the catch or a returner with the ball: let him finish the run
+  const c = sim.ball.car ? sim.by[sim.ball.car] : null;
+  return !!c && sim.ball.st === 'carried' && !(c.id === (sim.passer || 'QB') && sim.kind === 'pass' && !sim.thrown && c.x <= 0);
 }
 function timeout(sim) {
   const car = sim.ball.car ? sim.by[sim.ball.car] : null;
@@ -6104,6 +6111,10 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-26-3', title: 'Spot fixes', items: [
+    'First downs: the ball has to reach the line to gain. A run or catch that stops just short is short now, not rounded up to a first down.',
+    'No more tackles out of nowhere: a runner in the open is no longer stopped when the play clock on the snap runs long, and whoever makes a diving tackle ends up on the runner.'
+  ] },
   { id: '2026-10-26-2', title: 'Defense feels better to play', items: [
     'No more surprise switches: the defender you play stays yours when the ball is thrown, and after a catch you only switch if yours is out of the play. E picks the defender who can get to the ball first.',
     'Tackles connect: your defender is a step quicker and wraps up ball carriers he reaches.',
