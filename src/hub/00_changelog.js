@@ -2,6 +2,12 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-26-2', title: 'Defense feels better to play', items: [
+    'No more surprise switches: the defender you play stays yours when the ball is thrown, and after a catch you only switch if yours is out of the play. E picks the defender who can get to the ball first.',
+    'Tackles connect: your defender is a step quicker and wraps up ball carriers he reaches.',
+    'Know your job: the receiver you cover is marked YOUR MAN, your zone is shaded on the field, or you are told to RUSH.',
+    'Play the ball: get to the ring and press Space as the pass comes down for a better shot at knocking it away or picking it off.'
+  ] },
   { id: '2026-10-26', title: 'Two-point conversions, team colours, fewer fumbles', items: [
     'Two-point conversions: switch After a TD to Go for 2 on the call screen (or press V). The CPU goes for two when the chart says so.',
     'Every team plays in its own colours: NFL teams in theirs, and every other team gets a colour of its own.',
