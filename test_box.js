@@ -13,7 +13,7 @@ for (let g = 0; g < 40; g++) {
   ['a', 'b'].forEach(k => { const q = B.lead[k].passing[0]; if (q && q.a !== B.teams[k].att) mism++; });
 }
 ok(mism === 0 && ydMism === 0, 'box score points and passing lines agree with the game');
-ok(lost / games > 0.8 && lost / games < 4, 'fumbles lost per game: ' + (lost / games).toFixed(2));
+ok(lost / games > 0.4 && lost / games < 1.2, 'fumbles lost per game: ' + (lost / games).toFixed(2) + ' (the NFL is about 0.7)');
 ok(kept / games > 0.3, 'fumbles the offense falls on per game: ' + (kept / games).toFixed(2));
 ok(pbu / att > 0.08 && pbu / att < 0.3, 'breakups per pass attempt: ' + (pbu / att).toFixed(3));
 // a defender standing between the passer and the receiver can knock the ball down on its way (not only at the landing spot)

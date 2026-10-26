@@ -24,7 +24,7 @@ const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
   myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
   poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null,
-  ctlOn: lsGet('gd_ctl') === '1', toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
+  ctlOn: lsGet('gd_ctl') === '1', twoOn: lsGet('gd_two') === '1', twoN: {}, toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
 };
 
 /* ---------- sprites ---------- */
@@ -97,6 +97,29 @@ function slotKey(slotIdx, id) {
 }
 // on the field every sprite wears its drafted side's colors
 const SIDE_J = { a: 'ff6b4a', b: '4aa8ff' }, SIDE_H = { a: 'b83c22', b: '2a6fb8' };
+/* team colours for this game: a real franchise wears its own (campaign, leagues, tournaments, or a quick-game team named after one),
+   any other team a colour picked from its name. If the two would look alike the second team wears its other colour, or white.
+   TEAM_COL (text, bars, the field's flashes) is the jersey colour, lightened when it is too dark to read on the dark background. */
+const PALETTE = ['#e8483b', '#2f7de1', '#f2b21b', '#1fa463', '#8e44ad', '#ff7f2a', '#14b8c4', '#d6336c', '#7cb342', '#5c6bc0', '#c0a062', '#00897b'];
+function teamColors(seat) {
+  if (seat.c1) return { c1: seat.c1, c2: seat.c2 || '#ffffff' };
+  const nm = String(seat.name || ''), fr = E.TEAMS.find(t => t.nick === nm || t.city + ' ' + t.nick === nm || t.abbr === nm);
+  if (fr) return { c1: fr.c1, c2: fr.c2 };
+  const c = PALETTE[E.hashStr(nm) % PALETTE.length]; return { c1: c, c2: shadeHex(c, -0.5) };
+}
+const shadeHex = (h, f) => '#' + hex2rgb(h).map(v => ('0' + Math.round(v + ((f < 0 ? 0 : 255) - v) * Math.abs(f)).toString(16)).slice(-2)).join('');
+const colDist = (x, y) => { const a = hex2rgb(x), b = hex2rgb(y); return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]); };
+const readable = h => { let c = h, k = 0; while (lum(c) < 0.38 && k++ < 8) c = shadeHex(c, 0.18); return c; };
+function applyTeamColors() {
+  const A = teamColors(S.seats.a || {}), B = teamColors(S.seats.b || {}), trim = (tm, j) => j.toLowerCase() === tm.c1.toLowerCase() ? tm.c2 : tm.c1;
+  const ja = jerseyOf(A); let jb = jerseyOf(B);
+  if (colDist(ja, jb) < 120) { const alt = trim(B, jb); jb = colDist(ja, alt) >= 120 && lum(alt) >= 0.14 ? alt : '#f0f0f0'; }
+  SIDE_J.a = hexNo(ja); SIDE_H.a = hexNo(trim(A, ja)); SIDE_J.b = hexNo(jb); SIDE_H.b = hexNo(jb === '#f0f0f0' ? B.c1 : trim(B, jb));
+  if (SIDE_H.a.toLowerCase() === SIDE_J.a.toLowerCase()) SIDE_H.a = hexNo(shadeHex(ja, -0.45));
+  if (SIDE_H.b.toLowerCase() === SIDE_J.b.toLowerCase()) SIDE_H.b = hexNo(shadeHex(jb, -0.45));
+  TEAM_COL.a = readable(ja); TEAM_COL.b = readable(jb);
+  const g = $('.game'); if (g) { g.style.setProperty('--ta', TEAM_COL.a); g.style.setProperty('--tb', TEAM_COL.b); }
+}
 function fieldKey(base, side) { const p = base.split(':'); return p[0] + ':' + p[1] + ':' + SIDE_J[side] + ':' + SIDE_H[side]; }
 function paintCanvases(root) {
   root.querySelectorAll('canvas[data-sp]').forEach(cv => {
@@ -166,8 +189,8 @@ function teamOf(seat) {
   const name = String(d.name || 'Team ' + seat.toUpperCase()).slice(0, 18);
   return d.squad ? { name, squad: d.squad } : { name, roster: d.roster, squad: E.squadFromRoster(d.roster) };
 }
-const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}) : { pick: v };
-const myMove = n => Object.assign({ pick: S.mine[n] }, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {});
+const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}, v.w ? { two: 1 } : {}) : { pick: v };
+const myMove = n => Object.assign({ pick: S.mine[n] }, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {}, S.twoN[n] ? { two: 1 } : {});
 function allMoves() {
   const mv = Object.assign({}, S.moves);
   if (S.me) for (const n in S.mine) mv[n + '-' + S.me] = myMove(n);
@@ -438,6 +461,7 @@ const Field = {
         if (fl && !this.flash) {
           this.flash = { text: fl[0], color: fl[1] ? TEAM_COL[fl[1]] : '#efe9d6' };
           if (turnover) { this.flash.turn = (teams[entry.after.poss] || {}).name || ''; this.flash.sub = turnoverLine(entry); }
+          if (entry.two) this.flash.sub = entry.two > 0 ? 'TWO-POINT TRY IS GOOD' : 'TWO-POINT TRY FAILS';
           this.celebrate(fl[0], this.flash.color);
         }
         if (entry.contested && !this.flash) { this.flash = { text: 'CONTESTED CATCH', color: '#ffcf3f', sub: 'OVER ' + (entry.contested >= 3 ? 'THREE' : 'TWO') + ' DEFENDERS' + (entry.conf ? ' · +' + (entry.contested >= 3 ? E.CONF_BOOST + 2 : E.CONF_BOOST) + ' CONFIDENCE' : '') }; this.celebrate('CONTESTED', '#ffcf3f'); }
@@ -548,7 +572,7 @@ function resetForMode() {
   stopPoll();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
   S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.scene = null;
-  S.ctlN = {}; S.toN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
+  S.ctlN = {}; S.toN = {}; S.twoN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
 }
 function startLocal() {
   readName();
@@ -916,7 +940,7 @@ function buildGame() {
 function updateGame() {
   const G = derive();
   if (!G) { drawWait(); return; }
-  S.G = G;
+  S.G = G; applyTeamColors();
   const st = G.state, T = G.teams, ck = E.clockInfo(st);
   document.body.classList.toggle('gover', !!st.over);
   const set = (id, v) => { const el = $(id); if (el && el.textContent !== String(v)) el.textContent = v; };
@@ -1046,7 +1070,7 @@ function renderCall0(G) {
   const cats = callCats(role, st), cat = callCat(role, st), shown = callOpts(role, st).filter(o => o.cat === cat);
   let k = 0;
   p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
-    coachRowHTML(G, role) + fireRowHTML(st, role) + ctlRowHTML(role) + toRowHTML(st) + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
+    coachRowHTML(G, role) + fireRowHTML(st, role) + ctlRowHTML(role) + toRowHTML(st) + twoRowHTML() + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
     '<div class="cats" role="tablist" aria-label="Play type">' + cats.map(c => '<button class="cat' + (c.id === cat ? ' on' : '') + '" role="tab" aria-selected="' + (c.id === cat) + '" data-act="cat" data-cat="' + c.id + '">' + esc(c.label) + '<i>' + c.n + '</i></button>').join('') + '</div>' +
     '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k, rec = coachPicks(G, role).indexOf(o.id); return '<button class="call' + (rec >= 0 ? ' rec' : '') + '" data-act="call" data-id="' + o.id + '" title="' + esc(o.desc) + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span>' + (rec >= 0 ? '<i class="cbadge">' + (rec ? 'Coach' : '★ Coach') + '</i>' : '') + '<b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
 }
@@ -1089,6 +1113,11 @@ function toRowHTML(st) {
   if (left <= 0) return '<div class="ctlrow"><span class="hint">Clock running, no timeouts left.</span></div>';
   const on = toSel(st.playNo);
   return '<div class="ctlrow"><button class="btn small ctl' + (on ? ' on' : '') + '" data-act="to-toggle" aria-pressed="' + on + '">Timeout (' + left + ' left): ' + (on ? 'YES' : 'no') + '</button><span class="hint">Clock is running. A timeout stops it and gives back the ' + st.ro + ' second' + (st.ro === 1 ? '' : 's') + ' that just ran off. Press T.</span></div>';
+}
+// go for two after a touchdown (remembered; it rides along with every call, so it counts for whichever snap scores, a pick-six too)
+function twoRowHTML() {
+  const on = S.twoOn;
+  return '<div class="ctlrow"><button class="btn small ctl' + (on ? ' on' : '') + '" data-act="two-toggle" aria-pressed="' + on + '">After a TD: ' + (on ? 'GO FOR 2' : 'kick the PAT') + '</button><span class="hint">' + (on ? 'A touchdown is followed by a two-point try (about 50/50). ' : 'Extra point after a touchdown. ') + 'Press V to switch.</span></div>';
 }
 function ctlRowHTML(role) {
   const on = S.ctlOn;
@@ -1139,8 +1168,9 @@ function submitCall(pick) {
   const to = toSel(n) && st.ro > 0 && st.to[S.me] > 0 ? 1 : 0;
   if (to) S.toN[n] = 1; else delete S.toN[n];
   if (ctl) S.ctlN[n] = 1; else delete S.ctlN[n];
+  const two = S.twoOn && !st.kick ? 1 : 0; if (two) S.twoN[n] = 1; else delete S.twoN[n];   // go for two if this snap ends in our touchdown
   if (S.mode === 'online') {
-    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; S.callSig = null; handleErr(e); updateGame(); });
+    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to, two }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; S.callSig = null; handleErr(e); updateGame(); });
   }
   updateGame();
 }
@@ -1159,7 +1189,7 @@ function ctxFinish(G) {
 function startCtxCpu(info, ctx) {   // info: {T, seed, side, cpuSide}
   resetForMode();
   S.mode = 'local'; S.code = null; S.me = info.side; S.cpuSides = info.cpuSide ? [info.cpuSide] : []; S.seed = info.seed;
-  S.seats.a = { status: 'ready', name: info.T.a.name, squad: info.T.a.squad }; S.seats.b = { status: 'ready', name: info.T.b.name, squad: info.T.b.squad };
+  S.seats.a = { status: 'ready', name: info.T.a.name, squad: info.T.a.squad, c1: info.T.a.c1, c2: info.T.a.c2 }; S.seats.b = { status: 'ready', name: info.T.b.name, squad: info.T.b.squad, c1: info.T.b.c1, c2: info.T.b.c2 };
   S.ctx = Object.assign({ kind: 'cpu', label: 'Game', sent: false, status: '' }, ctx);
   render();
 }
@@ -1207,6 +1237,7 @@ document.addEventListener('click', ev => {
   else if (a === 'call') submitCall(t.dataset.id);
   else if (a === 'cat') openCat(t.dataset.cat);
   else if (a === 'ctl-toggle') { S.ctlOn = !S.ctlOn; lsSet('gd_ctl', S.ctlOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
+  else if (a === 'two-toggle') { S.twoOn = !S.twoOn; lsSet('gd_two', S.twoOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
   else if (a === 'to-toggle') { const n = S.G.state.playNo; S.toSel = { n, on: !toSel(n) }; S.callSig = null; renderCall(S.G); }
   else if (a === 'hurry') hurry();
   else if (a === 'live-hand') LV.hand();
@@ -1224,6 +1255,7 @@ document.addEventListener('keydown', ev => {
   if (LV.on) { if (LV.key(ev, true)) return; }
   if (S.screen === 'game' && (ev.key === 'f' || ev.key === 'F') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { toggleFull(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
+  if (S.screen === 'game' && !LV.on && (ev.key === 'v' || ev.key === 'V')) { const b = $('[data-act="two-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && $('#callpanel .cats')) { ev.preventDefault(); stepCat(ev.key === 'ArrowRight' ? 1 : -1); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'r' || ev.key === 'R')) { hurry(); return; }

@@ -2,6 +2,12 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-26', title: 'Two-point conversions, team colours, fewer fumbles', items: [
+    'Two-point conversions: switch After a TD to Go for 2 on the call screen (or press V). The CPU goes for two when the chart says so.',
+    'Every team plays in its own colours: NFL teams in theirs, and every other team gets a colour of its own.',
+    'Fewer fumbles: about 1.5 a game now, closer to the real NFL.',
+    'Passes go over the line instead of through it: linemen only bat down low throws.'
+  ] },
   { id: '2026-10-24', title: 'Better campaign draft classes, with sleepers', items: [
     'Every draft class now has a few future superstars (potential 93-99) and a couple of dozen future stars, and rookies start like rookies.',
     'Potential is scouted, not known: the draft board shows the scouts\' estimate (pot ~88). Some players who look like stars are busts, and some late-round players are sleepers who can become stars.',
