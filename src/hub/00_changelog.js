@@ -2,6 +2,10 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-26-3', title: 'Spot fixes', items: [
+    'First downs: the ball has to reach the line to gain. A run or catch that stops just short is short now, not rounded up to a first down.',
+    'No more tackles out of nowhere: a runner in the open is no longer stopped when the play clock on the snap runs long, and whoever makes a diving tackle ends up on the runner.'
+  ] },
   { id: '2026-10-26-2', title: 'Defense feels better to play', items: [
     'No more surprise switches: the defender you play stays yours when the ball is thrown, and after a catch you only switch if yours is out of the play. E picks the defender who can get to the ball first.',
     'Tackles connect: your defender is a step quicker and wraps up ball carriers he reaches.',

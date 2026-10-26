@@ -29,7 +29,7 @@ A pixel-football game with real NFL starters (Madden-style ratings). Static page
 
 **Team colours.** Every team plays in its own colours: real franchises (campaign, leagues, tournaments, or a quick-game team named after one) in theirs, any other team in a colour picked from its name. When the two would look alike the second team wears its other colour, or white (`applyTeamColors` in `src/game.js`).
 
-**The play has to end.** If the quarterback still has the ball after about 2.3 seconds, zone defenders with nobody left to cover come after him; after 4 seconds everyone in zone but the free safety does (`PRO.lateT`, `PRO.lateT2` in `lib/live.js`). Holding the ball now gets you sacked in about 4.4 seconds instead of standing there for 11.
+**Spotting the ball.** A snap played on the field is spotted where the ball is: a gain reaches the line to gain only if the ball got there (9.6 yards on 3rd and 10 is 4th and 1). A snap is called after 13 seconds unless someone is running with the ball in the open (`PLAYT`, `MAXT` in `lib/live.js`). **The play has to end.** If the quarterback still has the ball after about 2.3 seconds, zone defenders with nobody left to cover come after him; after 4 seconds everyone in zone but the free safety does (`PRO.lateT`, `PRO.lateT2` in `lib/live.js`). Holding the ball now gets you sacked in about 4.4 seconds instead of standing there for 11.
 
 **Celebrations.** Touchdowns, interceptions, fumbles and players catching fire shake the field (touchdowns and fire throw confetti); sacks and big hits get a smaller shake.
 
