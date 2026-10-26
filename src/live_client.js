@@ -274,6 +274,11 @@ const LV = {
     const passer = sim.passer || 'QB';   // (the back on a halfback pass)
     const tags = (m.me === m.off && m.myCtl && sim.human.o && sim.ball.car === passer && !sim.thrown && sim.kind === 'pass') ? Object.assign({ WR1: 'A', WR2: 'S', TE: 'D', HB: 'F' }, { [passer]: undefined }) : null;
     const catchOf = {}; sim.evt.forEach(e => { if (e[0] === 'catch' && sim.t - e[1] < 18) catchOf[e[2]] = e; });
+    // your defender's job until the ball is out: the man he covers, the zone he holds, or RUSH; and a moment of "YOU" after a switch
+    const myD = m.me === m.def && m.myCtl && sim.human.d ? sim.by[sim.ctlId.d] : null, early = !sim.thrown && !sim.handoff && sim.kind === 'pass';
+    const job = myD && early ? (myD.mode === 'man' ? 'man' : myD.mode === 'zone' ? 'zone' : myD.mode === 'rush' ? 'rush' : '') : '';
+    L.zone = job === 'zone' && myD.zone ? { wx: los + dir * myD.zone.x, sy: mid + myD.zone.y * dir * RL, rx: myD.zone.r, ry: myD.zone.r * RL } : null;
+    const lastSw = sim.evt.filter(e => e[0] === 'switch').pop(), lastTimed = sim.evt.filter(e => e[0] === 'timed').pop();
     sim.P.forEach((p, i) => {
       const a = pv.p[i] || cu.p[i], b = cu.p[i], x = lerp(a[0], b[0]), y = lerp(a[1], b[1]);
       const fx = p.vx * dir, face = Math.abs(fx) > 0.8 ? (fx > 0 ? 1 : -1) : (p.side === 'o' ? dir : -dir);
@@ -283,11 +288,17 @@ const LV = {
       const mineHot = hot.some(h => h[0] === m.me && h[1] === p.id), anyHot = hot.some(h => h[1] === p.id);
       it.mine = mineHot;
       if (mineHot) { it.ring = '#ffcf3f'; it.tag = lastName(p.name); if (p.side === 'd' && p.eng) it.lev = p.pairL || 0; }
+      else if (anyHot) it.ring = TEAM_COL[other(m.me)];   // the player your opponent runs
+      if (job === 'man' && myD.man === p.id) it.yourMan = true;
+      if (myD === p) {
+        if (job === 'rush' || job === 'zone') it.tag += job === 'rush' ? ' · RUSH' : ' · ZONE';
+        if (lastSw && lastSw[2] === p.id && sim.t - lastSw[1] < 14) { it.pop = 'NOW YOU'; it.popCol = '#ffcf3f'; }
+        if (lastTimed && lastTimed[2] === p.id && sim.t - lastTimed[1] < 14) { it.pop = 'GOOD TIMING!'; it.popCol = '#3fdc6a'; }
+      }
       if (p.moveT != null && sim.t - p.moveT < 16) it.pop = { win: 'BEAT HIM!', stuck: 'STONEWALLED', bull: 'BULL RUSH' }[p.move];
       const ce = catchOf[p.id];   // the catch, for a moment after it: he leaps (or lays out), a ring bursts and the grab is named
       if (ce) { const age = sim.t - ce[1]; it.catchAge = age; it.catchK = ce[4] || (ce[3] >= 2 ? 'contested' : ''); if (it.catchK === 'dive' && age < 10) it.dive = true; else if (age < 12) it.lift = Math.round(Math.sin(Math.PI * age / 12) * (it.catchK === 'contested' ? 14 : 8)); if (CATCH_POP[it.catchK]) { it.pop = CATCH_POP[it.catchK]; it.popCol = '#ffcf3f'; } }
       if (p.conf) it.conf = true;
-      else if (anyHot) { it.ring = TEAM_COL[other(m.me)]; }
       if (tags && tags[p.id]) it.num = tags[p.id];
       items.push(it);
     });
@@ -308,6 +319,7 @@ const LV = {
         : latOn ? [mv, ['E', 'LATERAL'], ['SPACE', 'JUKE'], ['Q', 'SPIN']]
         : off ? ((sim.kind === 'run' || sim.fake) && sim.ball.car !== sim.ctlId.o ? [mv] : [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN']])
         : (sim.by[sim.ctlId.d] || {}).eng ? [mv, ['SPACE', 'SWIM'], ['Q', 'BULL RUSH'], ['E', 'SWITCH']]
+        : sim.ball.air && !sim.ball.air.away ? [mv, ['SPACE', 'JUMP AS IT COMES DOWN'], ['E', 'SWITCH']]
         : [mv, ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
     }
     L.msg = performance.now() < m.readyAt ? (m.myCtl ? 'READY · YOU ARE ' + lastName((sim.by[m.me === m.off ? sim.ctlId.o : sim.ctlId.d] || {}).name).toUpperCase() : 'READY…') : m.stallAt && !sim.out && (performance.now() - m.stallAt > 700) ? 'Waiting for ' + esc((S.seats[m.opp] || {}).name || 'your opponent') + '…' : '';
@@ -356,7 +368,7 @@ const LV = {
         else if (sim.pm.trick === 'lat' && sim.ball.car === sim.pm.tgt && !sim.latT) { info = 'Hook and lateral: ' + K('E') + ' pitches it to <b>' + esc(lastName(sim.by[sim.pm.mate].name)) + '</b> trailing you (do it before they wrap you up). ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="6">Lateral</button><button class="ab wide" data-lvk="5">Juke</button>'; }
         else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
       } else {
-        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch player. Steer at the ball carrier and you are guided onto him. When a blocker has you: ' + K('Q') + ' bull rush builds leverage, ' + K('Space') + ' swims past him (best with your meter in the green, or the moment he touches you).';
+        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch to the one who can get to the ball first (again for the next). Steer at the ball carrier and you are guided onto him. Ball in the air: get to the ring and press ' + K('Space') + ' as it comes down for your best shot at it. When a blocker has you: ' + K('Q') + ' bull rush builds leverage, ' + K('Space') + ' swims past him (best with your meter in the green, or the moment he touches you).';
         acts = '<button class="ab wide" data-lvk="5">Dive / Swim</button><button class="ab wide" data-lvk="7">Hit / Bull rush</button><button class="ab wide" data-lvk="6">Switch</button>';
       }
     } else if (m.myCtl && m.handed) info = 'The computer has your players.';

@@ -293,6 +293,10 @@ const Field = {
     // players
     const live = this.live;
     const offscreen = [];
+    if (live && live.zone) {   // the zone your defender holds
+      const z = live.zone, zx = Math.round(sx(z.wx)); x.globalAlpha = 0.16; x.fillStyle = '#ffcf3f'; x.beginPath(); x.ellipse(zx, z.sy + 9, z.rx * YPP, z.ry, 0, 0, Math.PI * 2); x.fill();
+      x.globalAlpha = 0.6; x.strokeStyle = '#ffcf3f'; x.lineWidth = 2; x.setLineDash([6, 5]); x.stroke(); x.setLineDash([]); x.globalAlpha = 1;
+    }
     if (live && live.land) {   // where the throw is coming down
       const lx = Math.round(sx(live.land.wx)), pul = 0.5 + 0.5 * Math.sin(performance.now() / 120);
       x.strokeStyle = '#ffcf3f'; x.globalAlpha = 0.5 + 0.4 * pul; x.lineWidth = 2; x.beginPath(); x.ellipse(lx, live.land.sy + 9, 9 + pul * 3, 4 + pul * 1.5, 0, 0, Math.PI * 2); x.stroke(); x.globalAlpha = 1;
@@ -329,6 +333,10 @@ const Field = {
         x.strokeStyle = '#0b1020'; x.lineWidth = 2; x.stroke();
         x.font = '11px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020';
         const lab = 'YOU · ' + p.tag.toUpperCase(); x.strokeText(lab, px, spx - 19 + bob); x.fillStyle = p.ring; x.fillText(lab, px, spx - 19 + bob);
+      }
+      if (p.yourMan) {   // the receiver your defender covers
+        x.strokeStyle = '#ff5a4a'; x.lineWidth = 2; x.setLineDash([4, 3]); x.beginPath(); x.ellipse(px, p.sy + 9, 15, 6.5, 0, 0, Math.PI * 2); x.stroke(); x.setLineDash([]);
+        x.font = '10px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 3; x.strokeStyle = '#0b1020'; x.strokeText('YOUR MAN', px, spx - 6); x.fillStyle = '#ff7a6a'; x.fillText('YOUR MAN', px, spx - 6);
       }
       if (p.lev != null) {   // your rusher's leverage against his blocker: green, he is winning (swim now); red, the blocker is
         const w = 34, f = Math.max(-1, Math.min(1, -p.lev)), bx = px - w / 2, by = spx + 31;

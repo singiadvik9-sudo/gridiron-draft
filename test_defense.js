@@ -57,3 +57,27 @@ ok(moved.win > 0.3 && moved.sack > plain.sack + 0.02, 'rush moves let the linema
 { const ctx = { seed: 99, playNo: 3, ballOn: 30, toGo: 10, offPick: 'PASS_M', defPick: 'ZONE', OS: T('BUF', 'LA').a.squad, DS: T('BUF', 'LA').b.squad, ctlO: false, ctlD: true };
   const tr = [LV.enc(1, -1, 0, 6)].concat([4, 6, 10, 14, 20, 26, 32].map(t => LV.enc(t, -1, 0, t % 2 ? 5 : 7)));
   ok(JSON.stringify(LV.run(ctx, [], tr).out) === JSON.stringify(LV.run(ctx, [], tr).out), 'rush moves and pickups replay exactly'); }
+// playing defense: no surprise switches, E goes to whoever can get to the ball first, tackles that connect, and a timed jump on the ball
+{ const TT = T('BUF', 'ARI'), mk = (i, o) => LV.create(Object.assign({ seed: 900 + i, playNo: i, ballOn: 30, toGo: 10, offPick: 'PASS_M', defPick: 'ZONE', OS: TT.a.squad, DS: TT.b.squad, ctlO: false, ctlD: true }, o || {}));
+  let kept = 0, thrown = 0;
+  for (let i = 0; i < 60; i++) { const sim = mk(i); const me0 = sim.ctlId.d; while (!sim.out && !sim.thrown) LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [] }); if (!sim.thrown) continue; thrown++; LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [] }); if (sim.ctlId.d === me0) kept++; }
+  ok(thrown > 30 && kept === thrown, 'the throw does not take your defender away from you (' + kept + ' of ' + thrown + ')');
+  { const sim = mk(3, { offPick: 'RUN_OUT' }); while (!sim.out && !sim.handoff) LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [] });
+    const c = sim.by[sim.ball.car], rank = sim.D.filter(p => p.hold === 0 && !p.eng).sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) / a.vmax - Math.hypot(b.x - c.x, b.y - c.y) / b.vmax).map(p => p.id);
+    const was = sim.ctlId.d; LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [6] }); const first = sim.ctlId.d;
+    LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [6] });
+    ok(first === (rank[0] === was ? rank[1] : rank[0]) && sim.ctlId.d !== first, 'E goes to the defender who can get to the ball first, and again to the next one'); }
+  let mine = 0, n = 200, yds = 0;
+  for (let i = 0; i < n; i++) { const sim = mk(i, { offPick: ['RUN_IN', 'RUN_OUT', 'POWER', 'SWEEP'][i % 4], defPick: Object.keys(E.DEF_CALLS)[i % 14] }); let e = false;
+    while (!sim.out && sim.t < LV.MAXT + 5) { const acts = { o: [], d: [] }, c = sim.ball.car ? sim.by[sim.ball.car] : sim.by.QB; if (sim.handoff && !e) { acts.d.push(6); e = true; }
+      const me = sim.by[sim.ctlId.d], dx = c.x + c.vx * 0.3 - me.x, dy = c.y + c.vy * 0.3 - me.y; if (sim.handoff && Math.hypot(c.x - me.x, c.y - me.y) < 1.7 && me.cool === 0) acts.d.push(5);
+      LV.step(sim, null, { dx: Math.abs(dx) > 0.4 ? Math.sign(dx) : 0, dy: Math.abs(dy) > 0.4 ? Math.sign(dy) : 0 }, acts); }
+    if (sim.out.by === sim.ctlId.d) mine++; yds += sim.out.x; }
+  ok(mine / n > 0.35, 'chase the ball carrier and your defender makes the tackle (' + Math.round(100 * mine / n) + '% of runs, ' + (yds / n).toFixed(1) + ' yards a carry; it was about 5%)');
+  const jump = timed => { let comp = 0, k = 0; for (let i = 0; i < 300; i++) { const sim = mk(i, { offPick: ['PASS_M', 'PASS_S', 'FLOOD', 'CURLS'][i % 4], defPick: ['ZONE', 'COV3', 'MAN', 'SOFT'][i % 4] }); let sw = false, j = false;
+      while (!sim.out && sim.t < LV.MAXT + 5) { const acts = { o: [], d: [] }, a = sim.ball.air, me = sim.by[sim.ctlId.d]; let inD = { dx: 0, dy: 0 };
+        if (a && !a.away) { if (!sw) { acts.d.push(6); sw = true; } else { const dx = a.ex - me.x, dy = a.ey - me.y; inD = { dx: Math.abs(dx) > 0.3 ? Math.sign(dx) : 0, dy: Math.abs(dy) > 0.3 ? Math.sign(dy) : 0 }; if (!j && (!timed || a.k >= a.n * 0.7)) { acts.d.push(5); j = true; } } }
+        LV.step(sim, null, inD, acts); }
+      if (sim.thrown) { k++; if (sim.out.k === 'pass') comp++; } } return comp / k; };
+  const early = jump(false), late = jump(true);
+  ok(late < early - 0.04, 'and jumping as the ball comes down beats jumping early (' + Math.round(100 * late) + '% completions against ' + Math.round(100 * early) + '%)'); }
