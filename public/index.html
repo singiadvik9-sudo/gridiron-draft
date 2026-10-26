@@ -992,8 +992,17 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
   const scoreTD = (team, desc) => {
     s.score[team] += 6; entry.pts = 6; entry.ptsTeam = team; entry.ev = 'td';
     if (!st.ot) {
-      const good = R() < clamp(0.90 + (U[team].k - 60) * 0.002, 0.7, 0.995);
-      if (good) { s.score[team] += 1; entry.pts = 7; desc += ' The extra point is good.'; }
+      const good = R() < clamp(0.90 + (U[team].k - 60) * 0.002, 0.7, 0.995);   // (drawn either way, so going for two moves no other result)
+      const pref = flags && flags.two ? flags.two[team] : 0;
+      if (pref === 1 || (pref === 'cpu' && cpuGo2(s, team))) {
+        // the two-point try: from the 2, about a coin flip, better for the stronger offense against the weaker defense (a stream of its own)
+        const TR = mulberry32(hashStr(seed + ':2pt:' + st.playNo)), d2 = other(team), run = TR() < 0.45;
+        const ok = TR() < clamp(0.47 + (U[team].off - U[d2].def) * 0.006, 0.3, 0.66);
+        entry.two = ok ? 1 : -1;
+        if (ok) { s.score[team] += 2; entry.pts = 8; desc += ' They go for two: ' + (run ? nm(team, 'HB') + ' runs it in.' : nm(team, 'QB') + ' finds ' + nm(team, 'WR1') + ' in the end zone.') + ' The two-point try is good.'; }
+        else desc += ' They go for two, but ' + nm(d2, U[d2].hawks[0] || 'D0') + ' stops it. The try fails.';
+      }
+      else if (good) { s.score[team] += 1; entry.pts = 7; desc += ' The extra point is good.'; }
       else desc += ' The extra point is missed.';
       setKick(team, other(team));
     } else giveBall(other(team), 25);
@@ -1162,7 +1171,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
     if (R() < (inside ? 0.03 : 0.2) + (OC.oob || 0)) stopFlag = true;   // ran out of bounds
     const useFB = inside && OU.hasFB && R() < 0.25;
     const runner = nm(o, useFB ? 'FB' : 'HB'); entry.runId = useFB ? 'FB' : 'HB';
-    const fumP = 0.046 + (OC.fum || 0) + Math.max(0, DU.dl - OU.ol) * 0.0003;
+    const fumP = 0.029 + (OC.fum || 0) + Math.max(0, DU.dl - OU.ol) * 0.0002;
     const fumbled = R() < fumP, lost = fumbled && R() < 0.5;
     const fid = fumbled ? DU.rushers[Math.floor(R() * DU.rushers.length)] : null;
     if (fid) entry.defId = fid;
@@ -1215,7 +1224,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
       const wid = DU.rushers[Math.floor(R() * DU.rushers.length)], who = nm(d, wid); entry.defId = wid;
       entry.anim = 'sack'; entry.travel = -loss; entry.yards = -loss; entry.ev = 'sack';
       const nb = st.ballOn - loss;
-      const strip = R() < 0.10 + (DC.rush || 0) * 0.004, stripLost = strip && R() < 0.5;
+      const strip = R() < 0.07 + (DC.rush || 0) * 0.003, stripLost = strip && R() < 0.5;
       if (nb <= 0) { entry.text = safety(who + ' sacks ' + qb + ' in the end zone.'); }
       else if (stripLost) {
         entry.ev = 'fumble'; entry.sacked = 1; giveBall(d, 100 - nb);
@@ -1236,7 +1245,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
       let desc = y >= 20 ? qb + ' connects deep with ' + rec + ' for ' + yds(y) + '.'
                  : y === 0 ? qb + ' finds ' + rec + ' but he is stopped for no gain.'
                  : qb + ' finds ' + rec + ' for ' + yds(y) + '.';
-      const cf = y > 0 && st.ballOn + y < 100 && R() < 0.036 + (DC.rush || 0) * 0.001, cfLost = cf && R() < 0.5;
+      const cf = y > 0 && st.ballOn + y < 100 && R() < 0.023 + (DC.rush || 0) * 0.0007, cfLost = cf && R() < 0.5;
       if (cfLost) {
         const wid = DU.hawks[Math.floor(R() * DU.hawks.length)]; entry.defId = wid; entry.ev = 'fumble'; entry.yards = y;
         giveBall(d, 100 - Math.min(st.ballOn + y, 98));
@@ -1456,7 +1465,8 @@ function replay(seed, teams, moves, cpuSides) {
       if (!lm || !E.LIVE) { wait = { n, off, def, om, dm }; break; }
       lv = liveOutcome(seed, n, st, legalOff(st, om.pick), DEF_CALLS[dm.pick] ? dm.pick : 'ZONE', sn.teams[off], sn.teams[def], om.ctl ? 1 : 0, dm.ctl ? 1 : 0, lm[off], lm[def]);
     }
-    const fl = { o: !!om.to, d: !!(dm && dm.to) };
+    const pref = (m, side) => m && m.two ? 1 : cpuSides.indexOf(side) >= 0 ? 'cpu' : 0;   // go for two after a touchdown: the player's switch, or the CPU's chart
+    const fl = { o: !!om.to, d: !!(dm && dm.to), two: { [off]: pref(om, off), [def]: pref(dm, def) } };
     let res = stepGame(st, sn.teams, sn.U, seed, om.pick, dm ? dm.pick : null, lv, fl);
     const ro = res.entry.retOpp;
     if (ro && E.LIVE && cpuSides.indexOf(ro.recv) < 0 && lastCtl(moves, ro.recv, kick ? n - 1 : n)) {   // (on a kick the receiver has not necessarily made a move yet: go by his earlier ones)
@@ -1563,7 +1573,7 @@ function cleanMoves(raw, side) {
     if (m[2] === 'rv') { const ev = cleanTrace(v.ev); if (ev && (v.s === 'a' || v.s === 'b') && (!side || v.s === side)) mv[k] = { s: v.s, ev }; return; }
     if (m[2] === 'lv') { const a = cleanTrace(v.a), b = cleanTrace(v.b); if (a && b) mv[k] = { a, b }; return; }
     if (side && m[2] !== side) return;
-    if (typeof v.pick === 'string' && v.pick.length <= 12) { mv[k] = { pick: v.pick }; if (v.ctl) mv[k].ctl = 1; if (v.to) mv[k].to = 1; }
+    if (typeof v.pick === 'string' && v.pick.length <= 12) { mv[k] = { pick: v.pick }; if (v.ctl) mv[k].ctl = 1; if (v.to) mv[k].to = 1; if (v.two) mv[k].two = 1; }
   });
   return mv;
 }
@@ -1575,6 +1585,9 @@ function cpuMove(st, U, side, seed, role) {
 }
 
 /* ================= CPU opponent ================= */
+// the two-point chart, second half only: go for two when it turns the margin into one that matters (score is after the touchdown)
+const GO2 = { 1: 1, 4: 1, 5: 1, 12: 1, 19: 1, '-2': 1, '-5': 1, '-9': 1, '-10': 1, '-13': 1 };
+function cpuGo2(s, team) { return s.q >= 3 && !s.ot && !!GO2[s.score[team] - s.score[oth(team)]]; }
 // the computer onside kicks when it is behind late in the fourth quarter
 function cpuKick(st, me, rnd) {
   if (st.ot || st.q !== 4) return 'KO';
@@ -1719,7 +1732,7 @@ const E = {
   DATA: D, QLEN, CAP, noDef, TEAMS, PLAYERS, OLU, DFU, SLOTS, GROUPS, OFF, OFF_CATS, DEF_CALLS, DEF_CATS, MATCH, matchup, defOptions,
   KICK, KRS, PRS, STU, stSquad, stFrom, personnel, snapTeams, energy, FAT_DROP, onFire, FIRE_BOOST, FIRE_SNAPS, CONF_BOOST, CONF_SNAPS, RET_FROM, normRoster, returnerCands, bestReturner, withReturner, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
   drawOptions, autoDraft, fgDist, legalOff, offOptions, initState, clockInfo,
-  KICKS, cpuKick, boxScore, stepGame, replay, lastCtl, retInfo, cpuOffense, cpuDefense, suggest, COACH, cleanMoves, cleanTrace, cpuTO
+  KICKS, cpuKick, boxScore, stepGame, replay, lastCtl, retInfo, cpuOffense, cpuDefense, cpuGo2, suggest, COACH, cleanMoves, cleanTrace, cpuTO
 };
 if (typeof module !== 'undefined' && module.exports) { module.exports = E; require('./live.js'); }
 else root.E = E;
@@ -1805,7 +1818,7 @@ function vmaxOf(grp, o, s) {
 }
 const ACC = 16, ACC_HUMAN = 25;
 // pass protection tuning: bias per tick (base, plus extra while the line is still setting up), help per free lineman, skill weight, noise, how hard a losing block gets driven back, when a block is beaten
-const PRO = { flyDB: 0.19, flyLB: 0.12, flyDL: 0.05, flyPick: 0.10, fum: 0.042, fumSack: 2.2, ball: 4, blitzDelay: 6, blitzEdge: 0.006, base: 0.0038, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82, latLoose: 0.3, lateT: 46, lateT2: 80, swim: 0.2, swimLev: 0.9, bull: 0.5, bullCool: 8, getoff: 0.2, getoffT: 6, burst: 14 };
+const PRO = { flyDB: 0.19, flyLB: 0.12, flyDL: 0.05, flyPick: 0.10, fum: 0.028, fumSack: 2.0, ball: 4, blitzDelay: 6, blitzEdge: 0.006, base: 0.0038, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82, latLoose: 0.3, rel: 2.0, catchH: 1.4, dlHands: 2.6, batLow: 0.4, lateT: 46, lateT2: 80, swim: 0.2, swimLev: 0.9, bull: 0.5, bullCool: 8, getoff: 0.2, getoffT: 6, burst: 14 };
 // trick plays on the field
 function pitch(sim, from, to) {
   const B = sim.ball, f = sim.by[from], r = sim.by[to];
@@ -1853,9 +1866,9 @@ function create(ctx) {
   if (ctx.ret) return createRet(ctx);
   const OS = ctx.OS, DS = ctx.DS, play = E.OFF[ctx.offPick] ? ctx.offPick : 'RUN_IN', dplay = E.DEF_CALLS[ctx.defPick] ? ctx.defPick : 'ZONE';
   const spec = E.OFF[play].cat === 'TRICK' ? E.OFF[play].live : E.OFF[play].cat, call = E.DEF_CALLS[dplay].cat, pm = PM[play] || {};   // trick plays line up like the play they disguise
-  const R = mulberry32(hashStr(ctx.seed + ':live:' + ctx.playNo));
+  const R = mulberry32(hashStr(ctx.seed + ':live:' + ctx.playNo)), R2 = mulberry32(hashStr(ctx.seed + ':live2:' + ctx.playNo));   // R2: a second stream (low throws), so nothing drawn from R moves
   const sim = {
-    t: 0, P: [], by: {}, R, goalX: 100 - ctx.ballOn, backX: -ctx.ballOn, offPick: spec, defPick: call, play, dplay, pm, toGo: ctx.toGo,
+    t: 0, P: [], by: {}, R, R2, goalX: 100 - ctx.ballOn, backX: -ctx.ballOn, offPick: spec, defPick: call, play, dplay, pm, toGo: ctx.toGo,
     dec: pm.dec || DECIDE[spec], drop: pm.drop != null ? pm.drop : DROP[spec], hoT: pm.hoT || 7, wideY: pm.wide || 6,
     ball: { x: -3.2, y: 0, z: 0, st: 'snap', car: null, air: null }, pairs: [], out: null, hist: {}, ctl: { o: { dx: 0, dy: 0 }, d: { dx: 0, dy: 0 } },
     ctlId: { o: 'QB', d: null }, human: { o: !!ctx.ctlO, d: !!ctx.ctlD }, kind: /^RUN/.test(spec) ? 'run' : 'pass', handoff: 0, thrown: 0, evt: [], ratO: null, ratD: null
@@ -2287,7 +2300,10 @@ function throwTo(sim, id, humanThrow, lob) {
   ex += gauss(R) * sig * 0.8; ey += gauss(R) * sig * 0.6;
   ey = clamp(ey, -YB - 1, YB + 1);
   const d = sqrt((ex - q.x) * (ex - q.x) + (ey - q.y) * (ey - q.y)), n = max(4, Math.ceil(d / (vb * DT)));
-  B.st = 'air'; B.car = null; B.air = { sx: q.x, sy: q.y, ex, ey, n, k: 0, peak: lob ? clamp(d * 0.3, 3, 10) : clamp(d * 0.13, 0.8, 5), lob: !!lob };
+  // the ball leaves his hand at head height and comes down at the receiver's hands; now and then (more under pressure) he throws it low,
+  // and only then can a lineman at the line get a hand on it
+  const low = sim.R2() < clamp(0.04 + pr * 0.1, 0.03, 0.14);
+  B.st = 'air'; B.car = null; B.air = { sx: q.x, sy: q.y, ex, ey, n, k: 0, peak: (lob ? clamp(d * 0.3, 3, 10) : clamp(d * 0.13, 0.8, 5)) * (low ? 0.5 : 1), lob: !!lob, rel: low ? 1.4 : PRO.rel, low };
   sim.ctlId.o = id;
   sim.evt.push(['throw', sim.t, id, lob ? 1 : 0]);
   // defenders recognise the ball after their reaction lag
@@ -2519,7 +2535,7 @@ function ballLogic(sim, carrier) {
   if (B.st === 'air') {
     const a = B.air; a.k++;
     if (a.pitch) { const r = sim.by[a.pitch]; a.ex = r.x; a.ey = r.y; }   // a pitch or lateral goes to the man, wherever he is
-    const f = a.k / a.n; B.x = a.sx + (a.ex - a.sx) * f; B.y = a.sy + (a.ey - a.sy) * f; B.z = 4 * a.peak * f * (1 - f);
+    const f = a.k / a.n; B.x = a.sx + (a.ex - a.sx) * f; B.y = a.sy + (a.ey - a.sy) * f; B.z = (a.rel != null ? a.rel * (1 - f) + PRO.catchH * f : 0) + 4 * a.peak * f * (1 - f);
     if (a.k >= a.n) { landBall(sim); return; }
     if (!a.away && !a.pitch && contestFlight(sim)) return;
     return;
@@ -2596,8 +2612,8 @@ function contestFlight(sim) {
   for (let i = 0; i < sim.P.length; i++) {
     const p = sim.P[i];
     if (p.side !== 'd' || p.hold > 0 || p.grp === 'OL' || p.grp === 'QB' || a.tried[p.id]) continue;
-    if (p.eng && p.grp === 'DL') continue;
-    const reach = (p.grp === 'DL' ? 1.2 : 1.9) + (p.jump > 0 ? 1.1 : 0), hz = 3.3 + (p.jump > 0 ? 1.7 : 0);
+    if (p.eng && p.grp === 'DL' && !a.low) continue;   // a blocked lineman can still get his hands up to a low throw
+    const reach = (p.grp === 'DL' ? 1.2 : 1.9) + (p.jump > 0 ? 1.1 : 0), hz = p.grp === 'DL' ? PRO.dlHands + (p.jump > 0 ? 0.6 : 0) : 3.3 + (p.jump > 0 ? 1.7 : 0);   // a lineman's hands reach about 8 feet
     if (B.z > hz) continue;
     const dx = p.x - B.x, dy = p.y - B.y;
     if (dx * dx + dy * dy > reach * reach) continue;
@@ -2609,7 +2625,7 @@ function contestFlight(sim) {
   for (let i = 0; i < cl.length; i++) {
     const p = cl[i]; a.tried[p.id] = 1;
     const tg = sim.by[sim.byTarget], tr = tg ? tg.rat : 70;
-    const base = p.grp === 'DL' ? PRO.flyDL : p.grp === 'LB' ? PRO.flyLB : PRO.flyDB;
+    const base = p.grp === 'DL' ? (a.low ? PRO.batLow : PRO.flyDL) : p.grp === 'LB' ? PRO.flyLB : PRO.flyDB;   // a low throw into the line gets batted
     const pw = clamp(base + (p.rat - tr) * 0.004 + (p.jump > 0 ? 0.2 : 0) + (p.dive > 0 ? 0.05 : 0), 0.03, 0.7);
     if (R() >= pw) continue;
     const pick = (PRO.flyPick + (p.rat - 62) * 0.003) * (sim.pm.safe || 1) * (p.grp === 'DL' ? 0.3 : 1);
@@ -2640,6 +2656,7 @@ function landBall(sim) {
   const cands = [];
   sim.P.forEach(p => {
     if (p.hold > 0 || p.grp === 'OL' || p.grp === 'QB') return;
+    if (p.side === 'd' && (p.eng || (p.grp === 'DL' && !a.low))) return;   // a blocked man, or a lineman under a ball thrown over him, cannot play it
     const d = sqrt((p.x - a.ex) * (p.x - a.ex) + (p.y - a.ey) * (p.y - a.ey));
     const rr = p.side === 'o' ? 1.9 : (p.jump > 0 ? 3.0 : 2.4);
     if (d > rr) return;
@@ -2932,7 +2949,8 @@ function setUsage(L, tid, pid, v) {
   p.use = v; return null;
 }
 function teamsFor(L, aId, bId) {
-  return { a: { name: L.teams[aId].nick, squad: squadOf(L, aId) }, b: { name: L.teams[bId].nick, squad: squadOf(L, bId) } };
+  const T = id => ({ name: L.teams[id].nick, squad: squadOf(L, id), c1: L.teams[id].c1, c2: L.teams[id].c2 });   // (the colours are only for the screen)
+  return { a: T(aId), b: T(bId) };
 }
 function teamRating(L, tid) {
   const U = E.teamUnits({ squad: squadOf(L, tid) });
@@ -4398,7 +4416,7 @@ const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
   myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
   poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null,
-  ctlOn: lsGet('gd_ctl') === '1', toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
+  ctlOn: lsGet('gd_ctl') === '1', twoOn: lsGet('gd_two') === '1', twoN: {}, toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
 };
 
 /* ---------- sprites ---------- */
@@ -4471,6 +4489,29 @@ function slotKey(slotIdx, id) {
 }
 // on the field every sprite wears its drafted side's colors
 const SIDE_J = { a: 'ff6b4a', b: '4aa8ff' }, SIDE_H = { a: 'b83c22', b: '2a6fb8' };
+/* team colours for this game: a real franchise wears its own (campaign, leagues, tournaments, or a quick-game team named after one),
+   any other team a colour picked from its name. If the two would look alike the second team wears its other colour, or white.
+   TEAM_COL (text, bars, the field's flashes) is the jersey colour, lightened when it is too dark to read on the dark background. */
+const PALETTE = ['#e8483b', '#2f7de1', '#f2b21b', '#1fa463', '#8e44ad', '#ff7f2a', '#14b8c4', '#d6336c', '#7cb342', '#5c6bc0', '#c0a062', '#00897b'];
+function teamColors(seat) {
+  if (seat.c1) return { c1: seat.c1, c2: seat.c2 || '#ffffff' };
+  const nm = String(seat.name || ''), fr = E.TEAMS.find(t => t.nick === nm || t.city + ' ' + t.nick === nm || t.abbr === nm);
+  if (fr) return { c1: fr.c1, c2: fr.c2 };
+  const c = PALETTE[E.hashStr(nm) % PALETTE.length]; return { c1: c, c2: shadeHex(c, -0.5) };
+}
+const shadeHex = (h, f) => '#' + hex2rgb(h).map(v => ('0' + Math.round(v + ((f < 0 ? 0 : 255) - v) * Math.abs(f)).toString(16)).slice(-2)).join('');
+const colDist = (x, y) => { const a = hex2rgb(x), b = hex2rgb(y); return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]); };
+const readable = h => { let c = h, k = 0; while (lum(c) < 0.38 && k++ < 8) c = shadeHex(c, 0.18); return c; };
+function applyTeamColors() {
+  const A = teamColors(S.seats.a || {}), B = teamColors(S.seats.b || {}), trim = (tm, j) => j.toLowerCase() === tm.c1.toLowerCase() ? tm.c2 : tm.c1;
+  const ja = jerseyOf(A); let jb = jerseyOf(B);
+  if (colDist(ja, jb) < 120) { const alt = trim(B, jb); jb = colDist(ja, alt) >= 120 && lum(alt) >= 0.14 ? alt : '#f0f0f0'; }
+  SIDE_J.a = hexNo(ja); SIDE_H.a = hexNo(trim(A, ja)); SIDE_J.b = hexNo(jb); SIDE_H.b = hexNo(jb === '#f0f0f0' ? B.c1 : trim(B, jb));
+  if (SIDE_H.a.toLowerCase() === SIDE_J.a.toLowerCase()) SIDE_H.a = hexNo(shadeHex(ja, -0.45));
+  if (SIDE_H.b.toLowerCase() === SIDE_J.b.toLowerCase()) SIDE_H.b = hexNo(shadeHex(jb, -0.45));
+  TEAM_COL.a = readable(ja); TEAM_COL.b = readable(jb);
+  const g = $('.game'); if (g) { g.style.setProperty('--ta', TEAM_COL.a); g.style.setProperty('--tb', TEAM_COL.b); }
+}
 function fieldKey(base, side) { const p = base.split(':'); return p[0] + ':' + p[1] + ':' + SIDE_J[side] + ':' + SIDE_H[side]; }
 function paintCanvases(root) {
   root.querySelectorAll('canvas[data-sp]').forEach(cv => {
@@ -4540,8 +4581,8 @@ function teamOf(seat) {
   const name = String(d.name || 'Team ' + seat.toUpperCase()).slice(0, 18);
   return d.squad ? { name, squad: d.squad } : { name, roster: d.roster, squad: E.squadFromRoster(d.roster) };
 }
-const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}) : { pick: v };
-const myMove = n => Object.assign({ pick: S.mine[n] }, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {});
+const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}, v.w ? { two: 1 } : {}) : { pick: v };
+const myMove = n => Object.assign({ pick: S.mine[n] }, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {}, S.twoN[n] ? { two: 1 } : {});
 function allMoves() {
   const mv = Object.assign({}, S.moves);
   if (S.me) for (const n in S.mine) mv[n + '-' + S.me] = myMove(n);
@@ -4812,6 +4853,7 @@ const Field = {
         if (fl && !this.flash) {
           this.flash = { text: fl[0], color: fl[1] ? TEAM_COL[fl[1]] : '#efe9d6' };
           if (turnover) { this.flash.turn = (teams[entry.after.poss] || {}).name || ''; this.flash.sub = turnoverLine(entry); }
+          if (entry.two) this.flash.sub = entry.two > 0 ? 'TWO-POINT TRY IS GOOD' : 'TWO-POINT TRY FAILS';
           this.celebrate(fl[0], this.flash.color);
         }
         if (entry.contested && !this.flash) { this.flash = { text: 'CONTESTED CATCH', color: '#ffcf3f', sub: 'OVER ' + (entry.contested >= 3 ? 'THREE' : 'TWO') + ' DEFENDERS' + (entry.conf ? ' · +' + (entry.contested >= 3 ? E.CONF_BOOST + 2 : E.CONF_BOOST) + ' CONFIDENCE' : '') }; this.celebrate('CONTESTED', '#ffcf3f'); }
@@ -4922,7 +4964,7 @@ function resetForMode() {
   stopPoll();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
   S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.scene = null;
-  S.ctlN = {}; S.toN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
+  S.ctlN = {}; S.toN = {}; S.twoN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
 }
 function startLocal() {
   readName();
@@ -5290,7 +5332,7 @@ function buildGame() {
 function updateGame() {
   const G = derive();
   if (!G) { drawWait(); return; }
-  S.G = G;
+  S.G = G; applyTeamColors();
   const st = G.state, T = G.teams, ck = E.clockInfo(st);
   document.body.classList.toggle('gover', !!st.over);
   const set = (id, v) => { const el = $(id); if (el && el.textContent !== String(v)) el.textContent = v; };
@@ -5420,7 +5462,7 @@ function renderCall0(G) {
   const cats = callCats(role, st), cat = callCat(role, st), shown = callOpts(role, st).filter(o => o.cat === cat);
   let k = 0;
   p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
-    coachRowHTML(G, role) + fireRowHTML(st, role) + ctlRowHTML(role) + toRowHTML(st) + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
+    coachRowHTML(G, role) + fireRowHTML(st, role) + ctlRowHTML(role) + toRowHTML(st) + twoRowHTML() + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
     '<div class="cats" role="tablist" aria-label="Play type">' + cats.map(c => '<button class="cat' + (c.id === cat ? ' on' : '') + '" role="tab" aria-selected="' + (c.id === cat) + '" data-act="cat" data-cat="' + c.id + '">' + esc(c.label) + '<i>' + c.n + '</i></button>').join('') + '</div>' +
     '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k, rec = coachPicks(G, role).indexOf(o.id); return '<button class="call' + (rec >= 0 ? ' rec' : '') + '" data-act="call" data-id="' + o.id + '" title="' + esc(o.desc) + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span>' + (rec >= 0 ? '<i class="cbadge">' + (rec ? 'Coach' : '★ Coach') + '</i>' : '') + '<b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
 }
@@ -5463,6 +5505,11 @@ function toRowHTML(st) {
   if (left <= 0) return '<div class="ctlrow"><span class="hint">Clock running, no timeouts left.</span></div>';
   const on = toSel(st.playNo);
   return '<div class="ctlrow"><button class="btn small ctl' + (on ? ' on' : '') + '" data-act="to-toggle" aria-pressed="' + on + '">Timeout (' + left + ' left): ' + (on ? 'YES' : 'no') + '</button><span class="hint">Clock is running. A timeout stops it and gives back the ' + st.ro + ' second' + (st.ro === 1 ? '' : 's') + ' that just ran off. Press T.</span></div>';
+}
+// go for two after a touchdown (remembered; it rides along with every call, so it counts for whichever snap scores, a pick-six too)
+function twoRowHTML() {
+  const on = S.twoOn;
+  return '<div class="ctlrow"><button class="btn small ctl' + (on ? ' on' : '') + '" data-act="two-toggle" aria-pressed="' + on + '">After a TD: ' + (on ? 'GO FOR 2' : 'kick the PAT') + '</button><span class="hint">' + (on ? 'A touchdown is followed by a two-point try (about 50/50). ' : 'Extra point after a touchdown. ') + 'Press V to switch.</span></div>';
 }
 function ctlRowHTML(role) {
   const on = S.ctlOn;
@@ -5513,8 +5560,9 @@ function submitCall(pick) {
   const to = toSel(n) && st.ro > 0 && st.to[S.me] > 0 ? 1 : 0;
   if (to) S.toN[n] = 1; else delete S.toN[n];
   if (ctl) S.ctlN[n] = 1; else delete S.ctlN[n];
+  const two = S.twoOn && !st.kick ? 1 : 0; if (two) S.twoN[n] = 1; else delete S.twoN[n];   // go for two if this snap ends in our touchdown
   if (S.mode === 'online') {
-    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; S.callSig = null; handleErr(e); updateGame(); });
+    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to, two }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; S.callSig = null; handleErr(e); updateGame(); });
   }
   updateGame();
 }
@@ -5910,7 +5958,7 @@ function ctxFinish(G) {
 function startCtxCpu(info, ctx) {   // info: {T, seed, side, cpuSide}
   resetForMode();
   S.mode = 'local'; S.code = null; S.me = info.side; S.cpuSides = info.cpuSide ? [info.cpuSide] : []; S.seed = info.seed;
-  S.seats.a = { status: 'ready', name: info.T.a.name, squad: info.T.a.squad }; S.seats.b = { status: 'ready', name: info.T.b.name, squad: info.T.b.squad };
+  S.seats.a = { status: 'ready', name: info.T.a.name, squad: info.T.a.squad, c1: info.T.a.c1, c2: info.T.a.c2 }; S.seats.b = { status: 'ready', name: info.T.b.name, squad: info.T.b.squad, c1: info.T.b.c1, c2: info.T.b.c2 };
   S.ctx = Object.assign({ kind: 'cpu', label: 'Game', sent: false, status: '' }, ctx);
   render();
 }
@@ -5958,6 +6006,7 @@ document.addEventListener('click', ev => {
   else if (a === 'call') submitCall(t.dataset.id);
   else if (a === 'cat') openCat(t.dataset.cat);
   else if (a === 'ctl-toggle') { S.ctlOn = !S.ctlOn; lsSet('gd_ctl', S.ctlOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
+  else if (a === 'two-toggle') { S.twoOn = !S.twoOn; lsSet('gd_two', S.twoOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
   else if (a === 'to-toggle') { const n = S.G.state.playNo; S.toSel = { n, on: !toSel(n) }; S.callSig = null; renderCall(S.G); }
   else if (a === 'hurry') hurry();
   else if (a === 'live-hand') LV.hand();
@@ -5975,6 +6024,7 @@ document.addEventListener('keydown', ev => {
   if (LV.on) { if (LV.key(ev, true)) return; }
   if (S.screen === 'game' && (ev.key === 'f' || ev.key === 'F') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { toggleFull(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
+  if (S.screen === 'game' && !LV.on && (ev.key === 'v' || ev.key === 'V')) { const b = $('[data-act="two-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && $('#callpanel .cats')) { ev.preventDefault(); stepCat(ev.key === 'ArrowRight' ? 1 : -1); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'r' || ev.key === 'R')) { hurry(); return; }
@@ -6021,6 +6071,12 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-26', title: 'Two-point conversions, team colours, fewer fumbles', items: [
+    'Two-point conversions: switch After a TD to Go for 2 on the call screen (or press V). The CPU goes for two when the chart says so.',
+    'Every team plays in its own colours: NFL teams in theirs, and every other team gets a colour of its own.',
+    'Fewer fumbles: about 1.5 a game now, closer to the real NFL.',
+    'Passes go over the line instead of through it: linemen only bat down low throws.'
+  ] },
   { id: '2026-10-24', title: 'Better campaign draft classes, with sleepers', items: [
     'Every draft class now has a few future superstars (potential 93-99) and a couple of dozen future stars, and rookies start like rookies.',
     'Potential is scouted, not known: the draft board shows the scouts\' estimate (pot ~88). Some players who look like stars are busts, and some late-round players are sleepers who can become stars.',
