@@ -75,3 +75,22 @@ console.log('ALL DONE');
     if (o.t >= 260 && !o.by && !o.td && !o.oob) late++;
     if (o.by) { const q = s.by[o.by], c = s.by[o.who]; if (Math.hypot(q.x - c.x, q.y - c.y) > 0.85) far++; } }
   ok(late === 0 && far === 0, 'no run is cut off by the clock, and every tackler ends up on the man he tackled (' + n + ' plays)'); }
+// a run that lasts the whole snap (30 s) ends with him going down, and the play says so (not a tackle out of nowhere)
+{ const sim = LV.create(ctx(5, { offPick: 'RUN_OUT', ctlO: false, ctlD: true })), co = LV.cursor([]), cd = LV.cursor([]);
+  while (!sim.out && !(sim.ball.car === 'HB' && sim.handoff)) LV.advance(sim, co, cd);
+  sim.D.forEach(q => { q.x = 60; q.y = 0; q.hold = 9999; }); sim.t = LV.MAXT - 2; sim.goalX = 999;   // nobody near him, and time nearly up
+  while (!sim.out) LV.advance(sim, co, cd);
+  ok(sim.out.slide && !sim.out.by && sim.out.t >= LV.MAXT && LV.MAXT / LV.TPS >= 30, 'a run is only called when the snap is out of time (' + LV.MAXT / LV.TPS + ' s), and then he simply goes down');
+  const U = { a: E.teamUnits(T.a), b: E.teamUnits(T.b) }, st = Object.assign(E.initState(5), { kick: false, poss: 'a', down: 1, toGo: 10, ballOn: 30 });
+  ok(/goes down to end the run/.test(E.stepGame(st, T, U, 5, 'RUN_OUT', 'ZONE', Object.assign({}, sim.out), {}).entry.text), 'the play-by-play says he went down'); }
+// no time limit on a runner: he goes until he is tackled, steps out or scores (only a 10-minute safety stop, where he simply goes down)
+{ const mk = () => { const sim = LV.create(ctx(5, { offPick: 'RUN_OUT', ctlO: false, ctlD: true })), co = LV.cursor([]), cd = LV.cursor([]);
+    while (!sim.out && !(sim.ball.car === 'HB' && sim.handoff)) LV.advance(sim, co, cd);
+    sim.D.forEach(q => { q.x = 80; q.y = 0; q.hold = 99999; }); sim.goalX = 9999; return { sim, co, cd }; };
+  { const { sim, co, cd } = mk(); sim.t = 1200; for (let i = 0; i < 40; i++) LV.advance(sim, co, cd);
+    ok(!sim.out, 'a runner in the open a minute into the snap is still running'); }
+  { const { sim, co, cd } = mk(); sim.t = LV.MAXT - 2; while (!sim.out) LV.advance(sim, co, cd);
+    ok(sim.out.slide && !sim.out.by && LV.MAXT / LV.TPS >= 600, 'only the safety stop (' + LV.MAXT / LV.TPS / 60 + ' minutes) ends it, and he just goes down');
+    const U = { a: E.teamUnits(T.a), b: E.teamUnits(T.b) }, st = Object.assign(E.initState(5), { kick: false, poss: 'a', down: 1, toGo: 10, ballOn: 30 });
+    ok(/goes down to end the run/.test(E.stepGame(st, T, U, 5, 'RUN_OUT', 'ZONE', Object.assign({}, sim.out), {}).entry.text), 'and the play-by-play says so'); }
+  ok(E.cleanTrace([LV.enc(LV.MAXT + 5, 1, 0, 0)]) !== null && E.cleanTrace(new Array(3000).fill(LV.enc(5, 0, 0, 0))) !== null, 'the server takes inputs for a snap that long'); }

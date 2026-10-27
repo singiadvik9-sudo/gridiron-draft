@@ -20,11 +20,11 @@ async function liveOp(res, b, code, seat) {
     if (other && now - (other.t || 0) < 5000) return fail(res, 409, 'alive');
     const mk = (o.ev.length ? Math.floor(o.ev[o.ev.length - 1] / 100) : 0);
     const tick = Math.max(o.upto || 0, mk) + 1;
-    const nr = { ev: o.ev.concat([tick * 100 + 49]), upto: 9999, fin: true, t: now, f: 1 };
+    const nr = { ev: o.ev.concat([tick * 100 + 49]), upto: 99999, fin: true, t: now, f: 1 };
     await setJ(her, nr, TTL);
     return send(res, 200, { o: nr });
   }
-  const ev = E.cleanTrace(b.ev), upto = Number.isInteger(b.upto) ? Math.max(0, Math.min(9999, b.upto)) : 0;
+  const ev = E.cleanTrace(b.ev), upto = Number.isInteger(b.upto) ? Math.max(0, Math.min(99999, b.upto)) : 0;
   if (!ev) return fail(res, 400, 'bad_request');
   if (mine && mine.f) return send(res, 200, { o: other || null, forced: mine });
   let rec = mine;
