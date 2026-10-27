@@ -91,7 +91,7 @@ const mk = n => { const r = E.mulberry32(n); return [E.mkTeam('A', E.autoDraft(r
   const R3 = E.replay(seed, teams, m2, []);
   ok(R3.wait && R3.wait.n === first && R3.log.length === first, 'replay waits for the inputs of play ' + first);
   // input cleaning
-  const dirty = { '3-a': { pick: 'RUN_IN', ctl: 1, x: 1 }, '3-b': { pick: 'ZONE' }, '3-lv': { a: [1, 2, 3], b: [] }, '4-lv': { a: [1.5], b: [] }, '5-lv': { a: new Array(600).fill(1), b: [] }, 'zz': {}, '9-a': { pick: 'X'.repeat(20) } };
+  const dirty = { '3-a': { pick: 'RUN_IN', ctl: 1, x: 1 }, '3-b': { pick: 'ZONE' }, '3-lv': { a: [1, 2, 3], b: [] }, '4-lv': { a: [1.5], b: [] }, '5-lv': { a: new Array(5000).fill(1), b: [] }, 'zz': {}, '9-a': { pick: 'X'.repeat(20) } };
   const c = E.cleanMoves(dirty, 'a');
   ok(c['3-a'] && c['3-a'].ctl === 1 && !c['3-b'] && c['3-lv'] && !c['4-lv'] && !c['5-lv'] && !c['9-a'] && !c.zz, 'client moves are cleaned');
 }
@@ -134,7 +134,7 @@ const mk = n => { const r = E.mulberry32(n); return [E.mkTeam('A', E.autoDraft(r
   await call(Object.assign({ op: 'live', n: 1, ev: [], upto: 5 }, B));
   const globalMem = globalThis.__gdmem; const key = 'gd:' + code + ':lv:1:b'; const cur = JSON.parse(globalMem.get(key).val); cur.t = Date.now() - 9000; globalMem.set(key, { val: JSON.stringify(cur), exp: 0 });
   r = await call(Object.assign({ op: 'live', n: 1, force: 1 }, A));
-  ok(r.o && r.o.f === 1 && r.o.upto === 9999 && E.LIVE.dec(r.o.ev[r.o.ev.length - 1])[3] === 9, 'a vanished player is handed to the computer');
+  ok(r.o && r.o.f === 1 && r.o.upto === 99999 && E.LIVE.dec(r.o.ev[r.o.ev.length - 1])[3] === 9, 'a vanished player is handed to the computer');
   r = await call(Object.assign({ op: 'live', n: 1, ev: [], upto: 7 }, B));
   ok(r.forced && r.forced.f === 1, 'the returning player is told');
   if (!process.exitCode) console.log('ALL OK');

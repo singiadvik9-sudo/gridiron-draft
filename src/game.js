@@ -24,7 +24,7 @@ const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
   myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
   poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null,
-  ctlOn: lsGet('gd_ctl') === '1', twoOn: lsGet('gd_two') === '1', twoN: {}, toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
+  ctlOn: lsGet('gd_ctl') === '1', pcOn: lsGet('gd_pc') !== '0', twoOn: lsGet('gd_two') === '1', twoN: {}, toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
 };
 
 /* ---------- sprites ---------- */
@@ -957,7 +957,7 @@ function updateGame() {
   const aEl = $('.sb-team.a'), bEl = $('.sb-team.b');
   if (aEl) aEl.classList.toggle('has', !st.over && st.poss === 'a');
   if (bEl) bEl.classList.toggle('has', !st.over && st.poss === 'b');
-  set('#sb-q', st.over ? 'FINAL' : ck.q + ' · ' + ck.text + (ck.running ? ' ▶' : ''));
+  set('#sb-q', st.over ? 'FINAL' : ck.q + ' · ' + clockText(G) + (ck.running ? ' ▶' : ''));
   set('#sb-to', st.over ? '' : 'Timeouts ' + st.to.a + ' · ' + st.to.b);
   set('#sb-dd', st.over ? '' : ddLabel(st));
   set('#sb-ball', st.over ? '' : 'Ball on ' + spotLabel(st, T));
@@ -981,6 +981,30 @@ function updateGame() {
   if (LV.on) LV.panel(false); else renderCall(G);
   if (S.ctx && st.over) ctxFinish(G);
 }
+/* the clocks on screen. The game clock runs down in real time: while you call a play it ticks away the run-off the engine has already
+   taken (at most 5 s, so the snap happens at the clock shown), and during a snap played on the field it counts the play's seconds. The
+   play clock gives you PLAY_CLOCK seconds on the call screen (paused while a play is shown); when it runs out the coach calls his pick. */
+const PLAY_CLOCK = 25;
+function clockText(G) {
+  const st = G.state, m = LV.on;
+  let c = st.clock;
+  if (m && m.st && m.st.playNo === st.playNo) c = m.st.clock - Math.min(8, Math.floor(m.sim.t / LIVE.TPS));
+  else if (st.ro > 0 && S.pc && S.pc.n === st.playNo) c = st.clock + Math.max(0, Math.ceil(st.ro - S.pc.run));
+  c = Math.max(0, c); return Math.floor(c / 60) + ':' + ('0' + (c % 60)).slice(-2);
+}
+function clockTick() {
+  const G = S.G, now = performance.now(), dt = S.pcLast ? (now - S.pcLast) / 1000 : 0; S.pcLast = now;
+  if (S.screen !== 'game' || !G || G.state.over) return;
+  const st = G.state, role = S.me === st.poss ? 'off' : 'def', key = st.playNo + role;
+  if (!S.pc || S.pc.key !== key) S.pc = { key, n: st.playNo, run: 0 };
+  const calling = !LV.on && !document.body.classList.contains('fbusy') && S.mine[st.playNo] == null && !!$('#callpanel .calls');
+  if (calling) S.pc.run += Math.min(dt, 0.5);
+  const q = $('#sb-q'); if (q) { const ck = E.clockInfo(st), t = ck.q + ' · ' + clockText(G) + (ck.running || LV.on ? ' ▶' : ''); if (q.textContent !== t) q.textContent = t; }
+  const pc = $('#pclock');
+  if (pc && S.pcOn) { const left = Math.max(0, Math.ceil(PLAY_CLOCK - S.pc.run)); pc.textContent = 'PLAY CLOCK ' + left; pc.classList.toggle('urgent', left <= 5); }
+  if (calling && S.pcOn && S.pc.run >= PLAY_CLOCK && !S.pc.fired) { S.pc.fired = true; toast('Play clock: the coach called it.'); coachCall(); }
+}
+setInterval(clockTick, 250);
 const offLabel = id => (E.OFF[id] || E.KICKS[id] || { label: id }).label;
 function renderBanner(G) {
   const el = $('#banner'); if (!el) return;
@@ -1077,7 +1101,7 @@ function renderCall0(G) {
   }
   const cats = callCats(role, st), cat = callCat(role, st), shown = callOpts(role, st).filter(o => o.cat === cat);
   let k = 0;
-  p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
+  p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><button class="pclock' + (S.pcOn ? '' : ' off') + '" id="pclock" data-act="pc-toggle" title="Play clock: the coach calls his pick when it runs out. P turns it on or off.">' + (S.pcOn ? 'PLAY CLOCK ' + PLAY_CLOCK : 'PLAY CLOCK OFF') + '</button><span class="sit">' + esc(sit) + '</span></div>' +
     coachRowHTML(G, role) + fireRowHTML(st, role) + ctlRowHTML(role) + toRowHTML(st) + twoRowHTML() + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
     '<div class="cats" role="tablist" aria-label="Play type">' + cats.map(c => '<button class="cat' + (c.id === cat ? ' on' : '') + '" role="tab" aria-selected="' + (c.id === cat) + '" data-act="cat" data-cat="' + c.id + '">' + esc(c.label) + '<i>' + c.n + '</i></button>').join('') + '</div>' +
     '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k, rec = coachPicks(G, role).indexOf(o.id); return '<button class="call' + (rec >= 0 ? ' rec' : '') + '" data-act="call" data-id="' + o.id + '" title="' + esc(o.desc) + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span>' + (rec >= 0 ? '<i class="cbadge">' + (rec ? 'Coach' : '★ Coach') + '</i>' : '') + '<b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
@@ -1245,6 +1269,7 @@ document.addEventListener('click', ev => {
   else if (a === 'call') submitCall(t.dataset.id);
   else if (a === 'cat') openCat(t.dataset.cat);
   else if (a === 'ctl-toggle') { S.ctlOn = !S.ctlOn; lsSet('gd_ctl', S.ctlOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
+  else if (a === 'pc-toggle') { S.pcOn = !S.pcOn; lsSet('gd_pc', S.pcOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
   else if (a === 'two-toggle') { S.twoOn = !S.twoOn; lsSet('gd_two', S.twoOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
   else if (a === 'to-toggle') { const n = S.G.state.playNo; S.toSel = { n, on: !toSel(n) }; S.callSig = null; renderCall(S.G); }
   else if (a === 'hurry') hurry();
@@ -1263,6 +1288,7 @@ document.addEventListener('keydown', ev => {
   if (LV.on) { if (LV.key(ev, true)) return; }
   if (S.screen === 'game' && (ev.key === 'f' || ev.key === 'F') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { toggleFull(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
+  if (S.screen === 'game' && !LV.on && (ev.key === 'p' || ev.key === 'P')) { const b = $('[data-act="pc-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'v' || ev.key === 'V')) { const b = $('[data-act="two-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && $('#callpanel .cats')) { ev.preventDefault(); stepCat(ev.key === 'ArrowRight' ? 1 : -1); return; }

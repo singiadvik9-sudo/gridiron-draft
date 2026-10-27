@@ -561,6 +561,9 @@ body.fbusy .fieldhost .callpanel { display: none; }   /* a play is being shown o
 .confrow { color: #7fe0ff; font-weight: 600; }
 .slp { font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #0b1020; background: #7fe0ff; padding: 1px 4px; }
 .bust { font-style: normal; font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #efe9d6; background: #8a3a3a; padding: 1px 4px; }
+.pclock { font-family: var(--display); font-size: 11px; letter-spacing: .05em; padding: 4px 8px; background: #0b1020; color: var(--chalk); border: 2px solid var(--line); margin-left: auto; margin-right: 10px; }
+.pclock.urgent { color: #ff5a4a; border-color: #ff5a4a; }
+.pclock.off { opacity: .55; }
 
 </style>
 <div class="wrap">
@@ -1150,6 +1153,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
              : y >= 15 ? who + ' breaks free for ' + yds(y) + '.' : lv.who === 'QB' ? who + ' scrambles for ' + yds(y) + '.' : who + ' runs for ' + yds(y) + '.';
       }
       if (lv.fum && !lv.td) { entry.fum = 'kept'; entry.defId = lv.fum; desc += ' The ball comes loose but ' + who + ' falls on it.'; }
+      if (lv.slide && !lv.td) desc += ' ' + who + ' goes down to end the run.';
       if (passed && lv.ct >= 2) { entry.contested = lv.ct; desc += ' ' + who + ' makes the catch over ' + (lv.ct >= 3 ? 'three' : 'two') + ' defenders!'; }
       else if (passed && lv.ck) { entry.catchK = lv.ck; desc += { dive: ' What a diving catch by ' + who + '!', toe: ' ' + who + ' gets both feet down on the sideline!', basket: ' ' + who + ' tracks it over his shoulder.' }[lv.ck] || ''; }
       entry.text = advance(y, desc);
@@ -1563,8 +1567,8 @@ function liveOutcome(seed, n, st, offPick, defPick, OT, DT, ctlO, ctlD, trO, trD
 // moves arriving from a client: "n-a"/"n-b" picks (only the sender's side) and "n-lv" input traces of snaps played on the field
 function cleanTrace(a) {
   if (a === undefined || a === null) return [];
-  if (!Array.isArray(a) || a.length > 500) return null;
-  for (let i = 0; i < a.length; i++) if (!Number.isInteger(a[i]) || a[i] < 0 || a[i] > 40000) return null;
+  if (!Array.isArray(a) || a.length > 4000) return null;
+  for (let i = 0; i < a.length; i++) if (!Number.isInteger(a[i]) || a[i] < 0 || a[i] > 1300000) return null;   // (tick * 100 + input: ticks up to the live sim's MAXT)
   return a;
 }
 function cleanMoves(raw, side) {
@@ -1752,8 +1756,9 @@ else root.E = E;
 'use strict';
 const E = root.E || require('./engine.js');
 const { mulberry32, hashStr, clamp, fit } = E;
-// PLAYT: a snap is called after 13 s, unless someone is running with the ball in the open (then MAXT, 19.5 s: inputs are stamped up to tick 399)
-const DT = 0.05, PLAYT = 260, MAXT = 390, YB = 7.4, TPS = 20;
+// PLAYT: a snap is called after 13 s unless someone is running with the ball (a runner goes until he is tackled, steps out or scores);
+// MAXT (10 minutes) is only a safety stop so a broken snap cannot run forever
+const DT = 0.05, PLAYT = 260, MAXT = 12000, YB = 7.4, TPS = 20;
 const sqrt = Math.sqrt, abs = Math.abs, min = Math.min, max = Math.max;
 const DIAG = 0.70710678;
 
@@ -2715,9 +2720,9 @@ function timeout(sim) {
   if (!car) return finish(sim, { k: 'inc', x: 0 });
   if (car.side === 'o') {
     if (car.id === 'QB' && sim.thrown === 0 && sim.kind === 'pass') return finish(sim, { k: 'inc', x: car.x, away: true });
-    return finish(sim, { k: sim.thrown ? 'pass' : 'run', x: car.x, who: car.id, tgt: sim.byTarget });
+    return finish(sim, { k: sim.thrown ? 'pass' : 'run', x: car.x, who: car.id, tgt: sim.byTarget, slide: true });   // (out of time: he goes down where he is)
   }
-  return finish(sim, { k: 'int', x: sim.intX, retX: car.x, by: sim.intBy, who: car.id });
+  return finish(sim, { k: 'int', x: sim.intX, retX: car.x, by: sim.intBy, who: car.id, slide: true });
 }
 
 /* ---------- running a whole play from traces (used for verification and for plays nobody watched live) ---------- */
@@ -4436,7 +4441,7 @@ const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
   myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
   poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null,
-  ctlOn: lsGet('gd_ctl') === '1', twoOn: lsGet('gd_two') === '1', twoN: {}, toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
+  ctlOn: lsGet('gd_ctl') === '1', pcOn: lsGet('gd_pc') !== '0', twoOn: lsGet('gd_two') === '1', twoN: {}, toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
 };
 
 /* ---------- sprites ---------- */
@@ -5369,7 +5374,7 @@ function updateGame() {
   const aEl = $('.sb-team.a'), bEl = $('.sb-team.b');
   if (aEl) aEl.classList.toggle('has', !st.over && st.poss === 'a');
   if (bEl) bEl.classList.toggle('has', !st.over && st.poss === 'b');
-  set('#sb-q', st.over ? 'FINAL' : ck.q + ' · ' + ck.text + (ck.running ? ' ▶' : ''));
+  set('#sb-q', st.over ? 'FINAL' : ck.q + ' · ' + clockText(G) + (ck.running ? ' ▶' : ''));
   set('#sb-to', st.over ? '' : 'Timeouts ' + st.to.a + ' · ' + st.to.b);
   set('#sb-dd', st.over ? '' : ddLabel(st));
   set('#sb-ball', st.over ? '' : 'Ball on ' + spotLabel(st, T));
@@ -5393,6 +5398,30 @@ function updateGame() {
   if (LV.on) LV.panel(false); else renderCall(G);
   if (S.ctx && st.over) ctxFinish(G);
 }
+/* the clocks on screen. The game clock runs down in real time: while you call a play it ticks away the run-off the engine has already
+   taken (at most 5 s, so the snap happens at the clock shown), and during a snap played on the field it counts the play's seconds. The
+   play clock gives you PLAY_CLOCK seconds on the call screen (paused while a play is shown); when it runs out the coach calls his pick. */
+const PLAY_CLOCK = 25;
+function clockText(G) {
+  const st = G.state, m = LV.on;
+  let c = st.clock;
+  if (m && m.st && m.st.playNo === st.playNo) c = m.st.clock - Math.min(8, Math.floor(m.sim.t / LIVE.TPS));
+  else if (st.ro > 0 && S.pc && S.pc.n === st.playNo) c = st.clock + Math.max(0, Math.ceil(st.ro - S.pc.run));
+  c = Math.max(0, c); return Math.floor(c / 60) + ':' + ('0' + (c % 60)).slice(-2);
+}
+function clockTick() {
+  const G = S.G, now = performance.now(), dt = S.pcLast ? (now - S.pcLast) / 1000 : 0; S.pcLast = now;
+  if (S.screen !== 'game' || !G || G.state.over) return;
+  const st = G.state, role = S.me === st.poss ? 'off' : 'def', key = st.playNo + role;
+  if (!S.pc || S.pc.key !== key) S.pc = { key, n: st.playNo, run: 0 };
+  const calling = !LV.on && !document.body.classList.contains('fbusy') && S.mine[st.playNo] == null && !!$('#callpanel .calls');
+  if (calling) S.pc.run += Math.min(dt, 0.5);
+  const q = $('#sb-q'); if (q) { const ck = E.clockInfo(st), t = ck.q + ' · ' + clockText(G) + (ck.running || LV.on ? ' ▶' : ''); if (q.textContent !== t) q.textContent = t; }
+  const pc = $('#pclock');
+  if (pc && S.pcOn) { const left = Math.max(0, Math.ceil(PLAY_CLOCK - S.pc.run)); pc.textContent = 'PLAY CLOCK ' + left; pc.classList.toggle('urgent', left <= 5); }
+  if (calling && S.pcOn && S.pc.run >= PLAY_CLOCK && !S.pc.fired) { S.pc.fired = true; toast('Play clock: the coach called it.'); coachCall(); }
+}
+setInterval(clockTick, 250);
 const offLabel = id => (E.OFF[id] || E.KICKS[id] || { label: id }).label;
 function renderBanner(G) {
   const el = $('#banner'); if (!el) return;
@@ -5489,7 +5518,7 @@ function renderCall0(G) {
   }
   const cats = callCats(role, st), cat = callCat(role, st), shown = callOpts(role, st).filter(o => o.cat === cat);
   let k = 0;
-  p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
+  p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><button class="pclock' + (S.pcOn ? '' : ' off') + '" id="pclock" data-act="pc-toggle" title="Play clock: the coach calls his pick when it runs out. P turns it on or off.">' + (S.pcOn ? 'PLAY CLOCK ' + PLAY_CLOCK : 'PLAY CLOCK OFF') + '</button><span class="sit">' + esc(sit) + '</span></div>' +
     coachRowHTML(G, role) + fireRowHTML(st, role) + ctlRowHTML(role) + toRowHTML(st) + twoRowHTML() + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
     '<div class="cats" role="tablist" aria-label="Play type">' + cats.map(c => '<button class="cat' + (c.id === cat ? ' on' : '') + '" role="tab" aria-selected="' + (c.id === cat) + '" data-act="cat" data-cat="' + c.id + '">' + esc(c.label) + '<i>' + c.n + '</i></button>').join('') + '</div>' +
     '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k, rec = coachPicks(G, role).indexOf(o.id); return '<button class="call' + (rec >= 0 ? ' rec' : '') + '" data-act="call" data-id="' + o.id + '" title="' + esc(o.desc) + '"' + (o.disabled ? ' disabled' : '') + '><span class="key">' + key + '</span>' + (rec >= 0 ? '<i class="cbadge">' + (rec ? 'Coach' : '★ Coach') + '</i>' : '') + '<b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
@@ -5660,7 +5689,7 @@ const LV = {
     this.lobArm = false;
     const m = this.on = {
       n, wn: ret ? RVN + n : n, ret: ret ? w.ro : null, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? this.D : 0, dir: off === 'a' ? 1 : -1, st, T, keys: ret ? retKeys(T, off, def) : liveKeys(T, off, def),
-      stream: { a: { ev: [], upto: ctl.a ? 0 : 9999, fin: !ctl.a }, b: { ev: [], upto: ctl.b ? 0 : 9999, fin: !ctl.b } },
+      stream: { a: { ev: [], upto: ctl.a ? 0 : 99999, fin: !ctl.a }, b: { ev: [], upto: ctl.b ? 0 : 99999, fin: !ctl.b } },
       myCtl: !!ctl[me], oppCtl: !!ctl[other(me)], opp: other(me), last: 0, acc: 0, target: 0, stallAt: 0, ended: 0, inflight: false, lastNet: 0, lastStick: '0,0', pan: '', panT: 0, handed: false, tried: 0
     };
     const part = S.lvPart && S.lvPart[m.wn];   // coming back to a snap that was already under way
@@ -5755,10 +5784,10 @@ const LV = {
     const st = this.stick(), key = st[0] + ',' + st[1];
     if (!code && key === m.lastStick) return;
     m.lastStick = key;
-    const stamp = Math.min(399, m.sim.t + 1 + m.D);
+    const stamp = Math.min(LIVE.MAXT + 9, m.sim.t + 1 + m.D);
     const ev = m.stream[m.me].ev, e = LIVE.enc(stamp, st[0], st[1], code || 0);
     ev.push(e);
-    if (ev.length > 480) ev.splice(1, 1);
+    if (ev.length > 3900) ev.splice(1, 1);
     if (m.online) this.netTick();
   },
   hand() { const m = this.on; if (!m || !m.myCtl || m.handed) return; this.push(9); m.handed = true; this.panel(true); },
@@ -5785,7 +5814,7 @@ const LV = {
     const mine = m.stream[m.me], gone = this.on !== m;
     try {
       const body = { code: S.code, seat: m.me, pid: PID, n: m.wn };
-      if (m.myCtl) { body.op = 'live'; body.ev = mine.ev; body.upto = m.sim.out ? 9999 : (m.sim.t + m.D); body.fin = !!m.sim.out; }
+      if (m.myCtl) { body.op = 'live'; body.ev = mine.ev; body.upto = m.sim.out ? 99999 : (m.sim.t + m.D); body.fin = !!m.sim.out; }
       else { body.op = 'live'; body.poll = 1; }
       const r = await api(body);
       if (this.on === m) this.take(m, r);
@@ -5794,7 +5823,7 @@ const LV = {
     finally { m.inflight = false; }
   },
   take(m, r) {
-    if (r.forced) { const f = r.forced, mine = m.stream[m.me]; if (f.ev.length !== mine.ev.length || f.ev.some((e, i) => e !== mine.ev[i])) { mine.ev = f.ev.slice(); this.rebuild(m); } mine.upto = 9999; mine.fin = true; m.handed = true; }
+    if (r.forced) { const f = r.forced, mine = m.stream[m.me]; if (f.ev.length !== mine.ev.length || f.ev.some((e, i) => e !== mine.ev[i])) { mine.ev = f.ev.slice(); this.rebuild(m); } mine.upto = 99999; mine.fin = true; m.handed = true; }
     const o = r.o; if (!o || !m.oppCtl) return;
     const rs = m.stream[m.opp];
     let same = o.ev.length >= rs.ev.length; for (let i = 0; same && i < rs.ev.length; i++) if (rs.ev[i] !== o.ev[i]) same = false;
@@ -5811,7 +5840,7 @@ const LV = {
   flush(m) {
     if (!m.online || !m.myCtl) return;
     const send = async k => {
-      try { await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.wn, ev: m.stream[m.me].ev, upto: 9999, fin: true }); }
+      try { await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.wn, ev: m.stream[m.me].ev, upto: 99999, fin: true }); }
       catch (e) { if (k < 12 && S.mode === 'online' && S.code === m.code0) setTimeout(() => send(k + 1), 600 * (k + 1)); }
     };
     send(0);
@@ -5848,6 +5877,7 @@ const LV = {
     else if (o.k === 'inc') text = o.away ? 'THROWN AWAY' : 'INCOMPLETE';
     else { const y = Math.round(o.x); text = y > 0 ? '+' + y + ' YARDS' : y === 0 ? 'NO GAIN' : y + ' YARDS'; if (y >= m.st.toGo) { text += ' · 1ST DOWN'; col = own(m.off); } }
     if (o.fum && !turn && o.k !== 'ret') sub = 'FUMBLE! ' + ((m.T[m.off] || {}).name || 'THE OFFENSE').toUpperCase() + ' FALL ON IT';   // loose, but kept
+    if (o.slide && !sub) sub = 'OUT OF TIME: HE GOES DOWN';
     Field.flash = { text, color: col }; if (turn) Field.flash.turn = (m.T[m.def] || {}).name || ''; if (sub) Field.flash.sub = sub;
     Field.celebrate(text, col);
   },
@@ -6046,6 +6076,7 @@ document.addEventListener('click', ev => {
   else if (a === 'call') submitCall(t.dataset.id);
   else if (a === 'cat') openCat(t.dataset.cat);
   else if (a === 'ctl-toggle') { S.ctlOn = !S.ctlOn; lsSet('gd_ctl', S.ctlOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
+  else if (a === 'pc-toggle') { S.pcOn = !S.pcOn; lsSet('gd_pc', S.pcOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
   else if (a === 'two-toggle') { S.twoOn = !S.twoOn; lsSet('gd_two', S.twoOn ? '1' : '0'); S.callSig = null; if (S.G) renderCall(S.G); }
   else if (a === 'to-toggle') { const n = S.G.state.playNo; S.toSel = { n, on: !toSel(n) }; S.callSig = null; renderCall(S.G); }
   else if (a === 'hurry') hurry();
@@ -6064,6 +6095,7 @@ document.addEventListener('keydown', ev => {
   if (LV.on) { if (LV.key(ev, true)) return; }
   if (S.screen === 'game' && (ev.key === 'f' || ev.key === 'F') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { toggleFull(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'c' || ev.key === 'C')) { const b = $('[data-act="ctl-toggle"]'); if (b) b.click(); return; }
+  if (S.screen === 'game' && !LV.on && (ev.key === 'p' || ev.key === 'P')) { const b = $('[data-act="pc-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'v' || ev.key === 'V')) { const b = $('[data-act="two-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && $('#callpanel .cats')) { ev.preventDefault(); stepCat(ev.key === 'ArrowRight' ? 1 : -1); return; }
@@ -6111,6 +6143,11 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-26-4', title: 'Live clocks, and no time limit on a run', items: [
+    'The game clock now runs while you play a snap and while you call the next one.',
+    'Play clock: you get 25 seconds to call a play. When it runs out the coach calls his pick for you, no penalty. Press P to turn it off.',
+    'No more time limit on a run: a runner keeps going until he is tackled, steps out of bounds or scores.'
+  ] },
   { id: '2026-10-26-3', title: 'Spot fixes', items: [
     'First downs: the ball has to reach the line to gain. A run or catch that stops just short is short now, not rounded up to a first down.',
     'No more tackles out of nowhere: a runner in the open is no longer stopped when the play clock on the snap runs long, and whoever makes a diving tackle ends up on the runner.'

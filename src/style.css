@@ -556,3 +556,6 @@ body.fbusy .fieldhost .callpanel { display: none; }   /* a play is being shown o
 .confrow { color: #7fe0ff; font-weight: 600; }
 .slp { font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #0b1020; background: #7fe0ff; padding: 1px 4px; }
 .bust { font-style: normal; font-family: var(--display); font-size: 9px; text-transform: uppercase; color: #efe9d6; background: #8a3a3a; padding: 1px 4px; }
+.pclock { font-family: var(--display); font-size: 11px; letter-spacing: .05em; padding: 4px 8px; background: #0b1020; color: var(--chalk); border: 2px solid var(--line); margin-left: auto; margin-right: 10px; }
+.pclock.urgent { color: #ff5a4a; border-color: #ff5a4a; }
+.pclock.off { opacity: .55; }

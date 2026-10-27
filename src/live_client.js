@@ -62,7 +62,7 @@ const LV = {
     this.lobArm = false;
     const m = this.on = {
       n, wn: ret ? RVN + n : n, ret: ret ? w.ro : null, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? this.D : 0, dir: off === 'a' ? 1 : -1, st, T, keys: ret ? retKeys(T, off, def) : liveKeys(T, off, def),
-      stream: { a: { ev: [], upto: ctl.a ? 0 : 9999, fin: !ctl.a }, b: { ev: [], upto: ctl.b ? 0 : 9999, fin: !ctl.b } },
+      stream: { a: { ev: [], upto: ctl.a ? 0 : 99999, fin: !ctl.a }, b: { ev: [], upto: ctl.b ? 0 : 99999, fin: !ctl.b } },
       myCtl: !!ctl[me], oppCtl: !!ctl[other(me)], opp: other(me), last: 0, acc: 0, target: 0, stallAt: 0, ended: 0, inflight: false, lastNet: 0, lastStick: '0,0', pan: '', panT: 0, handed: false, tried: 0
     };
     const part = S.lvPart && S.lvPart[m.wn];   // coming back to a snap that was already under way
@@ -157,10 +157,10 @@ const LV = {
     const st = this.stick(), key = st[0] + ',' + st[1];
     if (!code && key === m.lastStick) return;
     m.lastStick = key;
-    const stamp = Math.min(399, m.sim.t + 1 + m.D);
+    const stamp = Math.min(LIVE.MAXT + 9, m.sim.t + 1 + m.D);
     const ev = m.stream[m.me].ev, e = LIVE.enc(stamp, st[0], st[1], code || 0);
     ev.push(e);
-    if (ev.length > 480) ev.splice(1, 1);
+    if (ev.length > 3900) ev.splice(1, 1);
     if (m.online) this.netTick();
   },
   hand() { const m = this.on; if (!m || !m.myCtl || m.handed) return; this.push(9); m.handed = true; this.panel(true); },
@@ -187,7 +187,7 @@ const LV = {
     const mine = m.stream[m.me], gone = this.on !== m;
     try {
       const body = { code: S.code, seat: m.me, pid: PID, n: m.wn };
-      if (m.myCtl) { body.op = 'live'; body.ev = mine.ev; body.upto = m.sim.out ? 9999 : (m.sim.t + m.D); body.fin = !!m.sim.out; }
+      if (m.myCtl) { body.op = 'live'; body.ev = mine.ev; body.upto = m.sim.out ? 99999 : (m.sim.t + m.D); body.fin = !!m.sim.out; }
       else { body.op = 'live'; body.poll = 1; }
       const r = await api(body);
       if (this.on === m) this.take(m, r);
@@ -196,7 +196,7 @@ const LV = {
     finally { m.inflight = false; }
   },
   take(m, r) {
-    if (r.forced) { const f = r.forced, mine = m.stream[m.me]; if (f.ev.length !== mine.ev.length || f.ev.some((e, i) => e !== mine.ev[i])) { mine.ev = f.ev.slice(); this.rebuild(m); } mine.upto = 9999; mine.fin = true; m.handed = true; }
+    if (r.forced) { const f = r.forced, mine = m.stream[m.me]; if (f.ev.length !== mine.ev.length || f.ev.some((e, i) => e !== mine.ev[i])) { mine.ev = f.ev.slice(); this.rebuild(m); } mine.upto = 99999; mine.fin = true; m.handed = true; }
     const o = r.o; if (!o || !m.oppCtl) return;
     const rs = m.stream[m.opp];
     let same = o.ev.length >= rs.ev.length; for (let i = 0; same && i < rs.ev.length; i++) if (rs.ev[i] !== o.ev[i]) same = false;
@@ -213,7 +213,7 @@ const LV = {
   flush(m) {
     if (!m.online || !m.myCtl) return;
     const send = async k => {
-      try { await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.wn, ev: m.stream[m.me].ev, upto: 9999, fin: true }); }
+      try { await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.wn, ev: m.stream[m.me].ev, upto: 99999, fin: true }); }
       catch (e) { if (k < 12 && S.mode === 'online' && S.code === m.code0) setTimeout(() => send(k + 1), 600 * (k + 1)); }
     };
     send(0);
@@ -250,6 +250,7 @@ const LV = {
     else if (o.k === 'inc') text = o.away ? 'THROWN AWAY' : 'INCOMPLETE';
     else { const y = Math.round(o.x); text = y > 0 ? '+' + y + ' YARDS' : y === 0 ? 'NO GAIN' : y + ' YARDS'; if (y >= m.st.toGo) { text += ' · 1ST DOWN'; col = own(m.off); } }
     if (o.fum && !turn && o.k !== 'ret') sub = 'FUMBLE! ' + ((m.T[m.off] || {}).name || 'THE OFFENSE').toUpperCase() + ' FALL ON IT';   // loose, but kept
+    if (o.slide && !sub) sub = 'OUT OF TIME: HE GOES DOWN';
     Field.flash = { text, color: col }; if (turn) Field.flash.turn = (m.T[m.def] || {}).name || ''; if (sub) Field.flash.sub = sub;
     Field.celebrate(text, col);
   },
