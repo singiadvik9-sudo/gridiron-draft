@@ -74,3 +74,19 @@ ok(minPlays > 60 && maxPlays < 220, 'sensible number of snaps per game');
   ok((r.state.q === 5 && !r.state.over) || r.state.over, 'tied game after Q4 goes to overtime (or was decided on the play)');
 }
 console.log(process.exitCode ? 'SOME FAILED' : 'ALL OK');
+// the play call takes time: a second off the running clock for every 5 seconds (the slower side's), at most 5; not when the clock is stopped
+{ const E = require('./lib/engine.js'), LG = require('./lib/league.js'), L = LG.newNFL({ seed: 3 }), T = LG.teamsFor(L, 0, 1), U = { a: E.teamUnits(T.a), b: E.teamUnits(T.b) };
+  const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) process.exitCode = 1; };
+  const st = Object.assign(E.initState(5), { kick: false, poss: 'a', down: 2, toGo: 7, ballOn: 40, clock: 90, ro: 5 });
+  const after = (s, fl) => E.stepGame(s, T, U, 5, 'RUN_IN', 'ZONE', null, fl).state.clock;
+  const base = after(st, {});
+  ok(base - after(st, { wait: 12 }) === 2 && base - after(st, { wait: 4 }) === 0 && base - after(st, { wait: 60 }) === 5, '12 seconds to call the play take 2 off the clock, 4 take none, a minute takes the most, 5');
+  const stopped = Object.assign({}, st, { ro: 0 });
+  ok(after(stopped, {}) === after(stopped, { wait: 20 }), 'not when the clock is stopped');
+  ok(after(st, { o: 1 }) === after(st, { o: 1, wait: 20 }), 'and not when a timeout is called');
+  const nearEnd = Object.assign({}, st, { clock: 3 }); ok(E.stepGame(nearEnd, T, U, 5, 'RUN_IN', 'ZONE', null, { wait: 25 }).entry.callT === 2, 'it always leaves a second for the snap');
+  // through the replay: the slower side's seconds count, and the server keeps them
+  const R0 = E.replay(9, T, {}, ['a', 'b']), mv = {}; R0.log.forEach(e => { mv[e.n + '-' + e.off] = { pick: e.offPick, cs: 15 }; if (e.defPick) mv[e.n + '-' + (e.off === 'a' ? 'b' : 'a')] = { pick: e.defPick, cs: 5 }; });
+  const R1 = E.replay(9, T, mv, []);
+  ok(R1.log.some(e => e.callT === 3) && R1.log.every(e => !e.callT || e.callT === 3 || e.callT < 3), 'a 15-second call against a 5-second one takes 3 seconds');
+  ok(JSON.stringify(E.cleanMoves({ '3-a': { pick: 'RUN_IN', cs: 12 } }, 'a')) === '{"3-a":{"pick":"RUN_IN","cs":12}}', 'the server keeps the seconds with the move'); }

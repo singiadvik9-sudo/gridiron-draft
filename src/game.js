@@ -24,7 +24,7 @@ const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
   myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
   poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null,
-  ctlOn: lsGet('gd_ctl') === '1', pcOn: lsGet('gd_pc') !== '0', twoOn: lsGet('gd_two') === '1', twoN: {}, toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
+  ctlOn: lsGet('gd_ctl') === '1', pcOn: lsGet('gd_pc') !== '0', twoOn: lsGet('gd_two') === '1', twoN: {}, csN: {}, toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
 };
 
 /* ---------- sprites ---------- */
@@ -189,8 +189,8 @@ function teamOf(seat) {
   const name = String(d.name || 'Team ' + seat.toUpperCase()).slice(0, 18);
   return d.squad ? { name, squad: d.squad } : { name, roster: d.roster, squad: E.squadFromRoster(d.roster) };
 }
-const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}, v.w ? { two: 1 } : {}) : { pick: v };
-const myMove = n => Object.assign({ pick: S.mine[n] }, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {}, S.twoN[n] ? { two: 1 } : {});
+const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}, v.w ? { two: 1 } : {}, v.s ? { cs: v.s } : {}) : { pick: v };
+const myMove = n => Object.assign({ pick: S.mine[n] }, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {}, S.twoN[n] ? { two: 1 } : {}, S.csN[n] ? { cs: S.csN[n] } : {});
 function allMoves() {
   const mv = Object.assign({}, S.moves);
   if (S.me) for (const n in S.mine) mv[n + '-' + S.me] = myMove(n);
@@ -580,7 +580,7 @@ function resetForMode() {
   stopPoll();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
   S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.scene = null;
-  S.ctlN = {}; S.toN = {}; S.twoN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
+  S.ctlN = {}; S.toN = {}; S.twoN = {}; S.csN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
 }
 function startLocal() {
   readName();
@@ -981,15 +981,15 @@ function updateGame() {
   if (LV.on) LV.panel(false); else renderCall(G);
   if (S.ctx && st.over) ctxFinish(G);
 }
-/* the clocks on screen. The game clock runs down in real time: while you call a play it ticks away the run-off the engine has already
-   taken (at most 5 s, so the snap happens at the clock shown), and during a snap played on the field it counts the play's seconds. The
+/* the clocks on screen. The game clock runs down while you call a play, a second for every 5 the call takes (the engine takes the same
+   off, from the seconds recorded with the move), and during a snap played on the field it counts the play's seconds. The
    play clock gives you PLAY_CLOCK seconds on the call screen (paused while a play is shown); when it runs out the coach calls his pick. */
 const PLAY_CLOCK = 25;
 function clockText(G) {
   const st = G.state, m = LV.on;
   let c = st.clock;
   if (m && m.st && m.st.playNo === st.playNo) c = m.st.clock - Math.min(8, Math.floor(m.sim.t / LIVE.TPS));
-  else if (st.ro > 0 && S.pc && S.pc.n === st.playNo) c = st.clock + Math.max(0, Math.ceil(st.ro - S.pc.run));
+  else if (st.ro > 0 && !st.kick && S.pc && S.pc.n === st.playNo) c = st.clock - Math.min(E.CALL_MAX, Math.floor((S.mine[st.playNo] != null ? S.csN[st.playNo] || 0 : S.pc.run) / E.CALL_PER), Math.max(0, st.clock - 1));   // a second for every 5 the call takes
   c = Math.max(0, c); return Math.floor(c / 60) + ':' + ('0' + (c % 60)).slice(-2);
 }
 function clockTick() {
@@ -1201,8 +1201,9 @@ function submitCall(pick) {
   if (to) S.toN[n] = 1; else delete S.toN[n];
   if (ctl) S.ctlN[n] = 1; else delete S.ctlN[n];
   const two = S.twoOn && !st.kick ? 1 : 0; if (two) S.twoN[n] = 1; else delete S.twoN[n];   // go for two if this snap ends in our touchdown
+  const cs = S.pc && S.pc.n === n ? Math.round(S.pc.run) : 0; if (cs) S.csN[n] = cs; else delete S.csN[n];   // how long the call took (clock run-off)
   if (S.mode === 'online') {
-    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to, two }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; S.callSig = null; handleErr(e); updateGame(); });
+    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to, two, cs }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; S.callSig = null; handleErr(e); updateGame(); });
   }
   updateGame();
 }
