@@ -172,6 +172,7 @@ const LV = {
     if (k === ' ' || k === 'Spacebar') { ev.preventDefault(); this.push(5); return true; }
     if (k === 'e' || k === 'E' || k === 'Tab') { ev.preventDefault(); this.push(6); return true; }
     if (k === 'q' || k === 'Q') { ev.preventDefault(); this.push(7); return true; }   // spin (ball carrier) / big hit (defender)
+    if ((k === 'w' || k === 'W') && m.me === m.def && !m.ret) { ev.preventDefault(); this.push(1); return true; }   // defense: jump to break up a pass
     const tk = THROWKEY[k.toLowerCase()];
     if (tk) { ev.preventDefault(); if (ev.shiftKey) this.push(8); this.push(tk); return true; }   // Shift + throw key = lob
     if (/^[1-4]$/.test(k)) { this.push(+k); return true; }
@@ -295,6 +296,7 @@ const LV = {
         if (job === 'rush' || job === 'zone') it.tag += job === 'rush' ? ' · RUSH' : ' · ZONE';
         if (lastSw && lastSw[2] === p.id && sim.t - lastSw[1] < 14) { it.pop = 'NOW YOU'; it.popCol = '#ffcf3f'; }
         if (lastTimed && lastTimed[2] === p.id && sim.t - lastTimed[1] < 14) { it.pop = 'GOOD TIMING!'; it.popCol = '#3fdc6a'; }
+        if (p.jumpW > 0) it.lift = Math.round(Math.sin(Math.PI * (1 - p.jumpW / 9)) * 12);   // up he goes
       }
       if (p.moveT != null && sim.t - p.moveT < 16) it.pop = { win: 'BEAT HIM!', stuck: 'STONEWALLED', bull: 'BULL RUSH' }[p.move];
       const ce = catchOf[p.id];   // the catch, for a moment after it: he leaps (or lays out), a ring bursts and the grab is named
@@ -320,8 +322,8 @@ const LV = {
         : latOn ? [mv, ['E', 'LATERAL'], ['SPACE', 'JUKE'], ['Q', 'SPIN']]
         : off ? ((sim.kind === 'run' || sim.fake) && sim.ball.car !== sim.ctlId.o ? [mv] : [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN']])
         : (sim.by[sim.ctlId.d] || {}).eng ? [mv, ['SPACE', 'SWIM'], ['Q', 'BULL RUSH'], ['E', 'SWITCH']]
-        : sim.ball.air && !sim.ball.air.away ? [mv, ['SPACE', 'JUMP AS IT COMES DOWN'], ['E', 'SWITCH']]
-        : [mv, ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
+        : sim.ball.air && !sim.ball.air.away ? [mv, ['W', 'JUMP AS IT COMES DOWN'], ['E', 'SWITCH']]
+        : [mv, ['W', 'JUMP'], ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
     }
     L.msg = performance.now() < m.readyAt ? (m.myCtl ? 'READY · YOU ARE ' + lastName((sim.by[m.me === m.off ? sim.ctlId.o : sim.ctlId.d] || {}).name).toUpperCase() : 'READY…') : m.stallAt && !sim.out && (performance.now() - m.stallAt > 700) ? 'Waiting for ' + esc((S.seats[m.opp] || {}).name || 'your opponent') + '…' : '';
     // the camera: on a return it looks ahead at the coverage; while the quarterback holds the ball it leans downfield so the routes stay in
@@ -369,8 +371,8 @@ const LV = {
         else if (sim.pm.trick === 'lat' && sim.ball.car === sim.pm.tgt && !sim.latT) { info = 'Hook and lateral: ' + K('E') + ' pitches it to <b>' + esc(lastName(sim.by[sim.pm.mate].name)) + '</b> trailing you (do it before they wrap you up). ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="6">Lateral</button><button class="ab wide" data-lvk="5">Juke</button>'; }
         else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
       } else {
-        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch to the one who can get to the ball first (again for the next). Steer at the ball carrier and you are guided onto him. Ball in the air: get to the ring and press ' + K('Space') + ' as it comes down for your best shot at it. When a blocker has you: ' + K('Q') + ' bull rush builds leverage, ' + K('Space') + ' swims past him (best with your meter in the green, or the moment he touches you).';
-        acts = '<button class="ab wide" data-lvk="5">Dive / Swim</button><button class="ab wide" data-lvk="7">Hit / Bull rush</button><button class="ab wide" data-lvk="6">Switch</button>';
+        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch to the one who can get to the ball first (again for the next). Steer at the ball carrier and you are guided onto him. Ball in the air: get to the ring and press ' + K('W') + ' (jump) as it comes down for your best shot at it. When a blocker has you: ' + K('Q') + ' bull rush builds leverage, ' + K('Space') + ' swims past him (best with your meter in the green, or the moment he touches you).';
+        acts = '<button class="ab wide" data-lvk="1">Jump</button><button class="ab wide" data-lvk="5">Dive / Swim</button><button class="ab wide" data-lvk="7">Hit / Bull rush</button><button class="ab wide" data-lvk="6">Switch</button>';
       }
     } else if (m.myCtl && m.handed) info = 'The computer has your players.';
     else if (m.oppCtl) info = 'Your opponent is playing this snap on the field. Your players move on their own.';
