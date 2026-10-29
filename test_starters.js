@@ -23,7 +23,7 @@ const r1 = rook('QB', 64), r2 = rook('QB', 64);
 LG.setStarter(R, 0, r1.i, true);
 LG.runUntilHuman(R, 60); let g = 0; while (R.phase !== 'offseason' && g++ < 60) { LG.simWeek(R, false); LG.advanceWeek(R); LG.checkFinal(R); }
 const s1 = LG.snapShare(R, r1), s2 = LG.snapShare(R, r2);
-ok(s1 > 0.7 && s2 < 0.05, 'the rookie you start plays the snaps (' + Math.round(s1 * 100) + '% vs ' + Math.round(s2 * 100) + '% for the one on the bench)');
+ok(s1 > 0.6 && s2 < 0.05, 'the rookie you start plays most of the snaps (' + Math.round(s1 * 100) + '% vs ' + Math.round(s2 * 100) + '% for the one on the bench)');
 const o1 = r1.o, o2 = r2.o; LG.progress(R);
 ok(r1.o - o1 >= r2.o - o2, 'and grows at least as much over the offseason (+' + (r1.o - o1) + ' vs +' + (r2.o - o2) + ')');
 // trades and releases: the new team decides

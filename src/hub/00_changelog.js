@@ -2,6 +2,11 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-29', title: 'Tougher offense, better corners, a jump button', items: [
+    'Offense is a little harder: passes are completed a bit less often and runs gain a little less.',
+    'Corners are better at their job: they stay tighter on receivers, react quicker and play the ball better.',
+    'New on defense: W jumps to break up a pass. Time it as the ball comes down (GOOD TIMING!) for your best shot. On touch screens use the Jump button.'
+  ] },
   { id: '2026-10-26-5', title: 'Taking your time costs clock', items: [
     'While the clock is running, every 5 seconds you take to call a play takes a second off the game clock (up to 5 seconds). Hurry up when you need time.'
   ] },

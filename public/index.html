@@ -1174,7 +1174,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
                          : 0.50 * OU.h + 0.30 * OU.ol + 0.20 * OU.wr) + (inside && OU.hasFB ? 2 : 0);
     const Drun = 0.38 * DU.dl + 0.36 * DU.lb + 0.14 * DU.s + 0.12 * DU.cb + (DU.scheme === '43' ? 3 : 0);
     const diff = Orun - Drun * eff;
-    let y = Math.round((inside ? 3.6 : 4.0) + (OC.ym || 0) + diff * 0.10 + gauss() * (inside ? 2.8 : 3.8) * (OC.sd || 1));
+    let y = Math.round((inside ? 3.2 : 3.6) + (OC.ym || 0) + diff * 0.10 + gauss() * (inside ? 2.8 : 3.8) * (OC.sd || 1));
     const bigP = (inside ? 0.035 : 0.07) + (OC.bp || 0) + Math.max(0, OU.hSpd - 55) / 700;
     if (R() < bigP * (1 - m * 0.25)) y += Math.round(8 + R() * 20);
     if (OC.cat === 'TRICK') y -= Math.round(1.5 * ((st.tricks && st.tricks[o]) || 0) * (1 + R()));   // a trick run they have seen coming
@@ -1211,7 +1211,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
     const prot = OU.ol;
     const sackP = clamp(0.06 + (rush - prot) * 0.0035 + (DC.sack || 0) + (spec.sack || 0), 0.01, 0.30);
     const pressure = Math.max(0, rush - prot) * 0.0030 + (DC.press || 0);
-    const cov = 0.45 * DU.cb + 0.30 * DU.s + 0.25 * DU.lb;
+    const cov = 0.50 * DU.cb + 0.28 * DU.s + 0.22 * DU.lb;   // the corners count most
     // target
     let tgt;
     if (spec.hb && R() < spec.hb) tgt = { id: 'HB', fit: OU.h, spd: OU.hSpd };
@@ -1228,7 +1228,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
     }
     const qb = nm(o, 'QB'), rec = nm(o, tgt.id); entry.qbId = 'QB'; entry.recId = tgt.id;
     const O = 0.38 * OU.q + 0.42 * tgt.fit + 0.20 * OU.ol + (spec.fbq && !OU.hasFB ? 2 : 0);
-    const compP = clamp(spec.base - 0.03 + (O - cov * eff) * 0.0070 - pressure, 0.08, 0.93);   // -0.03: offense tuned a little harder
+    const compP = clamp(spec.base - 0.05 + (O - cov * eff) * 0.0070 - pressure, 0.08, 0.93);   // -0.05: offense tuned a little harder
     const intP = clamp(0.028 + (cov * eff - OU.q) * 0.0012 + (spec.int || 0), 0.006, 0.12);
     const r1 = R();
     if (r1 < sackP) {
@@ -1833,7 +1833,7 @@ function vmaxOf(grp, o, s) {
 }
 const ACC = 16, ACC_HUMAN = 25;
 // pass protection tuning: bias per tick (base, plus extra while the line is still setting up), help per free lineman, skill weight, noise, how hard a losing block gets driven back, when a block is beaten
-const PRO = { flyDB: 0.19, flyLB: 0.12, flyDL: 0.05, flyPick: 0.10, fum: 0.028, fumSack: 2.0, ball: 4, blitzDelay: 6, blitzEdge: 0.006, base: 0.0038, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82, latLoose: 0.3, rel: 2.0, catchH: 1.4, dlHands: 2.6, batLow: 0.4, swFar: 7, swGap: 3, humanSpd: 1.04, humanReach: 1.2, humanTackle: 0.07, timedBall: 4, timedPick: 0.07, lateT: 46, lateT2: 80, swim: 0.2, swimLev: 0.9, bull: 0.5, bullCool: 8, getoff: 0.2, getoffT: 6, burst: 14 };
+const PRO = { flyDB: 0.19, flyLB: 0.12, flyDL: 0.05, flyPick: 0.10, fum: 0.028, fumSack: 2.0, ball: 4, blitzDelay: 6, blitzEdge: 0.006, base: 0.0038, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82, latLoose: 0.3, rel: 2.0, catchH: 1.4, dlHands: 2.6, batLow: 0.4, swFar: 7, swGap: 3, humanSpd: 1.04, humanReach: 1.2, humanTackle: 0.07, timedBall: 4, timedPick: 0.07, cbCush: 1.0, flyCB: 0.21, cbBall: 2, jumpT: 9, jumpCool: 14, jumpSwat: 0.06, jumpPick: 0.6, lateT: 46, lateT2: 80, swim: 0.2, swimLev: 0.9, bull: 0.5, bullCool: 8, getoff: 0.2, getoffT: 6, burst: 14 };
 // trick plays on the field
 function pitch(sim, from, to) {
   const B = sim.ball, f = sim.by[from], r = sim.by[to];
@@ -1907,6 +1907,7 @@ function create(ctx) {
   });
   // assignments
   sim.D = sim.P.filter(p => p.side === 'd'); sim.O = sim.P.filter(p => p.side === 'o');
+  sim.D.forEach(p => { if (p.grp === 'CB') p.lag = max(1, p.lag - 1); });   // corners read routes a beat quicker
   sim.OL = sim.O.filter(p => p.grp === 'OL');
   const sgnOf = p => p.y < 0 ? -1 : 1;
   const rt = ROUTES[play] || ROUTES[spec];
@@ -2124,7 +2125,11 @@ function step(sim, inO, inD, acts) {
       // timed: the ball is coming down and he is there: a better shot at swatting or picking it
       const a = B.air; if (a && !a.away && !a.pitch && a.k >= a.n * 0.6 && dist(ctlD, { x: a.ex, y: a.ey }) < 2.8) { ctlD.timed = sim.t; sim.evt.push(['timed', sim.t, ctlD.id]); }
     }
-    else if (c === 7 && ctlD) { if (ctlD.cool === 0) { ctlD.hit = 5; ctlD.cool = 26; } }   // big hit: a surer tackle that jars the ball loose more often; miss and he stumbles
+    else if (c === 7 && ctlD) { if (ctlD.cool === 0) { ctlD.hit = 5; ctlD.cool = 26; } }
+    else if (c === 1 && ctlD && !ctlD.eng) {   // W: jump (no dive) to get a hand on the ball; timed as it comes down, it is his best shot
+      if (ctlD.cool === 0) { ctlD.jump = PRO.jumpT; ctlD.jumpW = PRO.jumpT; ctlD.cool = PRO.jumpCool; sim.evt.push(['jump', sim.t, ctlD.id]); }
+      const a = B.air; if (a && !a.away && !a.pitch && a.k >= a.n * 0.6 && dist(ctlD, { x: a.ex, y: a.ey }) < 2.8) { ctlD.timed = sim.t; sim.evt.push(['timed', sim.t, ctlD.id]); }
+    }   // big hit: a surer tackle that jars the ball loose more often; miss and he stumbles
     else if (c === 6) switchDef(sim);
   });
   sim.ctlO = ctlO; sim.ctlD = ctlD;
@@ -2163,6 +2168,7 @@ function step(sim, inO, inD, acts) {
       if (p.stumble > 0) { p.stumble--; wx *= 0.65; wy *= 0.65; }
       if (p.dive > 0) { wx *= 1.15; wy *= 1.15; }
       if (p.burst > 0) { wx *= 1.3; wy *= 1.3; }
+      if (p.jumpW > 0) { p.jumpW--; wx *= 0.5; wy *= 0.5; }   // in the air: he cannot keep running (a jump at the wrong time costs him)
       const ax = wx - p.vx, ay = wy - p.vy, am = sqrt(ax * ax + ay * ay), lim = (p.steerT === sim.t ? ACC_HUMAN : ACC) * DT;   // the player you are steering starts and cuts quicker
       if (am > lim) { p.vx += ax / am * lim; p.vy += ay / am * lim; } else { p.vx = wx; p.vy = wy; }
     }
@@ -2444,7 +2450,7 @@ function thinkDef(sim, p, carrier, t) {
     const r = sim.by[p.man]; if (!r) return;
     const h = sim.hist[r.id] || [], lag = p.lag, i = max(0, h.length / 2 - 1 - lag);
     const ty = h.length ? h[Math.floor(i) * 2 + 1] : r.y;
-    const cush = p.grp === 'LB' ? 0.7 : 1.5;
+    const cush = p.grp === 'LB' ? 0.7 : p.grp === 'CB' ? PRO.cbCush : 1.5;   // corners sit right on their man
     if (sim.thrown && B.air && !B.air.away && sim.byTarget === r.id && sim.t - sim.thrown >= p.lag - 2) steer(p, B.air.ex, B.air.ey, 1, false);
     else steer(p, r.x + cush, ty, 0.97, false);
     return;
@@ -2653,11 +2659,11 @@ function contestFlight(sim) {
   for (let i = 0; i < cl.length; i++) {
     const p = cl[i]; a.tried[p.id] = 1;
     const tg = sim.by[sim.byTarget], tr = tg ? tg.rat : 70;
-    const base = p.grp === 'DL' ? (a.low ? PRO.batLow : PRO.flyDL) : p.grp === 'LB' ? PRO.flyLB : PRO.flyDB;   // a low throw into the line gets batted
+    const base = p.grp === 'DL' ? (a.low ? PRO.batLow : PRO.flyDL) : p.grp === 'LB' ? PRO.flyLB : p.grp === 'CB' ? PRO.flyCB : PRO.flyDB;   // a low throw into the line gets batted
     const timed = p.timed != null && sim.t - p.timed < 12;
-    const pw = clamp(base + (p.rat - tr) * 0.004 + (p.jump > 0 ? 0.2 : 0) + (p.dive > 0 ? 0.05 : 0) + (timed ? 0.08 : 0), 0.03, 0.75);
+    const pw = clamp(base + (p.rat - tr) * 0.004 + (p.jump > 0 ? 0.2 : 0) + (p.jumpW > 0 ? PRO.jumpSwat : 0) + (p.dive > 0 ? 0.05 : 0) + (timed ? 0.08 : 0), 0.03, 0.8);
     if (R() >= pw) continue;
-    const pick = (PRO.flyPick + (p.rat - 62) * 0.003) * (sim.pm.safe || 1) * (p.grp === 'DL' ? 0.3 : 1);
+    const pick = (PRO.flyPick + (p.rat - 62) * 0.003) * (sim.pm.safe || 1) * (p.grp === 'DL' ? 0.3 : 1) * (p.jumpW > 0 ? PRO.jumpPick : 1);   // a leap mostly knocks it down
     if (R() < pick) {
       B.air = null; B.car = p.id; B.st = 'carried'; sim.intX = B.x; sim.intBy = p.id; sim.catchT = sim.t; sim.ctlId.d = p.id; sim.evt.push(['int', sim.t, p.id]);
       sim.D.forEach(q => { q.mode = 'ret'; });
@@ -2692,7 +2698,7 @@ function landBall(sim) {
     let sc;
     const prox = (1 - d / (rr + 0.4)) * 9;
     if (p.side === 'o') sc = 0.62 * p.rat + prox + (p.id === sim.byTarget ? 4 : 0) + gauss(R) * 6;
-    else sc = 0.56 * p.rat * (p.grp === 'DL' ? 0.7 : p.grp === 'LB' ? 0.92 : 1) + prox + (p.jump > 0 ? 9 : 0) + (p.timed != null && sim.t - p.timed < 12 ? PRO.timedBall : 0) + PRO.ball + gauss(R) * 6;
+    else sc = 0.56 * p.rat * (p.grp === 'DL' ? 0.7 : p.grp === 'LB' ? 0.92 : 1) + prox + (p.jump > 0 ? 9 : 0) + (p.timed != null && sim.t - p.timed < 12 ? PRO.timedBall : 0) + (p.grp === 'CB' ? PRO.cbBall : 0) + PRO.ball + gauss(R) * 6;
     cands.push({ p, sc });
   });
   B.air = null;
@@ -2710,7 +2716,7 @@ function landBall(sim) {
     return;
   }
   // defense won the ball
-  if (marg > 4 && R() < (0.36 + (w.p.rat - 60) * 0.004 + (w.p.timed != null && sim.t - w.p.timed < 12 ? PRO.timedPick : 0)) * (sim.pm.safe || 1)) {
+  if (marg > 4 && R() < (0.36 + (w.p.rat - 60) * 0.004 + (w.p.timed != null && sim.t - w.p.timed < 12 ? PRO.timedPick : 0)) * (sim.pm.safe || 1) * (w.p.jumpW > 0 ? PRO.jumpPick : 1)) {
     B.car = w.p.id; B.st = 'carried'; sim.intX = w.p.x; sim.intBy = w.p.id; sim.catchT = sim.t; sim.ctlId.d = w.p.id; sim.evt.push(['int', sim.t, w.p.id]);
     sim.D.forEach(p => { p.mode = 'ret'; });
     sim.pairs.length = 0; sim.O.forEach(o => { o.eng = null; if (o.hold) o.hold = 0; }); sim.D.forEach(d => { d.eng = null; });
@@ -5808,6 +5814,7 @@ const LV = {
     if (k === ' ' || k === 'Spacebar') { ev.preventDefault(); this.push(5); return true; }
     if (k === 'e' || k === 'E' || k === 'Tab') { ev.preventDefault(); this.push(6); return true; }
     if (k === 'q' || k === 'Q') { ev.preventDefault(); this.push(7); return true; }   // spin (ball carrier) / big hit (defender)
+    if ((k === 'w' || k === 'W') && m.me === m.def && !m.ret) { ev.preventDefault(); this.push(1); return true; }   // defense: jump to break up a pass
     const tk = THROWKEY[k.toLowerCase()];
     if (tk) { ev.preventDefault(); if (ev.shiftKey) this.push(8); this.push(tk); return true; }   // Shift + throw key = lob
     if (/^[1-4]$/.test(k)) { this.push(+k); return true; }
@@ -5931,6 +5938,7 @@ const LV = {
         if (job === 'rush' || job === 'zone') it.tag += job === 'rush' ? ' · RUSH' : ' · ZONE';
         if (lastSw && lastSw[2] === p.id && sim.t - lastSw[1] < 14) { it.pop = 'NOW YOU'; it.popCol = '#ffcf3f'; }
         if (lastTimed && lastTimed[2] === p.id && sim.t - lastTimed[1] < 14) { it.pop = 'GOOD TIMING!'; it.popCol = '#3fdc6a'; }
+        if (p.jumpW > 0) it.lift = Math.round(Math.sin(Math.PI * (1 - p.jumpW / 9)) * 12);   // up he goes
       }
       if (p.moveT != null && sim.t - p.moveT < 16) it.pop = { win: 'BEAT HIM!', stuck: 'STONEWALLED', bull: 'BULL RUSH' }[p.move];
       const ce = catchOf[p.id];   // the catch, for a moment after it: he leaps (or lays out), a ring bursts and the grab is named
@@ -5956,8 +5964,8 @@ const LV = {
         : latOn ? [mv, ['E', 'LATERAL'], ['SPACE', 'JUKE'], ['Q', 'SPIN']]
         : off ? ((sim.kind === 'run' || sim.fake) && sim.ball.car !== sim.ctlId.o ? [mv] : [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN']])
         : (sim.by[sim.ctlId.d] || {}).eng ? [mv, ['SPACE', 'SWIM'], ['Q', 'BULL RUSH'], ['E', 'SWITCH']]
-        : sim.ball.air && !sim.ball.air.away ? [mv, ['SPACE', 'JUMP AS IT COMES DOWN'], ['E', 'SWITCH']]
-        : [mv, ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
+        : sim.ball.air && !sim.ball.air.away ? [mv, ['W', 'JUMP AS IT COMES DOWN'], ['E', 'SWITCH']]
+        : [mv, ['W', 'JUMP'], ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
     }
     L.msg = performance.now() < m.readyAt ? (m.myCtl ? 'READY · YOU ARE ' + lastName((sim.by[m.me === m.off ? sim.ctlId.o : sim.ctlId.d] || {}).name).toUpperCase() : 'READY…') : m.stallAt && !sim.out && (performance.now() - m.stallAt > 700) ? 'Waiting for ' + esc((S.seats[m.opp] || {}).name || 'your opponent') + '…' : '';
     // the camera: on a return it looks ahead at the coverage; while the quarterback holds the ball it leans downfield so the routes stay in
@@ -6005,8 +6013,8 @@ const LV = {
         else if (sim.pm.trick === 'lat' && sim.ball.car === sim.pm.tgt && !sim.latT) { info = 'Hook and lateral: ' + K('E') + ' pitches it to <b>' + esc(lastName(sim.by[sim.pm.mate].name)) + '</b> trailing you (do it before they wrap you up). ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="6">Lateral</button><button class="ab wide" data-lvk="5">Juke</button>'; }
         else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
       } else {
-        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch to the one who can get to the ball first (again for the next). Steer at the ball carrier and you are guided onto him. Ball in the air: get to the ring and press ' + K('Space') + ' as it comes down for your best shot at it. When a blocker has you: ' + K('Q') + ' bull rush builds leverage, ' + K('Space') + ' swims past him (best with your meter in the green, or the moment he touches you).';
-        acts = '<button class="ab wide" data-lvk="5">Dive / Swim</button><button class="ab wide" data-lvk="7">Hit / Bull rush</button><button class="ab wide" data-lvk="6">Switch</button>';
+        info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch to the one who can get to the ball first (again for the next). Steer at the ball carrier and you are guided onto him. Ball in the air: get to the ring and press ' + K('W') + ' (jump) as it comes down for your best shot at it. When a blocker has you: ' + K('Q') + ' bull rush builds leverage, ' + K('Space') + ' swims past him (best with your meter in the green, or the moment he touches you).';
+        acts = '<button class="ab wide" data-lvk="1">Jump</button><button class="ab wide" data-lvk="5">Dive / Swim</button><button class="ab wide" data-lvk="7">Hit / Bull rush</button><button class="ab wide" data-lvk="6">Switch</button>';
       }
     } else if (m.myCtl && m.handed) info = 'The computer has your players.';
     else if (m.oppCtl) info = 'Your opponent is playing this snap on the field. Your players move on their own.';
@@ -6152,6 +6160,11 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-29', title: 'Tougher offense, better corners, a jump button', items: [
+    'Offense is a little harder: passes are completed a bit less often and runs gain a little less.',
+    'Corners are better at their job: they stay tighter on receivers, react quicker and play the ball better.',
+    'New on defense: W jumps to break up a pass. Time it as the ball comes down (GOOD TIMING!) for your best shot. On touch screens use the Jump button.'
+  ] },
   { id: '2026-10-26-5', title: 'Taking your time costs clock', items: [
     'While the clock is running, every 5 seconds you take to call a play takes a second off the game clock (up to 5 seconds). Hurry up when you need time.'
   ] },

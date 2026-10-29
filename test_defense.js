@@ -81,3 +81,15 @@ ok(moved.win > 0.3 && moved.sack > plain.sack + 0.02, 'rush moves let the linema
       if (sim.thrown) { k++; if (sim.out.k === 'pass') comp++; } } return comp / k; };
   const early = jump(false), late = jump(true);
   ok(late < early - 0.04, 'and jumping as the ball comes down beats jumping early (' + Math.round(100 * late) + '% completions against ' + Math.round(100 * early) + '%)'); }
+// corners stick closer in man coverage, and W is a jump that breaks up passes (a bot that gets to the ball and jumps as it comes down)
+{ const TT = T('BUF', 'ARI'), mk = (i, o) => LV.create(Object.assign({ seed: 900 + i, playNo: i, ballOn: 30, toGo: 10, offPick: ['PASS_M', 'PASS_S', 'FLOOD', 'CURLS', 'HITCH', 'PASS_D'][i % 6], defPick: ['ZONE', 'COV3', 'COV4', 'MAN', 'MAN2', 'SOFT'][i % 6], OS: TT.a.squad, DS: TT.b.squad, ctlO: false, ctlD: true }, o || {}));
+  ok(LV.PRO.cbCush < 1.5 && LV.PRO.flyCB > LV.PRO.flyDB, 'corners play tighter and better at the ball than safeties');
+  const play = key => { let n = 0, comp = 0, pbu = 0; for (let i = 0; i < 300; i++) { const sim = mk(i); let sw = false, j = false;
+      while (!sim.out && sim.t < LV.MAXT + 5) { const acts = { o: [], d: [] }, a = sim.ball.air, me = sim.by[sim.ctlId.d]; let inD = { dx: 0, dy: 0 };
+        if (a && !a.away) { if (!sw) { acts.d.push(6); sw = true; } else { const dx = a.ex - me.x, dy = a.ey - me.y; inD = { dx: Math.abs(dx) > 0.3 ? Math.sign(dx) : 0, dy: Math.abs(dy) > 0.3 ? Math.sign(dy) : 0 }; if (key && !j && a.k >= a.n * 0.7) { acts.d.push(key); j = true; } } }
+        LV.step(sim, null, inD, acts); }
+      if (!sim.thrown) continue; n++; if (sim.out.k === 'pass') comp++; else if (sim.out.pbu) pbu++; } return { comp: comp / n, pbu: pbu / n }; };
+  const none = play(0), jump = play(1);
+  ok(jump.pbu > none.pbu + 0.08 && jump.comp < none.comp - 0.1, 'W (jump) as the ball comes down breaks up more passes (' + Math.round(100 * jump.pbu) + '% broken up, ' + Math.round(100 * jump.comp) + '% caught; without it ' + Math.round(100 * none.pbu) + '% and ' + Math.round(100 * none.comp) + '%)');
+  { const sim = mk(1); while (!sim.out && !sim.ball.air) LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [] }); const me = sim.by[sim.ctlId.d]; me.cool = 0;
+    LV.step(sim, null, { dx: 1, dy: 0 }, { o: [], d: [1] }); ok(me.jumpW > 0 && me.dive === 0, 'W jumps without diving'); } }
