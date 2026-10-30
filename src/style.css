@@ -559,3 +559,17 @@ body.fbusy .fieldhost .callpanel { display: none; }   /* a play is being shown o
 .pclock { font-family: var(--display); font-size: 11px; letter-spacing: .05em; padding: 4px 8px; background: #0b1020; color: var(--chalk); border: 2px solid var(--line); margin-left: auto; margin-right: 10px; }
 .pclock.urgent { color: #ff5a4a; border-color: #ff5a4a; }
 .pclock.off { opacity: .55; }
+/* the kick meter */
+.kmeter{display:flex;flex-direction:column;gap:10px;padding:6px 0}
+.kmbar{position:relative;height:34px;border-radius:8px;background:linear-gradient(90deg,#5a2020,#3a3326 30%,#3a3326 70%,#5a2020);border:1px solid rgba(255,255,255,.18);cursor:pointer;overflow:hidden}
+.kmgreen{position:absolute;top:0;bottom:0;background:rgba(63,220,106,.55);border-left:1px solid #3fdc6a;border-right:1px solid #3fdc6a}
+.kmmid{position:absolute;top:0;bottom:0;left:50%;width:2px;margin-left:-1px;background:rgba(255,255,255,.55)}
+.kmneedle{position:absolute;top:-2px;bottom:-2px;width:4px;margin-left:-2px;left:50%;background:#ffcf3f;box-shadow:0 0 8px #ffcf3f}
+.kmres{font-weight:800;letter-spacing:.04em;text-align:center;min-height:1.3em}
+.kmres.good{color:#3fdc6a}.kmres.bad{color:#ff8a6a}
+.ctlrow.spots{flex-wrap:wrap;gap:4px}
+.confrow.shaken span{color:#9ecbff}
+/* player pages: sub-ratings and stat tables */
+.subgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 14px;margin:8px 0}
+.subgrid .st{display:grid;grid-template-columns:3.2em 1fr 2em;align-items:center;gap:6px;font-size:13px}
+.hof{color:#ffcf3f}

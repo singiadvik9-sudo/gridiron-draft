@@ -108,7 +108,9 @@ module.exports = async function handler(req, res) {
       // c: this player also runs the players on the field, t: he calls a timeout before the snap, w: he goes for two after a touchdown,
       // s: the seconds he took to call it (a second off the running clock for every 5)
       const cs = Number.isInteger(b.cs) && b.cs > 0 ? Math.min(600, b.cs) : 0;
-      if (moves[n] === undefined) moves[n] = b.ctl || b.to || b.two || cs ? Object.assign({ p: pick }, b.ctl ? { c: 1 } : {}, b.to ? { t: 1 } : {}, b.two ? { w: 1 } : {}, cs ? { s: cs } : {}) : pick;
+      // u: the defender he starts the snap as (LDE, RCB ...), k: how close to the middle of the meter he stopped his kick (0 is perfect, 100 the edge)
+      const dp = typeof b.dp === 'string' && /^[A-Z]{1,6}$/.test(b.dp) ? b.dp : '', kt = Number.isInteger(b.kt) && b.kt >= 0 && b.kt <= 100 ? b.kt : null;
+      if (moves[n] === undefined) moves[n] = b.ctl || b.to || b.two || cs || dp || kt != null ? Object.assign({ p: pick }, b.ctl ? { c: 1 } : {}, b.to ? { t: 1 } : {}, b.two ? { w: 1 } : {}, cs ? { s: cs } : {}, dp ? { u: dp } : {}, kt != null ? { k: kt } : {}) : pick;
       await setJ(mk, moves, TTL);
       return send(res, 200, { ok: true });
     }

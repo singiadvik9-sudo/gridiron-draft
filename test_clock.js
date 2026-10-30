@@ -23,7 +23,7 @@ for (let seed = 1; seed <= 40; seed++) {
       if (ns.ro > 5) bad.push('runoff over the cap ' + ns.ro);
       if (used > e.pt + 5) bad.push('cap broken ' + used + ' seed ' + seed);
       if (used < 0 && (ns.to.a + ns.to.b) === (st.to.a + st.to.b)) bad.push('clock went up ' + seed);
-      if (ns.clock < 1) bad.push('between snaps the clock must be at least 1 s ' + ns.clock);
+      if (ns.clock < 1 && !ns.pat) bad.push('between snaps the clock must be at least 1 s ' + ns.clock);
     }
     if (ns.clock < 0) bad.push('negative clock');
     if (/spike/i.test(e.text || '')) spikes++;

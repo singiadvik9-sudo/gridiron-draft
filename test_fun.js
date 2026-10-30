@@ -68,15 +68,7 @@ ok(lYd > bYd, 'and deep lobs gain more than deep bullets (' + (lYd / n0).toFixed
 // the play has to end: a quarterback who just holds it gets the late rush (zone defenders with nobody to cover come after him)
 { let tt = 0, sk = 0, n = 120; for (let i = 0; i < n; i++) { const R = LV.run({ seed: 900 + i, playNo: i, ballOn: 30, toGo: 10, offPick: ['PASS_M', 'PASS_S', 'PASS_D', 'FLOOD'][i % 4], defPick: Object.keys(E.DEF_CALLS)[i % 14], OS: T.a.squad, DS: T.b.squad, ctlO: true, ctlD: false }, [LV.enc(1, 0, 0, 0)], []); tt += R.out.t; if (R.out.k === 'sack' || R.out.sack) sk++; }
   ok(tt / n < 110 && sk / n > 0.8, 'a quarterback who holds the ball is brought down in about ' + (tt / n / LV.TPS).toFixed(1) + ' s (' + Math.round(100 * sk / n) + '% sacks; it was about 11 s)'); }
-// two-point conversions: a switch that rides along with your call, the CPU's chart, and a result drawn on its own (nothing else moves)
-{ // play a game with side a as a human always going for two: every one of its touchdowns is followed by a try
-  const asHuman = sd => { const mv = {}; E.replay(sd, T, {}, ['a', 'b']).log.forEach(e => { if (e.off === 'a') mv[e.n + '-a'] = { pick: e.offPick, two: 1 }; else if (e.defPick) mv[e.n + '-a'] = { pick: e.defPick, two: 1 }; }); return E.replay(sd, T, mv, ['b']); };
-  let B = null, tds = []; for (let sd = 701; sd < 760 && !tds.length; sd++) { B = asHuman(sd); tds = B.log.filter(e => e.ev === 'td' && e.ptsTeam === 'a'); }
-  ok(tds.length > 0 && tds.every(e => e.two), 'going for two: every touchdown is followed by a two-point try (' + tds.length + ' of them: ' + tds.map(e => e.two > 0 ? 'good' : 'no good').join(', ') + ')');
-  let n = 0, good = 0; for (let g = 0; g < 80; g++) { const m = {}, R0 = E.replay(900 + g, T, {}, ['a', 'b']); R0.log.forEach(e => { if (e.off === 'a') m[e.n + '-a'] = { pick: e.offPick, two: 1 }; else if (e.defPick) m[e.n + '-a'] = { pick: e.defPick, two: 1 }; }); E.replay(900 + g, T, m, ['b']).log.forEach(e => { if (e.two && e.ptsTeam === 'a') { n++; if (e.two > 0) good++; } }); }
-  ok(good / n > 0.35 && good / n < 0.65, 'about half of them are good (' + Math.round(100 * good / n) + '% of ' + n + ')');
-  ok(E.cpuGo2({ q: 4, ot: false, score: { a: 12, b: 14 } }, 'a') && !E.cpuGo2({ q: 4, ot: false, score: { a: 13, b: 14 } }, 'a') && !E.cpuGo2({ q: 1, ot: false, score: { a: 12, b: 14 } }, 'a'), 'the CPU goes by the chart in the second half (down 2 after the touchdown: go; down 1: kick)');
-  ok(JSON.stringify(E.cleanMoves({ '3-a': { pick: 'RUN_IN', two: 1 } }, 'a')) === '{"3-a":{"pick":"RUN_IN","two":1}}', 'the server keeps the switch with the move'); }
+// (the try after a touchdown, extra points and two-point plays: test_kicks.js)
 // passes are thrown over the line: a lineman only gets his hands on a low throw
 { let dl = 0, low = 0, n = 0;
   for (let i = 0; i < 600; i++) { const R = LV.run({ seed: 900 + i, playNo: i, ballOn: 30, toGo: 10, offPick: ['PASS_M', 'PASS_S', 'MESH', 'HITCH', 'FLOOD', 'PASS_D'][i % 6], defPick: Object.keys(E.DEF_CALLS)[i % 14], OS: T.a.squad, DS: T.b.squad, ctlO: false, ctlD: true }, [], []);

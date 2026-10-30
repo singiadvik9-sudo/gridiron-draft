@@ -61,13 +61,13 @@ ok(E.OFF_CATS.every(c => c.id === 'SPEC' || E.OFF[c.id] && E.OFF[c.id].cat === c
   while (!st.over && g++ < 300) {
     const n = st.playNo, off = st.poss, def = off === 'a' ? 'b' : 'a';
     const pick = E.cpuMove(st, U, off, seed, 'off'), kick = E.noDef(E.legalOff(st, pick));
-    if (!(E.OFF[pick] && (kick || E.DEF_CALLS[E.cpuMove(st, U, def, seed, 'def')]))) badCpu++;
+    if (!((E.OFF[pick] || E.PATS[pick] || E.KICKS[pick]) && (kick || E.DEF_CALLS[E.cpuMove(st, U, def, seed, 'def')]))) badCpu++;
     moves[n + '-' + off] = { pick }; if (!kick) moves[n + '-' + def] = { pick: E.cpuMove(st, U, def, seed, 'def') };
     st = E.replay(seed, T, moves, []).state;
     if (n > 3) break;
   }
   ok(badCpu === 0, 'the cpu only calls real plays');
   const a = E.replay(seed, T, moves, ['a', 'b']), b = E.replay(seed, T, moves, ['a', 'b']);
-  ok(JSON.stringify(a.log) === JSON.stringify(b.log) && a.log.every(e => E.OFF[e.offPick] || E.KICKS[e.offPick]), 'replay with named plays is deterministic');
+  ok(JSON.stringify(a.log) === JSON.stringify(b.log) && a.log.every(e => E.OFF[e.offPick] || E.KICKS[e.offPick] || E.PATS[e.offPick]), 'replay with named plays is deterministic');
 }
 console.log(process.exitCode ? 'SOME FAILED' : 'ALL OK');
