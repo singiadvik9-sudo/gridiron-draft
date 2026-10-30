@@ -4,6 +4,7 @@
    moves on to the next tick once it knows everything either controller did up to it (lockstep). */
 const LIVE = E.LIVE;
 const RL = 21;   // pixels per sideways unit on the live field
+const RUNACTS = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button><button class="ab wide" data-lvk="1">Stiff arm</button>';
 const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r' };   // the right hand moves; every action is on the left side of the keyboard
 const lastName = n => { const w = String(n || '').trim().split(/\s+/); while (w.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(w[w.length - 1])) w.pop(); return w[w.length - 1] || ''; };   // (not "II" for a Jr. or a II)
 const K = t => '<kbd>' + t + '</kbd>';
@@ -58,7 +59,7 @@ const LV = {
     const ctl = {}; ctl[off] = ret ? true : !!w.om.ctl; ctl[def] = ret ? false : !!(w.dm && w.dm.ctl);
     const online = S.mode === 'online', both = ctl.a && ctl.b;
     const ctx = ret ? { seed: S.seed, playNo: n, ret: { kind: w.ro.kind }, ballOn: w.ro.at, toGo: 10, OS: T[off].squad, DS: T[def].squad, ctlO: true, ctlD: false }
-      : { seed: S.seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick: E.legalOff(st, w.om.pick), defPick: E.DEF_CALLS[w.dm.pick] ? w.dm.pick : 'ZONE', OS: T[off].squad, DS: T[def].squad, ctlO: ctl[off], ctlD: ctl[def] };
+      : { seed: S.seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick: E.legalOff(st, w.om.pick), defPick: E.DEF_CALLS[w.dm.pick] ? w.dm.pick : 'ZONE', OS: T[off].squad, DS: T[def].squad, ctlO: ctl[off], ctlD: ctl[def], dpos: ctl[def] && w.dm && w.dm.dp || null };
     this.lobArm = false;
     const m = this.on = {
       n, wn: ret ? RVN + n : n, ret: ret ? w.ro : null, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? this.D : 0, dir: off === 'a' ? 1 : -1, st, T, keys: ret ? retKeys(T, off, def) : liveKeys(T, off, def),
@@ -173,6 +174,7 @@ const LV = {
     if (k === 'e' || k === 'E' || k === 'Tab') { ev.preventDefault(); this.push(6); return true; }
     if (k === 'q' || k === 'Q') { ev.preventDefault(); this.push(7); return true; }   // spin (ball carrier) / big hit (defender)
     if ((k === 'w' || k === 'W') && m.me === m.def && !m.ret) { ev.preventDefault(); this.push(1); return true; }   // defense: jump to break up a pass
+    if ((k === 'w' || k === 'W') && m.me === m.off) { const sm = m.sim, c = sm.ball.car, pz = sm.passer || 'QB'; if (c && !(c === pz && sm.kind === 'pass' && !sm.thrown && sm.by[pz].x <= 0)) { ev.preventDefault(); this.push(1); return true; } }   // with the ball: stiff arm
     const tk = THROWKEY[k.toLowerCase()];
     if (tk) { ev.preventDefault(); if (ev.shiftKey) this.push(8); this.push(tk); return true; }   // Shift + throw key = lob
     if (/^[1-4]$/.test(k)) { this.push(+k); return true; }
@@ -248,6 +250,7 @@ const LV = {
     else if (o.k === 'int') { text = 'INTERCEPTED'; col = own(m.def); turn = 1; const by = m.sim.by[o.by]; sub = by ? 'PICKED OFF BY ' + lastName(by.name).toUpperCase() + (o.tdRet ? ' · RETURNED FOR A TOUCHDOWN' : '') : ''; }
     else if (o.k === 'fumble') { text = 'FUMBLE'; col = own(m.def); turn = 1; const by = m.sim.by[o.by]; sub = by ? 'FORCED BY ' + lastName(by.name).toUpperCase() + (o.sack ? ' ON THE SACK' : '') : ''; }
     else if (o.k === 'safety') { text = 'SAFETY'; col = own(m.def); }
+    else if (o.k === 'inc' && o.drop) { text = 'DROPPED'; col = '#ff8a6a'; const r = m.sim.by[o.tgt]; sub = r ? lastName(r.name).toUpperCase() + ' IS SHAKEN · BOOSTS GONE' : ''; }
     else if (o.k === 'inc') text = o.away ? 'THROWN AWAY' : 'INCOMPLETE';
     else { const y = Math.round(o.x); text = y > 0 ? '+' + y + ' YARDS' : y === 0 ? 'NO GAIN' : y + ' YARDS'; if (y >= m.st.toGo) { text += ' · 1ST DOWN'; col = own(m.off); } }
     if (o.fum && !turn && o.k !== 'ret') sub = 'FUMBLE! ' + ((m.T[m.off] || {}).name || 'THE OFFENSE').toUpperCase() + ' FALL ON IT';   // loose, but kept
@@ -281,6 +284,7 @@ const LV = {
     const job = myD && early ? (myD.mode === 'man' ? 'man' : myD.mode === 'zone' ? 'zone' : myD.mode === 'rush' ? 'rush' : '') : '';
     L.zone = job === 'zone' && myD.zone ? { wx: los + dir * myD.zone.x, sy: mid + myD.zone.y * dir * RL, rx: myD.zone.r, ry: myD.zone.r * RL } : null;
     const lastSw = sim.evt.filter(e => e[0] === 'switch').pop(), lastTimed = sim.evt.filter(e => e[0] === 'timed').pop();
+    const runPop = {}; sim.evt.forEach(e => { if ((e[0] === 'stiffed' || e[0] === 'juked') && sim.t - e[1] < 16) runPop[e[2]] = e[0] === 'stiffed' ? 'STIFF ARM!' : 'JUKED HIM!'; });
     sim.P.forEach((p, i) => {
       const a = pv.p[i] || cu.p[i], b = cu.p[i], x = lerp(a[0], b[0]), y = lerp(a[1], b[1]);
       const fx = p.vx * dir, face = Math.abs(fx) > 0.8 ? (fx > 0 ? 1 : -1) : (p.side === 'o' ? dir : -dir);
@@ -301,6 +305,8 @@ const LV = {
       if (p.moveT != null && sim.t - p.moveT < 16) it.pop = { win: 'BEAT HIM!', stuck: 'STONEWALLED', bull: 'BULL RUSH' }[p.move];
       const ce = catchOf[p.id];   // the catch, for a moment after it: he leaps (or lays out), a ring bursts and the grab is named
       if (ce) { const age = sim.t - ce[1]; it.catchAge = age; it.catchK = ce[4] || (ce[3] >= 2 ? 'contested' : ''); if (it.catchK === 'dive' && age < 10) it.dive = true; else if (age < 12) it.lift = Math.round(Math.sin(Math.PI * age / 12) * (it.catchK === 'contested' ? 14 : 8)); if (CATCH_POP[it.catchK]) { it.pop = CATCH_POP[it.catchK]; it.popCol = '#ffcf3f'; } }
+      if (runPop[p.id]) { it.pop = runPop[p.id]; it.popCol = '#ffcf3f'; }
+      if (p.stiff > 0) it.stiff = true;
       if (p.conf) it.conf = true;
       if (tags && tags[p.id]) it.num = tags[p.id];
       items.push(it);
@@ -362,14 +368,14 @@ const LV = {
         acts = '<button class="ab wide" data-lvk="5">Juke</button>' + (pr ? '<button class="ab wide" data-lvk="6">Fair catch</button>' : '');
       } else if (role === 'off') {
         const pz = sim.passer || 'QB', qbHas = sim.ball.car === pz && !sim.thrown && sim.kind === 'pass', scramble = qbHas && sim.by[pz].x > 0;
-        if (scramble) { info = 'You are scrambling with <b>' + esc(lastName(sim.by.QB.name)) + '</b>: past the line you can only run. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
+        if (scramble) { info = 'You are scrambling with <b>' + esc(lastName(sim.by.QB.name)) + '</b>: past the line you can only run. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin · ' + K('W') + ' stiff arm.'; acts = RUNACTS; }
         else if (qbHas) {
           info = 'You are <b>' + esc(lastName(sim.by[pz].name)) + '</b>, ' + (pz === 'QB' ? 'the quarterback' : 'throwing the halfback pass') + '. ' + K('←↑↓→') + ' move. Throw to ' + K('A') + esc(lastName(sim.by.WR1.name)) + ' ' + K('S') + esc(lastName(sim.by.WR2.name)) + ' ' + K('D') + esc(lastName(sim.by.TE.name)) + ' ' + K('F') + esc(lastName(sim.by.HB.name)) + '. Hold ' + K('Shift') + ' to lob it over the defense · ' + K('Space') + ' throws it away. Run past the line to scramble.';
           acts = ['1', '2', '3', '4'].map((k, i) => '<button class="ab" data-lvk="' + k + '">' + THROWLAB[i] + '</button>').join('') + '<button class="ab wide' + (LV.lobArm ? ' on' : '') + '" data-lvk="lob">Lob</button><button class="ab wide" data-lvk="5">Throw away</button>';
         } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. ' + K('←↑↓→') + ' move.'; acts = ''; }
         else if (sim.fake && sim.ball.car !== sim.ctlId.o) { info = 'Trick play: sell it. The ball comes to you in a moment. ' + K('←↑↓→') + ' move.'; acts = ''; }
         else if (sim.pm.trick === 'lat' && sim.ball.car === sim.pm.tgt && !sim.latT) { info = 'Hook and lateral: ' + K('E') + ' pitches it to <b>' + esc(lastName(sim.by[sim.pm.mate].name)) + '</b> trailing you (do it before they wrap you up). ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="6">Lateral</button><button class="ab wide" data-lvk="5">Juke</button>'; }
-        else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin.'; acts = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button>'; }
+        else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin · ' + K('W') + ' stiff arm. A juke right in a defender\'s face or a stiff arm that puts him down can get you a confidence boost.'; acts = RUNACTS; }
       } else {
         info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b> (' + esc(cp && cp.pos ? cp.pos : 'defender') + '). ' + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit (miss and you stumble) · ' + K('E') + ' switch to the one who can get to the ball first (again for the next). Steer at the ball carrier and you are guided onto him. Ball in the air: get to the ring and press ' + K('W') + ' (jump) as it comes down for your best shot at it. When a blocker has you: ' + K('Q') + ' bull rush builds leverage, ' + K('Space') + ' swims past him (best with your meter in the green, or the moment he touches you).';
         acts = '<button class="ab wide" data-lvk="1">Jump</button><button class="ab wide" data-lvk="5">Dive / Swim</button><button class="ab wide" data-lvk="7">Hit / Bull rush</button><button class="ab wide" data-lvk="6">Switch</button>';

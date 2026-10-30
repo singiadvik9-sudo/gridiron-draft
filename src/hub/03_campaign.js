@@ -87,6 +87,7 @@ function campAdapter() {
       else if (op === 'ir') { const e = LG.placeIR(L, tid, a.pid); r = { ok: !e, msg: e }; }
       else if (op === 'activate') { const e = LG.activateIR(L, tid, a.pid); r = { ok: !e, msg: e }; }
       else if (op === 'use') { const e = LG.setUsage(L, tid, a.pid, a.v); r = { ok: !e, msg: e }; }
+      else if (op === 'hof') { const e = LG.induct(L, tid, a.pid); r = { ok: !e, msg: e }; }
       else if (op === 'ret') { const e = LG.setReturner(L, tid, a.pid || null); r = { ok: !e, msg: e }; }
       else if (op === 'draft') {
         if (!LG.draftPick(L, tid, a.pid)) r = { ok: false, msg: 'That pick is not allowed.' };
@@ -96,7 +97,11 @@ function campAdapter() {
       after(op === 'draft' && L.phase !== 'draft'); return r;
     },
     async go(op) {
-      if (op === 'offseason') { LG.offseasonBegin(L, 7); FR.tab = L.phase === 'draft' ? 'draft' : 'home'; }
+      if (op === 'offseason') {
+        LG.offseasonBegin(L, 7); FR.tab = L.phase === 'draft' ? 'draft' : 'home';
+        const gone = ((L.progress && L.progress.retired) || []).map(id => L.players[id]).filter(p => p && p.lt === tid);
+        if (gone.length) setTimeout(() => G.openModal('<h3>Retirements</h3><p class="sub">' + gone.length + ' of your players ' + (gone.length > 1 ? 'have' : 'has') + ' retired.</p><ul class="news">' + gone.map(p => '<li><a href="#" class="plk" data-h="fr-pl" data-id="' + G.esc(p.i) + '">' + G.esc(p.n) + '</a> (' + p.p + ', ' + p.a + ', peak ' + (p.peak || p.o) + ') <button class="btn small" data-h="fr-hof" data-id="' + p.i + '">Hall of Fame</button></li>').join('') + '</ul><p class="hint">Their stats stay with them for good (Stats tab, Your retired players).</p>'), 50);
+      }
       else if (op === 'season') { LG.startSeason(L); LG.runUntilHuman(L, 60); FR.tab = 'home'; }
       else if (op === 'trim') LG.trimRoster(L, tid);
       after(true);

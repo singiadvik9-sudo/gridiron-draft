@@ -53,7 +53,7 @@ ok(withLive > 6, 'returns were played by hand (' + withLive + ')');
   const r2 = E.stepGame(st, T, U, 1, 'PUNT', 'ZONE', null, null, Object.assign({ kind: 'pr' }, fc));
   ok(/Fair catch/.test(r2.entry.text) && r2.state.poss === 'a' && r2.state.ballOn === ro.at, 'the ball is spotted where it was caught: ' + r2.entry.text);
   const td = E.stepGame(st, T, U, 1, 'PUNT', 'ZONE', null, null, { kind: 'pr', x: 120, td: true });
-  ok(td.state.score.a >= 6 && td.entry.rtd === 'a' && td.state.kick && td.state.kick.k === 'a' && td.state.poss === 'a', 'a punt return touchdown scores and the scorer kicks off next: ' + td.entry.text);
+  ok(td.state.score.a >= 6 && td.entry.rtd === 'a' && td.state.pat && td.state.pat.t === 'a' && td.state.poss === 'a', 'a punt return touchdown scores and the scorer has the try next: ' + td.entry.text);
   const fm = E.stepGame(st, T, U, 1, 'PUNT', 'ZONE', null, null, { kind: 'pr', x: 9, fumble: true });
   ok(fm.state.poss === 'b' && /recovers/.test(fm.entry.text), 'a fumbled return goes back to the kicking team');
   // a field goal sets up a kickoff step the kicking team chooses
@@ -65,7 +65,7 @@ ok(withLive > 6, 'returns were played by hand (' + withLive + ')');
   let kr = null; for (let sd = 1; sd < 80 && !kr; sd++) { const r = E.stepGame(fg.r.state, T, U, sd, 'KO', 'ZONE', null, null); if (r.entry.retOpp) kr = { sd, r }; }
   ok(kr && kr.r.entry.retOpp.kind === 'ko' && kr.r.entry.ev === 'kickoff', 'a deep kick offers a return');
   const k2 = E.stepGame(fg.r.state, T, U, kr.sd, 'KO', 'ZONE', null, null, { kind: 'ko', x: 120, td: true });
-  ok(k2.entry.rtd === 'a' && k2.state.score.a >= 6 && k2.state.score.b === 3 && k2.state.kick && k2.state.kick.k === 'a', 'a kickoff return touchdown scores for the returner, who then kicks off: ' + k2.entry.text);
+  ok(k2.entry.rtd === 'a' && k2.state.score.a >= 6 && k2.state.score.b === 3 && k2.state.pat && k2.state.pat.t === 'a', 'a kickoff return touchdown scores for the returner, who then has the try: ' + k2.entry.text);
   const k3 = E.stepGame(fg.r.state, T, U, kr.sd, 'KO', 'ZONE', null, null, { kind: 'ko', x: 30 });
   ok(k3.state.poss === 'a' && !k3.state.kick && k3.state.ballOn === Math.round(kr.r.entry.retOpp.at + 30), 'the kickoff return is spotted at the catch plus the yards run: ' + k3.entry.text);
   // onside kicks: about one in eight works, and the spots are right

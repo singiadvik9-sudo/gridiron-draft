@@ -16,8 +16,9 @@ function potHTML(p) {
   return (p.a <= 26 && p.pt > p.o ? 'pot ' + p.pt : '') + tag;
 }
 function plRows(L, list, btn) {
-  return list.map(p => '<tr><td class="pos">' + p.p + '</td><td class="nm">' + esc(p.n) + '</td><td>' + p.a + '</td><td><b class="ov ' + gradeCls(p.o) + '">' + p.o + '</b> ' + trend(p) + '</td><td class="pt">' + potHTML(p) + '</td><td class="act">' + (btn ? btn(p) : '') + '</td></tr>').join('');
+  return list.map(p => '<tr><td class="pos">' + p.p + '</td><td class="nm">' + plLink(p) + '</td><td>' + p.a + '</td><td><b class="ov ' + gradeCls(p.o) + '">' + p.o + '</b> ' + trend(p) + '</td><td class="pt">' + potHTML(p) + '</td><td class="act">' + (btn ? btn(p) : '') + '</td></tr>').join('');
 }
+const plLink = p => '<a href="#" class="plk" data-h="fr-pl" data-id="' + esc(p.i) + '">' + esc(p.n) + '</a>';   // opens his page: ratings and stats
 const tbl = (head, rows) => '<div class="tbl-wrap"><table class="tb"><thead><tr>' + head.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 function teamOvr(L, tid) { const r = LG.teamRating(L, tid); return r; }
 function myGame(L, tid) { return L.sched.find(x => x.w === L.week && !x.done && (x.h === tid || x.a === tid)); }
@@ -77,6 +78,7 @@ FRV.home = A => {
     const mine = LG.rosterOf(L, tid).filter(p => (L.progress.up.indexOf(p.i) >= 0 || L.progress.down.indexOf(p.i) >= 0));
     const ret = L.progress.retired.map(id => PL(L, id)).filter(p => p && p.lt === tid);
     const sl = (L.progress.sleepers || []).map(id => PL(L, id)).filter(p => p && p.t === tid), bu = (L.progress.busts || []).map(id => PL(L, id)).filter(p => p && p.t === tid);
+    if (ret.length) h += '<div class="panel"><h3>Retirements</h3><ul class="news">' + ret.map(p => '<li>' + plLink(p) + ' (' + p.p + ', ' + p.a + ') retires after peaking at ' + (p.peak || p.o) + '. ' + ((L.hof || []).some(x => x.i === p.i) ? '<b class="hof">In your Hall of Fame</b>' : A.canEditRoster() ? '<button class="btn small" data-h="fr-hof" data-id="' + p.i + '">Send to the Hall of Fame</button>' : '') + '</li>').join('') + '</ul><p class="hint">Retired players keep their stats for good: click a name to see his career.</p></div>';
     if (sl.length || bu.length) h += '<div class="panel"><h3>The scouts were wrong</h3><ul class="news">' + sl.map(p => '<li><b class="slp">Sleeper</b> ' + esc(p.n) + ' (' + p.p + ', ' + p.o + '): potential <b>' + p.pt + '</b>, the scouts said ' + p.was + '. Get him on the field.</li>').join('') + bu.map(p => '<li><i class="bust">Bust</i> ' + esc(p.n) + ' (' + p.p + ', ' + p.o + '): potential ' + p.pt + ', the scouts said ' + p.was + '.</li>').join('') + '</ul></div>';
     if (mine.length) h += '<div class="panel"><h3>Player development</h3><ul class="news">' + mine.map(p => '<li>' + esc(p.n) + ' (' + p.p + ') ' + (p.h && p.h.length ? (p.h[p.h.length - 1] + ' → <b>' + p.o + '</b>') : p.o) + ' ' + trend(p) + '</li>').join('') + '</ul></div>';
   }
@@ -84,6 +86,27 @@ FRV.home = A => {
   return h;
 };
 ACT['fr-play'] = async t => { await FR.A.play(t.dataset.g); };
+ACT['fr-hof'] = async t => { const r = await FR.A.act('hof', { pid: t.dataset.id }); if (r && r.ok) toast('Inducted into the Hall of Fame.'); G.closeModal(); frShow(FR.A); };
+ACT['fr-pl'] = t => { const L = FR.A.L, id = t.dataset.id; G.openModal(playerPage(FR.A, id)); };
+/* a player's page: his ratings (overall, potential and every sub-rating) and his numbers this season, game by game, season by season and all time */
+const SCOLS = [['pc', 'C'], ['pa', 'Att'], ['pyd', 'Pass yds'], ['ptd', 'Pass TD'], ['int', 'INT'], ['att', 'Car'], ['ryd', 'Rush yds'], ['rtd', 'Rush TD'], ['rec', 'Rec'], ['recyd', 'Rec yds'], ['rectd', 'Rec TD'], ['sk', 'Sacks'], ['dint', 'Def INT'], ['pbu', 'PBU']];
+function playerPage(A, id) {
+  const L = A.L, p = PL(L, id), hf = (L.hof || []).find(x => x.i === id), who = p || hf; if (!who) return '<p>Unknown player.</p>';
+  const ps = LG.playerStats(L, id) || { seasons: [], games: [], career: {} };
+  const rows = list => { const cols = SCOLS.filter(c => list.some(x => x.s && x.s[c[0]])); return cols.length ? tbl([''].concat(cols.map(c => c[1])), list.map(x => '<tr><td class="nm">' + x.l + '</td>' + cols.map(c => '<td>' + ((x.s && x.s[c[0]]) || 0) + '</td>').join('') + '</tr>').join('')) : '<p class="hint">No stats recorded.</p>'; };
+  const tm = t => L.teams[t] ? L.teams[t].abbr : '';
+  const status = p ? (p.t >= 0 ? esc(L.teams[p.t].name) : p.t === -2 ? 'Retired' + (p.ry ? ' after ' + p.ry : '') + (L.teams[p.lt] ? ' (' + esc(L.teams[p.lt].nick) + ')' : '') : 'Free agent') : 'Retired';
+  let h = '<h3>' + esc(who.n) + ' <small>' + who.p + '</small>' + (hf ? ' <b class="hof">Hall of Fame ' + hf.y + '</b>' : '') + '</h3><p class="sub">' + status + (p ? ' · age ' + p.a + ' · overall <b>' + p.o + '</b>' + (p.t === -2 ? ' (peak ' + (p.peak || p.o) + ')' : '') + ' ' + potHTML(p) : '') + '</p>';
+  if (p) { const sub = E.subsOf(p.p, { i: p.i, o: p.o, s: p.s }); h += '<h4 class="pos-h">Ratings</h4><div class="subgrid">' + Object.keys(sub).map(k => '<div class="st" title="' + esc(E.SUB_NAME[k] || k) + '"><span>' + k + '</span><span class="bar"><i class="' + (sub[k] >= 88 ? 'hi' : sub[k] >= 76 ? 'mid' : 'lo') + '" style="width:' + Math.max(8, Math.min(100, (sub[k] - 40) / 0.6)) + '%"></i></span><b>' + sub[k] + '</b></div>').join('') + '</div><p class="hint">Hover a rating for its name. They move with his overall as he develops.</p>'; }
+  if (ps.season) h += '<h4 class="pos-h">This season</h4>' + rows([{ l: L.season, s: ps.season }]);
+  if (ps.games.length) h += '<h4 class="pos-h">Game by game</h4>' + rows(ps.games.map(x => { const g = x.g, home = g.h === x.t, opp = L.teams[home ? g.a : g.h]; return { l: (g.pl === 'po' ? 'PO' : 'Wk ' + g.w) + ' ' + (home ? 'vs ' : '@ ') + (opp ? opp.abbr : ''), s: x.s }; }));
+  if (ps.seasons.length) h += '<h4 class="pos-h">Season by season</h4>' + rows(ps.seasons.map(x => ({ l: x.y + ' ' + tm(x.t), s: x })));
+  h += '<h4 class="pos-h">All time</h4>' + rows([{ l: 'Career', s: ps.career }]);
+  const kept = p && L.teams[p.t >= 0 ? p.t : p.lt] && L.teams[p.t >= 0 ? p.t : p.lt].owner;
+  if (!ps.seasons.length && !ps.games.length) h += '<p class="hint">' + (kept ? 'His game-by-game lines and seasons show up here as he plays.' : 'Game-by-game lines and past seasons are kept for players on teams a person runs.') + '</p>';
+  if (p && p.t === -2 && p.lt === A.tid && !hf && A.canEditRoster()) h += '<div class="row"><button class="btn primary" data-h="fr-hof" data-id="' + p.i + '">Send to the Hall of Fame</button></div>';
+  return h;
+}
 ACT['fr-sim'] = async t => { await FR.A.sim(t.dataset.g); };
 ACT['fr-offseason'] = async () => { await FR.A.go('offseason'); };
 ACT['fr-season'] = async () => { await FR.A.go('season'); };
@@ -264,7 +287,7 @@ function teamStatsPanel(A) {
     const cols = c.slice(1), sort = { Passing: 'pyd', Rushing: 'ryd', Receiving: 'recyd', Defense: 'sk' }[c[0]];
     const list = rows.filter(r => cols.some(k => r.s[k[0]])).sort((a, b) => num(b.s[sort]) - num(a.s[sort]));
     if (!list.length) return;
-    h += '<h4 class="pos-h">' + c[0] + '</h4>' + tbl(['Player'].concat(cols.map(k => k[1])), list.map(r => '<tr><td class="nm"><span class="pos">' + r.p.p + '</span> ' + esc(r.p.n) + (r.p.t !== tid ? ' <small>(' + (r.p.t >= 0 ? esc(L.teams[r.p.t].abbr) : 'FA') + ')</small>' : '') + '</td>' + cols.map(k => '<td>' + num(r.s[k[0]]) + '</td>').join('') + '</tr>').join(''));
+    h += '<h4 class="pos-h">' + c[0] + '</h4>' + tbl(['Player'].concat(cols.map(k => k[1])), list.map(r => '<tr><td class="nm"><span class="pos">' + r.p.p + '</span> ' + plLink(r.p) + (r.p.t !== tid ? ' <small>(' + (r.p.t >= 0 ? esc(L.teams[r.p.t].abbr) : 'FA') + ')</small>' : '') + '</td>' + cols.map(k => '<td>' + num(r.s[k[0]]) + '</td>').join('') + '</tr>').join(''));
   });
   return h + '</div>';
 }
@@ -284,6 +307,9 @@ FRV.stats = A => {
       x.awards.players.map(a => '<li class="' + (a.t === A.tid ? 'me' : '') + '"><span>' + a.label + '</span> <b>' + esc(a.n) + '</b> <small>' + a.p + ' · ' + esc((L.teams[a.t] || { abbr: '' }).abbr) + '</small></li>').join('') +
       x.awards.teams.map(a => '<li class="' + (a.t === A.tid ? 'me' : '') + '"><span>' + a.label + '</span> <b>' + esc(L.teams[a.t].name) + '</b></li>').join('') + '</ul>').join('') + '</div>';
   }
+  const hof = (L.hof || []).slice().reverse(), gone = A.tid >= 0 ? Object.values(L.players).filter(p => p.t === -2 && p.lt === A.tid && !hof.some(x => x.i === p.i)).sort((a, b) => (b.ry || 0) - (a.ry || 0) || (b.peak || b.o) - (a.peak || a.o)).slice(0, 30) : [];
+  if (hof.length) h += '<div class="panel"><h3>Hall of Fame</h3><ul class="news">' + hof.map(x => '<li><span>' + x.y + '</span> <a href="#" class="plk" data-h="fr-pl" data-id="' + esc(x.i) + '">' + esc(x.n) + '</a> <small>' + x.p + ' · ' + esc((L.teams[x.t] || { name: '' }).name) + ' · peak ' + x.peak + '</small></li>').join('') + '</ul></div>';
+  if (gone.length) h += '<div class="panel"><h3>Your retired players</h3><ul class="news">' + gone.map(p => '<li><span>' + (p.ry || '') + '</span> ' + plLink(p) + ' <small>' + p.p + ' · peak ' + (p.peak || p.o) + '</small> ' + (A.canEditRoster() ? '<button class="btn small" data-h="fr-hof" data-id="' + p.i + '">Hall of Fame</button>' : '') + '</li>').join('') + '</ul></div>';
   if (L.hist.length) h += '<div class="panel"><h3>Champions</h3><ul class="news">' + L.hist.slice().reverse().map(x => '<li><span>' + x.season + '</span> ' + (x.champ != null ? esc(L.teams[x.champ].name) : '—') + '</li>').join('') + '</ul></div>';
   return h;
 };
