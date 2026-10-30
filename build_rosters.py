@@ -5,6 +5,7 @@
   python3 build_rosters.py salaries DIR   gives every player in lib/data.json his real salary, and writes the salary curve (SAL)
   python3 build_rosters.py returners DIR  gives every running back, receiver and corner a returner rating (and corners a speed)
   python3 build_rosters.py ratings DIR    re-rates every player already in lib/data.json from the current Madden 27 ratings (rosters and contracts stay)
+  python3 build_rosters.py attrs DIR      gives every player in lib/data.json his Madden attributes (ATTR) and fits estimates for the rest (ATTR_FIT)
 
 Each team's pool is its roster plus its injured-reserve list (nflverse status ACT, INA or RES), with injuries ignored. Every player
 gets his Madden NFL 27 rating (ea.com ratings database, matched by name, then team and birth date; nicknames by birth date and last
@@ -34,13 +35,33 @@ CONTRACTS_URL = 'https://github.com/nflverse/nflverse-data/releases/download/con
 ROSTERED = ('ACT', 'INA', 'RES')        # active, inactive, injured reserve
 NOW = datetime.date(2026, 10, 14)
 
+# the Madden attributes the game keeps (EA's stat names, in the order of ATTR_KEY; the game's abbreviations are in lib/engine.js SUBS)
+ATTR_EA = ['speed', 'acceleration', 'agility', 'strength', 'awareness', 'throwPower', 'throwAccuracyShort', 'throwAccuracyMid', 'throwAccuracyDeep',
+           'throwOnTheRun', 'throwUnderPressure', 'breakSack', 'carrying', 'bCVision', 'breakTackle', 'trucking', 'jukeMove', 'spinMove', 'stiffArm',
+           'catching', 'catchInTraffic', 'spectacularCatch', 'shortRouteRunning', 'mediumRouteRunning', 'deepRouteRunning', 'release', 'jumping',
+           'runBlock', 'passBlock', 'passBlockPower', 'passBlockFinesse', 'runBlockPower', 'runBlockFinesse', 'impactBlocking', 'powerMoves',
+           'finesseMoves', 'blockShedding', 'tackle', 'pursuit', 'hitPower', 'zoneCoverage', 'manCoverage', 'playRecognition', 'press',
+           'kickPower', 'kickAccuracy', 'kickReturn']
+ATTR_KEY = ['SPD', 'ACC', 'AGI', 'STR', 'AWR', 'THP', 'SAC', 'MAC', 'DAC', 'TOR', 'TUP', 'BSK', 'CAR', 'BCV', 'BTK', 'TRK', 'JKM', 'SPM', 'SFA',
+            'CTH', 'CIT', 'SPC', 'SRR', 'MRR', 'DRR', 'RLS', 'JMP', 'RBK', 'PBK', 'PBP', 'PBF', 'RBP', 'RBF', 'IBL', 'PMV',
+            'FMV', 'BSH', 'TAK', 'PUR', 'HIT', 'ZCV', 'MCV', 'PRC', 'PRS', 'KPW', 'KAC', 'RET']
+# which of them each of the game's positions shows and plays with (keep in step with SUBS in lib/engine.js)
+ATTR_POS = {'QB': ['SPD', 'AGI', 'AWR', 'THP', 'SAC', 'MAC', 'DAC', 'TOR', 'TUP', 'BSK'],
+            'HB': ['SPD', 'ACC', 'AGI', 'STR', 'AWR', 'CAR', 'BCV', 'BTK', 'TRK', 'JKM', 'SPM', 'SFA', 'CTH'],
+            'WR': ['SPD', 'ACC', 'AGI', 'AWR', 'CTH', 'CIT', 'SPC', 'SRR', 'MRR', 'DRR', 'RLS', 'JMP', 'BTK'],
+            'TE': ['SPD', 'STR', 'AWR', 'CTH', 'CIT', 'SPC', 'SRR', 'MRR', 'RBK', 'PBK', 'BTK'],
+            'OL': ['STR', 'AGI', 'AWR', 'PBK', 'PBP', 'PBF', 'RBK', 'RBP', 'RBF', 'IBL'],
+            'DE': ['SPD', 'ACC', 'STR', 'AWR', 'PMV', 'FMV', 'BSH', 'TAK', 'PUR', 'HIT', 'PRC'], 'DT': ['SPD', 'ACC', 'STR', 'AWR', 'PMV', 'FMV', 'BSH', 'TAK', 'PUR', 'HIT', 'PRC'],
+            'LB': ['SPD', 'ACC', 'STR', 'AWR', 'TAK', 'HIT', 'PUR', 'BSH', 'ZCV', 'MCV', 'PRC'],
+            'CB': ['SPD', 'ACC', 'AGI', 'AWR', 'MCV', 'ZCV', 'PRS', 'PRC', 'JMP', 'CTH', 'TAK'],
+            'S': ['SPD', 'ACC', 'AWR', 'ZCV', 'MCV', 'HIT', 'TAK', 'PUR', 'PRC', 'JMP', 'CTH'], 'K': ['KPW', 'KAC', 'AWR'], 'P': ['KPW', 'KAC', 'AWR']}
 def slim(i):   # the fields the build uses from one EA ratings entry
     s = i.get('stats') or {}
     g = lambda k: (s.get(k) or {}).get('value') if isinstance(s.get(k), dict) else s.get(k)
     return {'id': i['id'], 'name': (i['firstName'] + ' ' + i['lastName']).strip(), 'team': (i['team'] or {}).get('label'),
             'pos': (i['position'] or {}).get('shortLabel'), 'ovr': i['overallRating'], 'age': i['age'], 'born': (i.get('birthdate') or '')[:10],
             'spd': g('speed'), 'str': g('strength'), 'agi': g('agility'), 'cod': g('changeOfDirection'), 'awr': g('awareness'), 'kr': g('kickReturn'),
-            'it': (i.get('iteration') or {}).get('id')}
+            'it': (i.get('iteration') or {}).get('id'), 'at': [g(k) for k in ATTR_EA]}
 def fetch(d):
     os.makedirs(d, exist_ok=True)
     urllib.request.urlretrieve(ROSTER_URL, os.path.join(d, 'roster_2026.csv'))
@@ -417,9 +438,64 @@ def ratings(d):
     for x in moves[:8] + moves[-8:]: print('  %+d  %s (%s %s) %d -> %d' % x)
     returners(d)
 
+# every player's Madden attributes, by name and position: ATTR['joshallen:QB'] = [his Madden overall, two digits per attribute of his
+# position (ATTR_POS order)]. The game shifts them by however far his overall has moved since. ATTR_FIT[pos][k] = [a, b, sd]: attribute k is
+# about a + b * overall at that position (a least-squares fit over every Madden player there), for players Madden does not list.
+def gpos(p):
+    return {'LDE': 'DE', 'RDE': 'DE', 'LEDGE': 'DE', 'REDGE': 'DE', 'LDT': 'DT', 'RDT': 'DT', 'NT': 'DT'}.get(p) or ('LB' if p.endswith('LB') else 'CB' if p.endswith('CB') else 'S' if p in ('SS', 'FS') else p)
+def attrs(d):
+    M = json.load(open(os.path.join(d, 'madden27.json'))) + json.load(open(os.path.join(d, 'madden26.json')))
+    by, byName, byNick = {}, {}, {}
+    nick = lambda n: (lambda w: (w[-1], w[0][:3]) if len(w) > 1 else None)(re.sub(r'( jr| sr| ii| iii| iv| v)+$', '', unicodedata.normalize('NFKD', n.lower()).replace('.', '').strip()).split())
+    for m in M:
+        if not m.get('at') or any(v is None for v in m['at']): continue
+        g = group(m['pos'], None, '43')
+        if g: by.setdefault(norm(m['name']) + ':' + g, m)   # Madden 27 first, then 26
+        byName.setdefault(norm(m['name']), []).append(m)   # (Madden 26 entries carry no position)
+        k = nick(m['name']); 
+        if k: byNick.setdefault(k, []).append(m)
+    # by name alone when only one player has it (Olu / Olumuyiwa, Chig / Chigoziem: last name and the first three letters)
+    def loose(n):
+        for L in (byName.get(norm(n)), byNick.get(nick(n))):
+            if L and len({x['name'] for x in L}) == 1 and len({x['born'] for x in L if x['born']}) <= 1: return L[0]
+        return None
+    D = json.load(open(OUT))
+    names = []
+    for p in D['PLAYERS']: names.append((p['name'], p['pos']))
+    for u in D['OLU']: names += [(q[0], 'OL') for q in u['players']]
+    for u in D['DFU']: names += [(q[2], gpos(q[0])) for q in u['players']]
+    for k in D['KICK']: names.append((k['name'], 'K'))
+    for u in D['STU']: names.append((u['players'][0][1], 'P'))
+    for u in D.get('DEPTH', []): names += [(q[1], q[0]) for q in u['players']]
+    names += [(q[1], q[0]) for q in D.get('FA', [])]
+    A, hit, miss = {}, 0, []
+    for n, pos in names:
+        pos = gpos(pos); ks = ATTR_POS.get(pos)
+        if not ks: continue
+        key = norm(n) + ':' + pos; m = by.get(key)
+        if not m and pos in ('DE', 'DT', 'LB'):   # (Madden can list a player at a neighbouring spot)
+            m = next((by.get(norm(n) + ':' + q) for q in ('DE', 'DT', 'LB') if by.get(norm(n) + ':' + q)), None)
+        if not m: m = loose(n)
+        if not m: miss.append(key); continue
+        hit += 1; A[key] = [m['ovr'], ''.join('%02d' % min(99, max(0, m['at'][ATTR_KEY.index(k)])) for k in ks)]
+    F = {}
+    for pos, ks in ATTR_POS.items():
+        rows = [m for k, m in by.items() if k.endswith(':' + pos) and m['ovr'] >= 50]
+        if len(rows) < 8: continue
+        xs = [m['ovr'] for m in rows]; mx = sum(xs) / len(xs); vx = sum((x - mx) ** 2 for x in xs) or 1
+        F[pos] = {}
+        for k in ks:
+            ys = [m['at'][ATTR_KEY.index(k)] for m in rows]; my = sum(ys) / len(ys)
+            b = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / vx; a = my - b * mx
+            sd = (sum((y - a - b * x) ** 2 for x, y in zip(xs, ys)) / len(ys)) ** 0.5
+            F[pos][k] = [round(a, 2), round(b, 3), round(sd, 1)]
+    D['ATTR'] = A; D['ATTR_FIT'] = F
+    json.dump(D, open(OUT, 'w'), separators=(',', ':'))
+    print('attributes for', hit, 'of', len(names), 'players;', len(miss), 'estimated, e.g.', miss[:6])
+
 if __name__ == '__main__':
-    if len(sys.argv) != 3 or sys.argv[1] not in ('fetch', 'build', 'salaries', 'returners', 'ratings'): sys.exit(__doc__)
-    {'fetch': fetch, 'build': build, 'salaries': salaries, 'returners': returners, 'ratings': ratings}[sys.argv[1]](sys.argv[2])
+    if len(sys.argv) != 3 or sys.argv[1] not in ('fetch', 'build', 'salaries', 'returners', 'ratings', 'attrs'): sys.exit(__doc__)
+    {'fetch': fetch, 'build': build, 'salaries': salaries, 'returners': returners, 'ratings': ratings, 'attrs': attrs}[sys.argv[1]](sys.argv[2])
     if sys.argv[1] == 'build':
         if os.path.exists(os.path.join(sys.argv[2], 'contracts.json')): salaries(sys.argv[2])
         returners(sys.argv[2])

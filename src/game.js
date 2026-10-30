@@ -141,6 +141,23 @@ function meter(f) {
 function statRow(k, v) {
   return '<div class="st"><span>' + k + '</span><span class="bar"><i class="' + (v >= 88 ? 'hi' : v >= 76 ? 'mid' : 'lo') + '" style="width:' + Math.max(8, Math.min(100, (v - 40) / 0.6)) + '%"></i></span><b>' + v + '</b></div>';
 }
+/* ---------- a player's Madden attributes (E.subsOf): EA's own numbers for real players, estimates for the rest ---------- */
+const KEY_ATTR = { QB: ['THP', 'SAC', 'DAC', 'AWR'], HB: ['SPD', 'BTK', 'JKM', 'CAR'], WR: ['SPD', 'CTH', 'SRR', 'DRR'], TE: ['CTH', 'SRR', 'RBK', 'SPD'], OL: ['PBK', 'RBK', 'STR', 'AWR'],
+  DE: ['PMV', 'FMV', 'BSH', 'SPD'], DT: ['PMV', 'BSH', 'STR', 'TAK'], LB: ['TAK', 'PUR', 'ZCV', 'SPD'], CB: ['MCV', 'ZCV', 'SPD', 'PRS'], S: ['ZCV', 'HIT', 'SPD', 'PRC'], K: ['KPW', 'KAC'], P: ['KPW', 'KAC'] };
+const attrRow = (k, v) => '<div class="st" title="' + esc(E.SUB_NAME[k] || k) + '"><span>' + k + '</span><span class="bar"><i class="' + (v >= 88 ? 'hi' : v >= 76 ? 'mid' : 'lo') + '" style="width:' + Math.max(8, Math.min(100, (v - 40) / 0.6)) + '%"></i></span><b>' + v + '</b></div>';
+function attrGrid(pos, p) {
+  const a = E.subsOf(pos, p), ks = Object.keys(a); if (!ks.length) return '';
+  return '<div class="subgrid">' + ks.map(k => '<div class="st"><span title="' + esc(E.SUB_NAME[k] || k) + '">' + k + '</span><span class="bar"><i class="' + (a[k] >= 88 ? 'hi' : a[k] >= 76 ? 'mid' : 'lo') + '" style="width:' + Math.max(8, Math.min(100, (a[k] - 40) / 0.6)) + '%"></i></span><b>' + a[k] + '</b><small>' + esc(E.SUB_NAME[k] || '') + '</small></div>').join('') + '</div>' +
+    '<p class="hint">' + (a.est ? 'Estimated: Madden does not rate him yet, so these follow his overall the way they do for every Madden player at his position.' : 'Madden NFL 27 ratings from EA, moved with his overall as it changes.') + '</p>';
+}
+const keyAttrs = (pos, p) => { const a = E.subsOf(pos, p), ks = KEY_ATTR[E.subPos(pos)] || []; return ks.filter(k => a[k] != null).map(k => '<span class="ka" title="' + esc(E.SUB_NAME[k]) + '">' + k + ' <b>' + a[k] + '</b></span>').join(''); };
+// a name you can click for his full card: data-pos/-n/-o/-s/-tm describe him
+const pinfoAttrs = (pos, p, tm) => ' data-act="pinfo" data-pos="' + esc(pos) + '" data-n="' + esc(p.n) + '" data-o="' + p.o + '"' + (p.s ? ' data-s="' + p.s + '"' : '') + (p.i != null ? ' data-i="' + esc(p.i) + '"' : '') + (tm ? ' data-tm="' + esc(tm) + '"' : '');
+const pinfoName = (pos, p, tm) => '<span class="plk"' + pinfoAttrs(pos, p, tm) + ' role="button" tabindex="0">' + esc(p.n) + '</span>';
+function showPlayerInfo(d) {
+  const pos = d.pos, p = { n: d.n, o: +d.o, s: d.s ? +d.s : undefined, i: d.i }, tm = d.tm && E.TEAMS.find(t => t.abbr === d.tm);
+  openModal('<h3>' + esc(p.n) + ' <small>' + esc(pos) + '</small></h3><p class="sub">' + (tm ? esc(tm.city + ' ' + tm.nick) + ' · ' : '') + 'overall <b>' + p.o + '</b></p><h4 class="pos-h">Ratings</h4>' + attrGrid(pos, p));
+}
 const spCanvas = (key, s) => '<canvas class="spr" data-sp="' + key + '" data-s="' + s + '"></canvas>';
 const brite = tm => { const c = lum(tm.c1) < 0.2 ? tm.c2 : tm.c1; return lum(c) < 0.4 ? shade(c, 0.45) : c; };
 const teamChip = tm => '<span class="chip tm" style="--tc:' + brite(tm) + '">' + esc(tm.city + ' ' + tm.nick) + '</span>';
@@ -150,16 +167,17 @@ function cardHTML(id, i, slotIdx) {
   if (slot.kind === 'OL') {
     art = '<div class="pc-art units">' + [0, 1, 2, 3, 4].map(n => spCanvas(genericKey(e.tm, 'OL', n), 3)).join('') + '<span class="grade">' + g + '</span></div>';
     name = E.unitName(e, 'OL'); chips = teamChip(e.tm);
-    body = '<div class="plist">' + e.players.map(p => '<div><span>' + esc(p[0]) + '</span><b>' + p[1] + '</b></div>').join('') + '</div>';
+    body = '<div class="plist">' + e.players.map(p => '<div>' + pinfoName('OL', { n: p[0], o: p[1] }, e.tm.abbr) + '<b>' + p[1] + '</b></div>').join('') + '</div>';
   } else if (slot.kind === 'DEF') {
     art = '<div class="pc-art units">' + [0, 1, 2, 3].map(n => spCanvas(genericKey(e.tm, 'DEF', n), 3)).join('') + '<span class="grade">' + g + '</span></div>';
     name = E.unitName(e, 'DEF'); chips = teamChip(e.tm) + '<span class="chip">' + (e.scheme === '34' ? '3-4' : '4-3') + '</span>';
-    const top = e.players.slice().sort((a, b) => b[3] - a[3]).slice(0, 3).map(p => p[2] + ' ' + p[3]).join(' · ');
-    body = '<div class="stats">' + E.GROUPS.map(k => statRow(k, Math.round(e.g[k]))).join('') + '</div><div class="trait">' + esc(top) + '</div>';
+    const top = e.players.slice().sort((a, b) => b[3] - a[3]).slice(0, 3).map(p => pinfoName(p[0], { n: p[2], o: p[3] }, e.tm.abbr) + ' ' + p[3]).join(' · ');
+    body = '<div class="stats">' + E.GROUPS.map(k => statRow(k, Math.round(e.g[k]))).join('') + '</div><div class="trait">' + top + '</div>';
   } else {
     art = '<div class="pc-art">' + spCanvas(keyFor(e, e.tm), 7) + '<span class="grade">' + g + '</span></div>';
     name = e.name; chips = teamChip(e.tm);
-    body = '<div class="stats">' + statRow('SPD', e.spd) + statRow('STR', e.str) + statRow('AGI', e.agi) + statRow('AWR', e.awr) + '</div>' + (e.est ? '<div class="trait">rating estimated from comparable players</div>' : '');
+    const pp = { n: e.name, o: e.ovr, s: e.spd, i: 'p' + e.id }, a = E.subsOf(slot.kind, pp), ks = (KEY_ATTR[slot.kind] || []).filter(k => a[k] != null);
+    body = '<div class="stats">' + ks.map(k => statRow(k, a[k])).join('') + '</div><div class="trait"><span class="plk"' + pinfoAttrs(slot.kind, pp, e.tm.abbr) + ' role="button" tabindex="0">All ratings</span>' + (e.est ? ' · overall estimated from comparable players' : '') + '</div>';
   }
   return '<button class="pcard g-' + g + '" data-act="pick" data-i="' + i + '" aria-label="Draft ' + esc(name) + '">' + art +
     '<div class="pc-main"><div class="pc-top"><span class="key">' + (i + 1) + '</span><span class="pc-name">' + esc(name) + '</span><span class="dex">' + e.ovr + '</span></div>' +
@@ -705,12 +723,17 @@ function sdSet(nd) {
   const sd = S.sd; if (!sd || !nd || nd.picks.length < sd.d.picks.length) return false;
   const ch = nd.picks.length !== sd.d.picks.length; sd.d = nd; return ch;
 }
+// units list their players (each name opens his ratings); returns HTML
 function sdSub(c) {
-  const D = E.DATA, last = n => String(n).split(' ').slice(-1)[0];
-  if (c.k === 'OL') return D.OLU[c.n].players.map(p => last(p[0]) + ' ' + p[1]).join(' · ');
-  if (c.k === 'ST') return D.STU[c.n].players.map(p => last(p[1]) + ' ' + p[2]).slice(0, 3).join(' · ') + ' …';
-  if (c.k === 'DEF') return D.DFU[c.n].players.slice().sort((x, y) => y[3] - x[3]).slice(0, 4).map(p => last(p[2]) + ' ' + p[3]).join(' · ');
+  const D = E.DATA, last = n => String(n).replace(/ (Jr\.?|Sr\.?|II|III|IV|V)$/, '').split(' ').slice(-1)[0], nm = (pos, n, o) => '<span class="plk"' + pinfoAttrs(pos, { n, o }, c.tm) + ' role="button" tabindex="0">' + esc(last(n)) + '</span> ' + o;
+  if (c.k === 'OL') return D.OLU[c.n].players.map(p => nm('OL', p[0], p[1])).join(' · ');
+  if (c.k === 'ST') return D.STU[c.n].players.map(p => esc(last(p[1])) + ' ' + p[2]).slice(0, 3).join(' · ') + ' …';
+  if (c.k === 'DEF') return D.DFU[c.n].players.slice().sort((x, y) => y[3] - x[3]).slice(0, 4).map(p => nm(p[0], p[2], p[3])).join(' · ');
   return '';
+}
+function sdPlayer(c) {
+  if (c.k === 'K') { const k = E.DATA.KICK[c.n]; return { n: k.name, o: k.ovr }; }
+  const p = E.DATA.PLAYERS[c.n]; return c.id[0] === 'P' && p ? { n: p.name, o: p.ovr, s: p.spd, i: 'p' + p.id } : null;
 }
 function sdShell() {
   $('#main').innerHTML = '<section class="sd"><div class="sd-head panel" id="sd-head"></div><div class="sd-body"><div class="sd-main panel">' +
@@ -773,7 +796,8 @@ function sdList() {
     let why = '';
     if (left[c.k] <= 0) why = 'Filled'; else if (myTurn) { const e = DR.legal(d, sd.me, c.id); if (e) why = cap && /cap/.test(e) ? 'Over cap' : 'No'; }
     const g = E.grade(c.ovr);
-    return '<div class="sd-row g-' + g + (why ? ' no' : '') + '"><b class="sd-ovr">' + c.ovr + '</b><div class="sd-nm"><b>' + esc(c.name) + '</b><span>' + esc(c.tm || '') + (sdSub(c) ? ' · ' + esc(sdSub(c)) : '') + '</span></div>' +
+    const sp = sdPlayer(c);   // a single player: his name opens his ratings, and his position's key ones show under it
+    return '<div class="sd-row g-' + g + (why ? ' no' : '') + '"><b class="sd-ovr">' + c.ovr + '</b><div class="sd-nm"><b>' + (sp ? pinfoName(c.k, sp, c.tm) : esc(c.name)) + '</b><span>' + esc(c.tm || '') + (sdSub(c) ? ' · ' + sdSub(c) : '') + '</span>' + (sp ? '<span class="kas">' + keyAttrs(c.k, sp) + '</span>' : '') + '</div>' +
       '<span class="sd-sal">' + money(c.sal) + '</span><button class="btn small primary" data-act="sd-pick" data-id="' + c.id + '"' + (myTurn && !why && !sd.busy ? '' : ' disabled') + '>' + (why || 'Draft') + '</button></div>';
   }).join('');
   if (!rows.length) h = '<p class="hint">Nobody matches.</p>';
@@ -841,18 +865,18 @@ function sdOnline(r) {   // a poll result from the quick room
 function squadListHTML(team) {
   const q = team.squad, side = team === (S.G && S.G.teams.b) ? 'b' : 'a';
   const sk = p => fieldKey(p.sk + ':' + p.hr + ':000000:000000', side);
-  const row = (pos, key, name, ovr, tag) => '<li><span class="r-pos">' + pos + '</span>' + spCanvas(key, 2) + '<span class="r-name">' + esc(name) + '</span><span class="r-type">' + esc(tag || '') + '</span><span class="r-fit">' + ovr + '</span><span class="grade g-' + E.grade(ovr) + '">' + E.grade(ovr) + '</span></li>';
+  const row = (pos, key, name, ovr, tag, p) => '<li><span class="r-pos">' + pos + '</span>' + spCanvas(key, 2) + '<span class="r-name">' + (p ? pinfoName(pos === 'RET' || pos === 'ST' ? 'HB' : pos, p, q.tm) + '<small class="kas">' + keyAttrs(pos, p) + '</small>' : esc(name)) + '</span><span class="r-type">' + esc(tag || '') + '</span><span class="r-fit">' + ovr + '</span><span class="grade g-' + E.grade(ovr) + '">' + E.grade(ovr) + '</span></li>';
   let h = '';
-  [['QB', q.qb], ['HB', q.hb], ['WR', q.wr[0]], ['WR', q.wr[1]], ['TE', q.te]].forEach(r => { h += row(r[0], sk(r[1]), r[1].n, r[1].o, r[1].tm); });
+  [['QB', q.qb], ['HB', q.hb], ['WR', q.wr[0]], ['WR', q.wr[1]], ['TE', q.te]].forEach(r => { h += row(r[0], sk(r[1]), r[1].n, r[1].o, r[1].tm, r[1]); });
   if (q.rot) {   // the rotation and how fresh each one is right now (fatigue: tired players come out more and play a little worse)
     const st = S.G && S.G.state, en = p => Math.round(100 * E.energy(st || {}, p.i));
-    ['HB', 'WR', 'TE'].forEach(pos => (q.rot[pos] || []).forEach(p => { h += '<li class="rotl"><span class="r-pos">' + pos + '</span><span class="r-name">' + esc(p.n) + '</span><span class="r-type">use ' + p.u + '% · energy ' + en(p) + '%</span><span class="r-fit">' + p.o + '</span></li>'; }));
+    ['HB', 'WR', 'TE'].forEach(pos => (q.rot[pos] || []).forEach(p => { h += '<li class="rotl"><span class="r-pos">' + pos + '</span><span></span><span class="r-name">' + pinfoName(pos, p, q.tm) + '<small class="kas">' + keyAttrs(pos, p) + '</small></span><span class="r-type">use ' + p.u + '% · energy ' + en(p) + '%</span><span class="r-fit">' + p.o + '</span><span></span></li>'; }));
   }
   const gk = n => fieldKey(genericKey({ abbr: q.ol.tm, c1: '#222222', c2: '#222222' }, 'OL', n), side);
-  q.ol.p.forEach((p, n) => { h += row('OL', gk(n), p[0], p[1], ''); });
-  q.df.p.forEach((p, n) => { h += row(p[0], fieldKey(genericKey({ abbr: q.df.tm, c1: '#222222', c2: '#222222' }, 'DEF', n), side), p[2], p[3], ''); });
+  q.ol.p.forEach((p, n) => { h += row('OL', gk(n), p[0], p[1], '', { n: p[0], o: p[1], i: p[2] }); });
+  q.df.p.forEach((p, n) => { h += row(p[0], fieldKey(genericKey({ abbr: q.df.tm, c1: '#222222', c2: '#222222' }, 'DEF', n), side), p[2], p[3], '', { n: p[2], o: p[3], i: p[4] }); });
   if (q.k) {
-    [['K', q.k], ['RET', q.kr]].forEach(r => { h += row(r[0], sk(r[1]), r[1].n, r[1].o, r[1].tm); });   // one returner for kicks and punts
+    [['K', q.k], ['RET', q.kr]].forEach(r => { h += row(r[0], sk(r[1]), r[1].n, r[1].o, r[1].tm, r[0] === 'K' ? r[1] : null); });   // one returner for kicks and punts
     const stN = q.st.p.slice().sort((x, y) => y[2] - x[2]).slice(0, 2).map(p => p[1]).join(', ');
     h += row('ST', fieldKey(genericKey({ abbr: q.st.tm, c1: '#222222', c2: '#222222' }, 'DEF', 9), side), (q.st.tm || '') + ' special teams', E.teamUnits({ squad: q }).stOvr, stN);
   }
@@ -880,7 +904,7 @@ function handleErr(e) {
 function openModal(html) {
   const m = $('#modal'); if (!m) return;
   m.innerHTML = '<div class="m-back" data-act="close-modal"></div><div class="m-card" role="dialog" aria-modal="true">' + html + '<div class="row"><button class="btn" data-act="close-modal">Close</button></div></div>';
-  m.hidden = false; paintCanvases(m);
+  m.hidden = false; m.scrollTop = 0; paintCanvases(m);
 }
 function closeModal() { const m = $('#modal'); if (m) { m.hidden = true; m.innerHTML = ''; } }
 function showRosters() {
@@ -1283,7 +1307,7 @@ function startBoard(o) {   // hub-driven snake draft (tournaments): {label, d, m
   sdStart(o); sdPollLoop(); render(); sdStep();
 }
 function exitToHub() { leave(); }
-window.GAME = { resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field };
+window.GAME = { attrGrid, keyAttrs, resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field };
 
 /* ---------- router ---------- */
 function render() {
@@ -1320,6 +1344,7 @@ document.addEventListener('click', ev => {
   else if (a === 'km-stop') stopMeter();
   else if (a === 'km-back') { S.km = null; S.callSig = null; renderCall(S.G); }
   else if (a === 'gstats') showGameStats();
+  else if (a === 'pinfo') showPlayerInfo(t.dataset);
   else if (a === 'to-toggle') { const n = S.G.state.playNo; S.toSel = { n, on: !toSel(n) }; S.callSig = null; renderCall(S.G); }
   else if (a === 'hurry') hurry();
   else if (a === 'live-hand') LV.hand();

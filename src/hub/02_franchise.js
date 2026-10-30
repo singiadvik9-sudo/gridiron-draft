@@ -16,7 +16,7 @@ function potHTML(p) {
   return (p.a <= 26 && p.pt > p.o ? 'pot ' + p.pt : '') + tag;
 }
 function plRows(L, list, btn) {
-  return list.map(p => '<tr><td class="pos">' + p.p + '</td><td class="nm">' + plLink(p) + '</td><td>' + p.a + '</td><td><b class="ov ' + gradeCls(p.o) + '">' + p.o + '</b> ' + trend(p) + '</td><td class="pt">' + potHTML(p) + '</td><td class="act">' + (btn ? btn(p) : '') + '</td></tr>').join('');
+  return list.map(p => '<tr><td class="pos">' + p.p + '</td><td class="nm">' + plLink(p) + '<small class="kas">' + G.keyAttrs(p.p, { i: p.i, n: p.n, o: p.o, s: p.s }) + '</small></td><td>' + p.a + '</td><td><b class="ov ' + gradeCls(p.o) + '">' + p.o + '</b> ' + trend(p) + '</td><td class="pt">' + potHTML(p) + '</td><td class="act">' + (btn ? btn(p) : '') + '</td></tr>').join('');
 }
 const plLink = p => '<a href="#" class="plk" data-h="fr-pl" data-id="' + esc(p.i) + '">' + esc(p.n) + '</a>';   // opens his page: ratings and stats
 const tbl = (head, rows) => '<div class="tbl-wrap"><table class="tb"><thead><tr>' + head.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
@@ -97,7 +97,7 @@ function playerPage(A, id) {
   const tm = t => L.teams[t] ? L.teams[t].abbr : '';
   const status = p ? (p.t >= 0 ? esc(L.teams[p.t].name) : p.t === -2 ? 'Retired' + (p.ry ? ' after ' + p.ry : '') + (L.teams[p.lt] ? ' (' + esc(L.teams[p.lt].nick) + ')' : '') : 'Free agent') : 'Retired';
   let h = '<h3>' + esc(who.n) + ' <small>' + who.p + '</small>' + (hf ? ' <b class="hof">Hall of Fame ' + hf.y + '</b>' : '') + '</h3><p class="sub">' + status + (p ? ' · age ' + p.a + ' · overall <b>' + p.o + '</b>' + (p.t === -2 ? ' (peak ' + (p.peak || p.o) + ')' : '') + ' ' + potHTML(p) : '') + '</p>';
-  if (p) { const sub = E.subsOf(p.p, { i: p.i, o: p.o, s: p.s }); h += '<h4 class="pos-h">Ratings</h4><div class="subgrid">' + Object.keys(sub).map(k => '<div class="st" title="' + esc(E.SUB_NAME[k] || k) + '"><span>' + k + '</span><span class="bar"><i class="' + (sub[k] >= 88 ? 'hi' : sub[k] >= 76 ? 'mid' : 'lo') + '" style="width:' + Math.max(8, Math.min(100, (sub[k] - 40) / 0.6)) + '%"></i></span><b>' + sub[k] + '</b></div>').join('') + '</div><p class="hint">Hover a rating for its name. They move with his overall as he develops.</p>'; }
+  if (p) h += '<h4 class="pos-h">Ratings</h4>' + G.attrGrid(p.p, { i: p.i, n: p.n, o: p.o, s: p.s });
   if (ps.season) h += '<h4 class="pos-h">This season</h4>' + rows([{ l: L.season, s: ps.season }]);
   if (ps.games.length) h += '<h4 class="pos-h">Game by game</h4>' + rows(ps.games.map(x => { const g = x.g, home = g.h === x.t, opp = L.teams[home ? g.a : g.h]; return { l: (g.pl === 'po' ? 'PO' : 'Wk ' + g.w) + ' ' + (home ? 'vs ' : '@ ') + (opp ? opp.abbr : ''), s: x.s }; }));
   if (ps.seasons.length) h += '<h4 class="pos-h">Season by season</h4>' + rows(ps.seasons.map(x => ({ l: x.y + ' ' + tm(x.t), s: x })));

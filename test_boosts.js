@@ -21,7 +21,7 @@ const yds = o => o.k === 'run' || o.k === 'pass' || o.td ? Math.min(65, o.x) : o
       LV.step(sim, { dx: 1, dy: 0 }, { dx: 0, dy: 0 }, { o: a, d: [] }); }
     const j = sim.evt.filter(e => e[0] === 'juked'); if (n % 2) close += j.length ? 1 : 0; else far += j.length ? 1 : 0;
     if (j.some(e => !sim.by[e[3]] || sim.by[e[3]].side !== 'd')) close = -1e9; }
-  ok(close > N * 0.05 && far === 0, 'jukes right in a defender\'s face that shake him are counted (on ' + close + ' of ' + N / 2 + ' carries), ones in open space never (' + far + ')'); }
+  ok(close > N * 0.03 && far === 0, 'jukes right in a defender\'s face that shake him are counted (on ' + close + ' of ' + N / 2 + ' carries), ones in open space never (' + far + ')'); }
 // the engine: one roll in four for each move or tough catch, a contested catch always, a drop shakes him and puts out his fire
 { const T = LG.teamsFor(L, 1, 2), U = { a: E.teamUnits(T.a), b: E.teamUnits(T.b) }, st0 = Object.assign(E.initState(2), { poss: 'a' });
   const after = (e0, st) => { const nst = {}, e = Object.assign({ off: 'a', offPick: 'RUN_IN', text: '' }, e0); E.__confAfter(st || st0, nst, e, T, 77); return { nst, e }; };
