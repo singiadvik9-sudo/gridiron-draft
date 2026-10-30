@@ -889,7 +889,7 @@ function showRosters() {
   openModal('<div class="rcols">' + col('a') + col('b') + '</div>');
 }
 // the box score so far, any time during the game
-function showGameStats() { const G = S.G; if (!G || S.screen !== 'game') return; openModal('<h3>Game stats</h3><p class="hint">' + esc(E.clockInfo(G.state).q + ' · ' + clockText(G)) + '</p>' + boxHTML(G) + '<div class="row"><button class="btn" data-act="close-modal">Close</button></div>'); }
+function showGameStats() { const G = S.G; if (!G || S.screen !== 'game') return; openModal('<h3>Game stats</h3><p class="hint">' + esc(E.clockInfo(G.state).q + ' · ' + clockText(G)) + '</p>' + boxHTML(G)); }
 function showMatchups() {
   const plays = Object.keys(E.OFF).filter(id => E.OFF[id].cat !== 'SPEC');
   const sym = v => v >= 0.35 ? ['good2', '++'] : v > 0.05 ? ['good1', '+'] : v <= -0.35 ? ['bad2', '−−'] : v < -0.05 ? ['bad1', '−'] : ['neu', '·'];
@@ -1155,7 +1155,7 @@ function toRowHTML(st) {
 const DSPOTS = [['', 'Auto'], ['LDE', 'L End'], ['RDE', 'R End'], ['LDT', 'L Tackle'], ['RDT', 'R Tackle'], ['MLB', 'Mike LB'], ['WLB', 'Will LB'], ['SLB', 'Sam LB'], ['LCB', 'L Corner'], ['RCB', 'R Corner'], ['FS', 'Free S'], ['SS', 'Strong S']];
 function spotRowHTML(role) {
   if (role !== 'def' || !S.ctlOn) return '';
-  return '<div class="ctlrow spots"><span class="hint">You play:</span>' + DSPOTS.map(([id, lab]) => '<button class="btn small ctl' + (S.dpos === id ? ' on' : '') + '" data-act="dspot" data-id="' + id + '" aria-pressed="' + (S.dpos === id) + '">' + lab + '</button>').join('') + '<span class="hint">Pick who you start the snap as (B). You stay him until the play moves away from him.</span></div>';
+  return '<div class="ctlrow spots">' + DSPOTS.map(([id, lab]) => '<button class="btn small ctl' + (S.dpos === id ? ' on' : '') + '" data-act="dspot" data-id="' + id + '" aria-pressed="' + (S.dpos === id) + '">' + lab + '</button>').join('') + '<span class="hint">You start the snap as this defender (B to cycle). You stay him until the play moves away from him; E switches.</span></div>';
 }
 function setSpot(id) { S.dpos = id; lsSet('gd_dpos', id); S.callSig = null; if (S.G) renderCall(S.G); }
 /* ---------- kicks you take yourself: the needle swings, stop it in the green (Space or tap). The green is wider the more accurate your
@@ -1239,8 +1239,8 @@ function submitCall(pick, opt) {
   S.km = null;
   const kt = role === 'off' && METER_KICKS[pick] && Number.isInteger(opt.kt) ? opt.kt : null; if (kt != null) S.ktN[n] = kt; else delete S.ktN[n];
   S.mine[n] = pick; S.callSig = null;
-  if (!st.kick) S.lastCall = Object.assign({}, S.lastCall, { [role]: pick });   // for hurry-up (R)
-  if (!st.kick) { const c = (role === 'off' ? E.OFF[pick] : E.DEF_CALLS[pick]).cat; if (c !== 'SPEC') lsSet('gd_cat_' + role, c); }
+  if (!st.kick && !st.pat) S.lastCall = Object.assign({}, S.lastCall, { [role]: pick });   // for hurry-up (R)
+  if (!st.kick && !st.pat) { const c = (role === 'off' ? E.OFF[pick] : E.DEF_CALLS[pick]).cat; if (c !== 'SPEC') lsSet('gd_cat_' + role, c); }
   const ctl = S.ctlOn && !(role === 'off' && E.noDef(pick)) ? 1 : 0;
   const to = toSel(n) && st.ro > 0 && st.to[S.me] > 0 ? 1 : 0;
   if (to) S.toN[n] = 1; else delete S.toN[n];

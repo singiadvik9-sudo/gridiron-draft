@@ -2,6 +2,16 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-29-2', title: 'Kick it yourself, Hall of Fame, sub-ratings', items: [
+    'Kicks are yours: field goals, extra points and kickoffs use a meter. Stop the needle in the green (Space or tap). A more accurate kicker has a bigger green; his leg decides how far he can kick. Punts stay automatic.',
+    'After a touchdown you choose: kick the extra point, or call any run or pass from the 2 and play it out to go for two. The old "go for 2" switch (V) is gone.',
+    'Confidence on the run: a stiff arm (W with the ball) that puts a defender down, a juke right in a defender\'s face, a diving catch or a toe-tap each have a 1 in 4 shot at a +5 boost. Catches over two defenders still always do.',
+    'Drops: a dropped pass shakes the receiver (-5 for a few snaps) and wipes out any fire or confidence. Running backs can catch fire too, with two 10+ yard runs in a row.',
+    'Defense: with control on, pick who you play before the snap (end, tackle, linebacker, corner, safety; B cycles). You stay him until the play moves away from him.',
+    'Every player has Madden-style sub-ratings (speed, catching, break tackle, coverage, kick power and more) that the game uses. Click any player\'s name in your franchise to see them, plus his stats this season, game by game, season by season and all time.',
+    'Retirements are announced, with their careers kept for good, and you can send your retired players to the Hall of Fame (Stats tab). Press X in a game for the stats so far.',
+    'Fixes: the WR reverse is no longer free yards (the backside stays home), and a quarterback can no longer run straight up the middle through the line.'
+  ] },
   { id: '2026-10-29', title: 'Tougher offense, better corners, a jump button', items: [
     'Offense is a little harder: passes are completed a bit less often and runs gain a little less.',
     'Corners are better at their job: they stay tighter on receivers, react quicker and play the ball better.',

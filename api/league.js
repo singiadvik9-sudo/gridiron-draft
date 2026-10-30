@@ -297,6 +297,10 @@ module.exports = async function (req, res) {
           if (!t) bad('You have no team.');
           const e = LG.setUsage(L, t.id, String(b.pid), b.v == null ? null : +b.v); if (e) bad(e); return { ok: true };
         }
+        case 'hof': {   // send one of your retired players to the Hall of Fame
+          if (!t) bad('You have no team.');
+          const e = LG.induct(L, t.id, String(b.pid)); if (e) bad(e); return { ok: true };
+        }
         case 'ret': {   // the team's kick and punt returner (empty: the best one)
           if (!t) bad('You have no team.');
           const e = LG.setReturner(L, t.id, b.pid ? String(b.pid) : null); if (e) bad(e); return { ok: true };

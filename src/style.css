@@ -567,7 +567,9 @@ body.fbusy .fieldhost .callpanel { display: none; }   /* a play is being shown o
 .kmneedle{position:absolute;top:-2px;bottom:-2px;width:4px;margin-left:-2px;left:50%;background:#ffcf3f;box-shadow:0 0 8px #ffcf3f}
 .kmres{font-weight:800;letter-spacing:.04em;text-align:center;min-height:1.3em}
 .kmres.good{color:#3fdc6a}.kmres.bad{color:#ff8a6a}
-.ctlrow.spots{flex-wrap:wrap;gap:4px}
+body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.ctlrow.spots .btn{padding:3px 7px;font-size:10px;white-space:nowrap;min-width:0;flex:0 0 auto}
+.ctlrow.spots .hint{flex:1 0 100%}
 .confrow.shaken span{color:#9ecbff}
 /* player pages: sub-ratings and stat tables */
 .subgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 14px;margin:8px 0}
