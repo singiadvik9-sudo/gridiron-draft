@@ -2,6 +2,10 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-10-29-3', title: 'Real Madden ratings for every attribute', items: [
+    'Sub-ratings are now EA\'s own Madden NFL 27 numbers (catching, route running, coverage, kick power and the rest), from EA\'s ratings database, for 1,746 of the game\'s 1,786 players. The rest (draft prospects and a few recent signings) are estimated from how each rating goes with the overall across every Madden player at that position.',
+    'See them everywhere: each player\'s key ratings show under his name in the draft list, the in-game rosters and your franchise roster. Tap or click a name for his full card.'
+  ] },
   { id: '2026-10-29-2', title: 'Kick it yourself, Hall of Fame, sub-ratings', items: [
     'Kicks are yours: field goals, extra points and kickoffs use a meter. Stop the needle in the green (Space or tap). A more accurate kicker has a bigger green; his leg decides how far he can kick. Punts stay automatic.',
     'After a touchdown you choose: kick the extra point, or call any run or pass from the 2 and play it out to go for two. The old "go for 2" switch (V) is gone.',

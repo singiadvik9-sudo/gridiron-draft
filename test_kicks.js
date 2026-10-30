@@ -38,9 +38,9 @@ ok(twoGood.state.score.a === 8 && twoGood.entry.pts === 2, 'a good try is two po
   const good = step(st, 'FG', null, { kt: 0 }), miss = step(st, 'FG', null, { kt: Math.min(100, w + 5) });
   ok(good.entry.ev === 'fg' && miss.entry.ev === 'fgmiss', 'a ' + dist + '-yard field goal: dead centre is good, off the green misses (' + miss.entry.text + ')');
   ok(E.kickWin(90, 40) > E.kickWin(65, 40) && E.kickWin(80, 55) < E.kickWin(80, 30), 'a more accurate kicker gets a wider green, a longer kick a narrower one');
-  const far = Object.assign(E.initState(1), { ballOn: 100 - (E.kickRange(U.a.kpw) + 4 - 17), down: 4, toGo: 8 });
-  const f = step(far, 'FG', null, { kt: 0 });
-  ok(E.fgDist(far) > E.kickRange(U.a.kpw) ? f.entry.ev === 'fgmiss' && /short/.test(f.entry.text) : true, 'beyond his leg it comes up short however well he strikes it: ' + f.entry.text);
+  const weak = { a: Object.assign({}, U.a, { kpw: 62 }), b: U.b }, far = Object.assign(E.initState(1), { poss: 'a', ballOn: 100 - (E.kickRange(62) + 4 - 17), down: 4, toGo: 8 });
+  const f = E.stepGame(far, T, weak, 42, 'FG', 'ZONE', null, { kt: 0 });
+  ok(E.fgDist(far) > E.kickRange(62) ? f.entry.ev === 'fgmiss' && /short/.test(f.entry.text) : true, 'beyond his leg it comes up short however well he strikes it: ' + f.entry.text);
   ok(E.kickRange(95) > E.kickRange(70), 'a stronger leg kicks it further (' + E.kickRange(70) + ' vs ' + E.kickRange(95) + ' yards)'); }
 // kickoffs: in the green deep, way off out of bounds at the 40
 { const st = Object.assign(E.initState(1), { kick: { k: 'a', r: 'b' }, poss: 'a', ballOn: 35 }), w = E.kickWin(U.a.kac, 30);
@@ -59,8 +59,12 @@ ok(JSON.stringify(E.cleanMoves({ '3-a': { pick: 'FG', kt: 12 }, '4-b': { pick: '
 // sub-ratings: every position has its own, they stay put and follow the overall
 { const wr = E.subsOf('WR', { i: 'p1', o: 88, s: 94 }), wr2 = E.subsOf('WR', { i: 'p1', o: 88, s: 94 }), k = E.subsOf('K', { i: 'k1', o: 84 });
   ok(JSON.stringify(wr) === JSON.stringify(wr2) && wr.SPD === 94 && wr.CTH && wr.CIT && k.KPW && k.KAC, 'sub-ratings: speed, catching, catch in traffic for a receiver; power and accuracy for a kicker, the same every time');
-  const avg = o => { let t = 0, n = 0; for (let i = 0; i < 200; i++) { const x = E.subsOf('LB', { i: 'q' + i, o }); Object.values(x).forEach(v => { t += v; n++; }); } return t / n; };
-  ok(Math.abs(avg(80) - 80) < 1.5 && avg(90) > avg(70) + 15, 'on average they match the overall (' + avg(80).toFixed(1) + ' for an 80), and better players have better ones');
+  const chase = E.subsOf('WR', { n: "Ja'Marr Chase", o: 99, s: 96 }), lane = E.subsOf('OL', { n: 'Lane Johnson', o: 99 });
+  ok(!chase.est && chase.CTH === 98 && chase.CIT === 94 && chase.DRR === 98 && !lane.est, "real players have Madden's own numbers (Ja'Marr Chase: catching 98, in traffic 94, deep routes 98)");
+  const grown = E.subsOf('WR', { n: "Ja'Marr Chase", o: 94, s: 96 }); ok(grown.CTH === 93 && grown.SPD === 96, 'they move with his overall (5 down: catching 93), his body does not (speed stays 96)');
+  const est = o => E.subsOf('WR', { i: 'zz9', n: 'Made Up Rookie', o, s: 88 });
+  ok(est(70).est && est(85).CTH > est(70).CTH + 6, 'a player Madden does not rate gets an estimate fitted on every Madden receiver: catching ' + est(70).CTH + ' at 70, ' + est(85).CTH + ' at 85');
+  const cov = Object.keys(E.DATA.ATTR).length; ok(cov > 1700, cov + ' players carry their Madden attributes');
   const all = ['QB', 'HB', 'WR', 'TE', 'OL', 'LDE', 'NT', 'MLB', 'RCB', 'FS', 'K', 'P'].every(p => Object.keys(E.subsOf(p, { i: 'z', o: 75 })).length >= 2); ok(all, 'every position has its own set'); }
 // the defender you pick before the snap is the one you play
 { const sq = LG.teamsFor(L, 1, 2);

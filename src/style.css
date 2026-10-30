@@ -575,3 +575,9 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .subgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 14px;margin:8px 0}
 .subgrid .st{display:grid;grid-template-columns:3.2em 1fr 2em;align-items:center;gap:6px;font-size:13px}
 .hof{color:#ffcf3f}
+
+.plk{cursor:pointer;text-decoration:underline;text-decoration-color:rgba(255,255,255,.3);text-underline-offset:2px}
+.plk:hover{color:#ffcf3f}
+.kas{display:flex;flex-wrap:wrap;gap:2px 8px;font-size:11px;opacity:.85;margin-top:2px}
+.kas .ka b{color:#ffcf3f;font-weight:700}
+.subgrid .st small{grid-column:1/-1;font-size:10px;opacity:.6;margin-top:-3px}
