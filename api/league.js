@@ -111,7 +111,7 @@ module.exports = async function (req, res) {
     if (op === 'cpuoffers') {
       const doc = await getZ(key(code)); if (!doc) return fail(res, 404, 'no_league');
       const t = myTeam(doc.L, me); if (!t || !LG.canTrade(doc.L)) return send(res, 200, { offers: [] });
-      return send(res, 200, { offers: LG.cpuOffers(doc.L, t.id, LG.POS.indexOf(b.pos) >= 0 ? b.pos : null) });
+      return send(res, 200, { offers: LG.cpuOffers(doc.L, t.id, typeof b.pos === 'string' ? b.pos.slice(0, 5) : null) });
     }
     if (op === 'blockbids') {
       const doc = await getZ(key(code)); if (!doc) return fail(res, 404, 'no_league');

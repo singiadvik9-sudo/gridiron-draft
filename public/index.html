@@ -4053,7 +4053,8 @@ function assetValue(L, id, fr) {
 const POS_W = { QB: 1.5, HB: 0.8, WR: 0.9, TE: 0.7, OL: 0.8, DE: 1, DT: 0.9, LB: 0.75, CB: 0.85, S: 0.65, K: 0.45, P: 0.3, KR: 0.35, PR: 0.3 };
 function playerValue(p) {
   if (p.inj) return playerValue(Object.assign({}, p, { inj: 0 })) * (p.inj >= SEASON_OUT ? 0.25 : Math.max(0.3, 1 - p.inj / 12));   // out for weeks: worth less
-  const ageF = p.a <= 25 ? 1.15 : p.a <= 28 ? 1 : p.a <= 30 ? 0.85 : p.a <= 32 ? 0.62 : 0.4;
+  const age = p.p === 'QB' ? p.a - 3 : p.a;   // (quarterbacks last)
+  const ageF = age <= 25 ? 1.15 : age <= 28 ? 1 : age <= 30 ? 0.85 : age <= 32 ? 0.62 : 0.4;
   const base = Math.pow(Math.max(0, p.o - 48), 1.9) * 0.08;
   return base * POS_W[p.p] * ageF * (1 + Math.max(0, potSeen(p) - p.o) * 0.02) + 0.5;
 }
@@ -4082,16 +4083,43 @@ function tradeCheck(L, ta, tb, give, get) {
   if (!sim(tb, get, give)) return L.teams[tb].nick + ' would be short of starters at a position.';
   return null;
 }
-function tradeWorth(L, tid, receive, send, fr) {
-  // how much a team values what it receives minus what it sends, counting how it changes the lineup
-  fr = fr || strengthFrac(L); const val = ids => ids.reduce((t, id) => t + assetValue(L, id, fr), 0);
-  const rp = receive.filter(id => !isPick(id)), sp = send.filter(id => !isPick(id));
-  const before = lineupScore(L, tid);
-  const snap = {}; rp.concat(sp).forEach(id => { snap[id] = L.players[id].t; });
-  rp.forEach(id => { L.players[id].t = tid; }); sp.forEach(id => { L.players[id].t = -9; });
-  const after = lineupScore(L, tid);
-  Object.keys(snap).forEach(id => { L.players[id].t = snap[id]; });
-  return val(receive) - val(send) + (after - before) * 0.9;
+/* how a CPU team judges a deal: by its own depth chart, not by adding up values.
+   A player it receives counts in full if he would start there, for much less as a backup, unless he is a young player still growing.
+   A package adds up less and less: the best piece counts in full, the next ones for a fraction (picks hold up better), so a pile of
+   small pieces never makes up a star. Its own starters cost full price (top players a premium), plus what the lineup loses without them.
+   Then the rules no price gets around: it keeps a starting quarterback, it does not open a big hole in the lineup, a star needs a real
+   piece coming back, and the deal has to fill a need or add something for the future. */
+const TRADE = { inStart: 1, inBackup: 0.35, inDeep: 0.12, outBackup: 0.6, outDeep: 0.35, young: 0.75, ladder: [1, 0.7, 0.45, 0.25, 0.15], pickLadder: [1, 0.85, 0.7, 0.5, 0.3], topO: 90, topPrem: 1.25, starV: 60, centre: 0.5, qbDrop: 5, hole: 15 };
+const growing = p => p.a <= 25 && potSeen(p) > p.o + 3;
+// where a player ranks at his position on a team, by rating (a hurt starter is still the starter)
+function depthRank(L, tid, p) { return rosterOf(L, tid).filter(x => x.p === p.p && x !== p && x.o > p.o).length; }
+function tradeEval(L, tid, receive, send, fr) {
+  fr = fr || strengthFrac(L);
+  const T = L.teams[tid], need = counts(T.sch), rp = receive.filter(id => !isPick(id)).map(id => L.players[id]), sp = send.filter(id => !isPick(id)).map(id => L.players[id]);
+  const tops = pos => rosterOf(L, tid).filter(x => x.p === pos).map(x => x.o).sort((a, b) => b - a).slice(0, need[pos] || 0);
+  const posns = Array.from(new Set(rp.concat(sp).map(x => x.p))), was = {}; posns.forEach(q => { was[q] = tops(q); });
+  const before = lineupScore(L, tid), cnt0 = posCount(L, tid);
+  const outs = sp.map(x => { const r = depthRank(L, tid, x), n = need[x.p] || 0, v = playerValue(x); return { p: x, starter: r < n, v: v * (r < n ? (x.o >= TRADE.topO ? TRADE.topPrem : 1) : Math.max(r === n ? TRADE.outBackup : TRADE.outDeep, growing(x) ? TRADE.young + 0.05 : 0)) }; });
+  const snap = rp.concat(sp).map(x => [x, x.t]);
+  rp.forEach(x => { x.t = tid; }); sp.forEach(x => { x.t = -9; });
+  const after = lineupScore(L, tid), now = {}; posns.forEach(q => { now[q] = tops(q); });
+  const ins = rp.map(x => { const r = depthRank(L, tid, x), n = need[x.p] || 0, thin = r === n && cnt0[x.p] <= n; return { id: x.i, p: x, starter: r < n || thin, v: playerValue(x) * Math.max(r < n ? TRADE.inStart : r === n ? TRADE.inBackup : TRADE.inDeep, growing(x) ? TRADE.young : 0) }; });
+  snap.forEach(q => { q[0].t = q[1]; });
+  if (send.some(isPick)) ins.forEach(x => { if (x.p.a >= 31) x.v *= 0.6; });   // a team does not spend picks, its future, on a player near the end of his career
+  const pks = receive.filter(isPick).map(id => ({ id, pick: 1, v: assetValue(L, id, fr) }));
+  const all = ins.concat(pks).sort((a, b) => b.v - a.v);
+  const inV = all.reduce((t, x, i) => t + x.v * (x.pick ? TRADE.pickLadder : TRADE.ladder)[Math.min(i, 4)], 0);
+  const outV = outs.reduce((t, x) => t + x.v, 0) + send.filter(isPick).reduce((t, id) => t + assetValue(L, id, fr), 0);
+  const worth = inV - outV + (after - before) * 0.9, sum = a => a.reduce((t, v) => t + v, 0), nick = T.nick;
+  // the starting quarterback stays, unless his replacement is about as good
+  if (sp.some(x => x.p === 'QB') && (was.QB[0] || 0) - (now.QB[0] || 0) > TRADE.qbDrop && sp.some(x => x.p === 'QB' && x.o === was.QB[0])) return { worth, fixed: 1, why: nick + ' will not move their starting quarterback without a starter coming back.' };
+  for (const q of posns) { const drop = sum(was[q]) - sum(now[q]); if (q !== 'QB' && drop > TRADE.hole && outs.some(x => x.starter && x.p.p === q)) return { worth, fixed: 1, why: nick + ' will not open a hole at ' + q + ': they have nobody to replace him.' }; }
+  // a star needs a real piece back
+  const star = outs.filter(x => x.starter).sort((a, b) => playerValue(b.p) - playerValue(a.p))[0], sv = star ? playerValue(star.p) : 0;
+  if (sv >= TRADE.starV) { const best = Math.max(0, ...ins.map(x => x.v), pks.slice().sort((a, b) => b.v - a.v).slice(0, 3).reduce((t, x) => t + x.v, 0)); if (best < sv * TRADE.centre) return { worth, why: nick + ' want a real centerpiece back for ' + star.p.n + '.' }; }
+  // it has to fill a need or add something for the future
+  if (rp.length && !pks.length && !ins.some(x => x.starter || growing(x.p))) return { worth, why: nick + ' are already set at ' + rp[0].p + '.' };
+  return { worth };
 }
 function lineupScore(L, tid) {
   const ln = lineup(L, tid); let s = 0;
@@ -4103,7 +4131,8 @@ function cpuTrade(L, userTid, cpuTid, give, get, fr) {
   const bad = tradeCheck(L, userTid, cpuTid, give, get);
   if (bad) return { ok: false, msg: bad };
   fr = fr || strengthFrac(L);
-  const w = tradeWorth(L, cpuTid, give, get, fr);
+  const ev = tradeEval(L, cpuTid, give, get, fr), w = ev.worth;
+  if (ev.why) return { ok: false, msg: ev.why, margin: w };
   const need = Math.max(2, 0.06 * give.concat(get).reduce((t, id) => t + assetValue(L, id, fr), 0));
   if (w >= need) return { ok: true, msg: L.teams[cpuTid].nick + ' accept the trade.', margin: w };
   return { ok: false, msg: w > 0 ? L.teams[cpuTid].nick + ' want a little more.' : L.teams[cpuTid].nick + ' turn it down.', margin: w };
@@ -4122,52 +4151,73 @@ function canTrade(L) {
   if (L.phase === 'regular') return L.week <= (L.cfg && L.cfg.deadline != null ? L.cfg.deadline : TRADE_DEADLINE);
   return L.phase === 'preseason' || L.phase === 'offseason' || L.phase === 'draft';
 }
-// the CPU suggests a few trades it would accept; with pos, offers that bring you a player at that position
+/* what a team needs and where it has plenty: a position's weakest starter against what a good starter is (weighted by how much the position
+   matters), and a position where a backup is about as good as the weakest starter */
+function teamNeeds(L, tid) {
+  const ln = lineup(L, tid), need = counts(L.teams[tid].sch), out = [], deep = [];
+  POS.forEach(q => {
+    const n = need[q] || 0; if (!n || q === 'KR' || q === 'PR') return;
+    const st = rosterOf(L, tid).filter(x => x.p === q).sort((a, b) => b.o - a.o), low = ln[q].length >= n ? Math.min(...ln[q].map(x => x.o)) : 40;
+    const gap = ((q === 'QB' ? 82 : 76) - low) * POS_W[q];
+    if (gap > 0) out.push({ p: q, gap });
+    if (st[n] && st[n].o >= low - 4) deep.push(q);
+  });
+  return { needs: out.sort((a, b) => b.gap - a.gap).map(x => x.p), deep };
+}
+// what you can pay with without hurting yourself: your spare players and your picks (a starter only when his backup can step in), cheapest first
+function payAssets(L, tid, opt, fr) {
+  const need = counts(L.teams[tid].sch), ok = p => {
+    if (p.p === opt.pos || p.ir) return false;
+    const st = rosterOf(L, tid).filter(x => x.p === p.p).sort((a, b) => b.o - a.o), r = st.indexOf(p), n = need[p.p] || 0;
+    return r >= n || (st[n] && st[n].o >= p.o - (opt.sell ? 8 : 3));
+  };
+  return rosterOf(L, tid).filter(ok).map(p => p.i).concat(picksOf(L, tid).filter(k => pickOpen(L, k)).map(pickId)).map(id => ({ id, v: assetValue(L, id, fr) })).sort((a, b) => a.v - b.v);
+}
+// the cheapest fair package for what a CPU team is giving up: one piece, what it needs first, then two that add up
+function fairPrice(L, userTid, tid, get, pay, fr) {
+  const want = get.reduce((t, id) => t + assetValue(L, id, fr), 0), ok = give => cpuTrade(L, userTid, tid, give, get, fr).ok;
+  const one0 = pay.filter(m => m.v >= want * 0.7 && m.v <= want * 1.4), wanted = one0.length > 1 ? teamNeeds(L, tid).needs : [], rank = m => (L.players[m.id] && wanted.indexOf(L.players[m.id].p) >= 0 ? 0 : isPick(m.id) ? 1 : 2);
+  const one = one0.map((m, i) => [rank(m), i, m]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
+  for (const m of one.slice(0, 8)) if (ok([m.id])) return [m.id];
+  const small = pay.filter(m => m.v < want).slice(-10), pairs = [];
+  for (let i = 0; i < small.length; i++) for (let j = i + 1; j < small.length; j++) { const v = small[i].v + small[j].v; if (v >= want * 0.8 && v <= want * 1.5) pairs.push([small[i], small[j], v]); }
+  pairs.sort((x, y) => x[2] - y[2]);
+  for (const pr of pairs.slice(0, 8)) if (ok([pr[0].id, pr[1].id])) return [pr[0].id, pr[1].id];
+  return null;
+}
+// the CPU suggests a few trades it would accept. pos: a player at that position; R1, R2, R3, RL (later rounds) or PICK: a draft pick;
+// nothing: the positions you need most, paid with what the other team needs
+const PICK_HUNT = { PICK: k => true, R1: k => k.r === 1, R2: k => k.r === 2, R3: k => k.r === 3, RL: k => k.r >= 4 };
 function cpuOffers(L, userTid, pos) {
   if (POS.indexOf(pos) >= 0) return cpuOffersFor(L, userTid, pos);
-  const r = rng(L, 'offers' + L.season + ':' + L.week + ':' + L.nid);
-  const mine = rosterOf(L, userTid).filter(p => p.o >= 60), out = [];
-  const others = shuffle(r, L.teams.filter(t => t.id !== userTid && !t.owner));
-  for (const t of others) {
-    if (out.length >= 3) break;
-    const want = shuffle(r, mine).slice(0, 4);
-    for (const w of want) {
-      const theirs = rosterOf(L, t.id).filter(p => p.p === w.p || r() < 0.2).sort((a, b) => Math.abs(playerValue(a) - playerValue(w) * 1.15) - Math.abs(playerValue(b) - playerValue(w) * 1.15));
-      for (const c of theirs.slice(0, 3)) {
-        if (c.i === w.i) continue;
-        const res = cpuTrade(L, userTid, t.id, [w.i], [c.i]);
-        if (res.ok) { out.push({ t: t.id, give: [w.i], get: [c.i] }); break; }
-      }
-      if (out.length && out[out.length - 1].t === t.id) break;
-    }
+  if (PICK_HUNT[pos]) return cpuPickOffers(L, userTid, PICK_HUNT[pos]);
+  const out = [], seen = {};
+  for (const q of teamNeeds(L, userTid).needs.slice(0, 3)) {
+    for (const o of cpuOffersFor(L, userTid, q)) if (!seen[o.t]) { seen[o.t] = 1; out.push(o); break; }
   }
   return out;
 }
-// shopping for one position: each CPU team's best player there that would help (or back up) your lineup,
-// for the cheapest package of your players and picks it would accept (never a player at that same position)
+// shopping for one position: each CPU team's best player there that would help (or back up) your lineup and that it can spare,
+// for the cheapest fair package of your spare players and picks (never a player at that same position)
 function cpuOffersFor(L, userTid, pos) {
-  const fr = strengthFrac(L), av = id => assetValue(L, id, fr);
-  const ln = lineup(L, userTid)[pos] || [], floor = ln.length ? Math.min(...ln.map(p => p.o)) : 0;
-  const mine = rosterOf(L, userTid).filter(p => p.p !== pos).map(p => p.i).concat(picksOf(L, userTid).filter(k => pickOpen(L, k)).map(pickId))
-    .map(id => ({ id, v: av(id) })).sort((a, b) => a.v - b.v);
-  const out = [];
+  const fr = strengthFrac(L), ln = lineup(L, userTid)[pos] || [], floor = ln.length ? Math.min(...ln.map(p => p.o)) : 0, pay = payAssets(L, userTid, { pos }, fr), out = [];
   L.teams.forEach(t => {
     if (t.id === userTid || t.owner) return;
-    const c = rosterOf(L, t.id).filter(p => p.p === pos && p.o > floor - 3).sort((a, b) => b.o - a.o)[0];
-    if (!c) return;
-    const want = av(c.i), ok = give => cpuTrade(L, userTid, t.id, give, [c.i], fr).ok;
-    // one asset worth about as much, cheapest first; then two smaller ones that add up. Nothing that overpays by much: the point is a fair deal
-    let give = null;
-    for (const m of mine.filter(m => m.v >= want * 0.7 && m.v <= want * 1.35).slice(0, 8)) if (ok([m.id])) { give = [m.id]; break; }
-    if (!give) {
-      const small = mine.filter(m => m.v < want).slice(-10), pairs = [];
-      for (let i = 0; i < small.length; i++) for (let j = i + 1; j < small.length; j++) if (small[i].v + small[j].v >= want * 0.8 && small[i].v + small[j].v <= want * 1.5) pairs.push([small[i], small[j]]);
-      pairs.sort((x, y) => x[0].v + x[1].v - y[0].v - y[1].v);
-      for (const pr of pairs.slice(0, 8)) if (ok([pr[0].id, pr[1].id])) { give = [pr[0].id, pr[1].id]; break; }
-    }
-    if (give) out.push({ t: t.id, give, get: [c.i], o: c.o });
+    const cs = rosterOf(L, t.id).filter(p => p.p === pos && p.o > floor - 3).sort((a, b) => b.o - a.o).slice(0, 3);
+    for (const c of cs) { if (tradeEval(L, t.id, [], [c.i], fr).fixed) continue; const give = fairPrice(L, userTid, t.id, [c.i], pay, fr); if (give) { out.push({ t: t.id, give, get: [c.i], o: c.o }); break; } }
   });
   return out.sort((a, b) => b.o - a.o).slice(0, 6).map(x => ({ t: x.t, give: x.give, get: x.get }));
+}
+// shopping for a draft pick: each CPU team's best pick of that kind that it would sell, for your spare players, or your own later picks
+function cpuPickOffers(L, userTid, match) {
+  ensurePicks(L);
+  const fr = strengthFrac(L), pay = payAssets(L, userTid, { sell: 1 }, fr), out = [];
+  L.teams.forEach(t => {
+    if (t.id === userTid || t.owner) return;
+    const ks = picksOf(L, t.id).filter(k => pickOpen(L, k) && match(k)).map(k => ({ id: pickId(k), v: pickValue(L, k, fr) })).sort((a, b) => b.v - a.v).slice(0, 2);
+    for (const k of ks) { const give = fairPrice(L, userTid, t.id, [k.id], pay.filter(m => m.id !== k.id), fr); if (give) { out.push({ t: t.id, give, get: [k.id], v: k.v }); break; } }
+  });
+  return out.sort((a, b) => b.v - a.v).slice(0, 6).map(x => ({ t: x.t, give: x.give, get: x.get }));
 }
 /* ---------------- trading block ----------------
    A team puts players up for trade (L.block[team] = [player ids]); CPU teams then bid for each one. Players who leave the
@@ -4420,7 +4470,7 @@ const LG = {
   RET_POS, retRating, returnerCands, returnerOf, setReturner,
   USE_DEFAULT, usageList, setUsage, snapShare,
   progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, UNIT_ROUNDS, fillPrice, hasLegalPick, isUnitId, unitOf, unitRating, draftOvr, salOfId, draftLabel, unitNeeds, canDraftId, affordableId, autoPickFor, startSeason, trimRoster, fillDepth, finishDraft,
-  playerValue, tradeCheck, cpuTrade, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
+  playerValue, tradeCheck, cpuTrade, tradeEval, teamNeeds, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
   newCustom, addTeam, removeTeam, assignDivisions, startCustom, finalizeLeagueDraft, customSchedule, ownerRecord, leaders, leagueTables,
   computeAwards, makeBracket, reportSeries, setSeries, bracketOrder, nflMatchups, assignWeeks, rrSchedule, mkPlayer, rng, shuffle
 };
@@ -6435,6 +6485,12 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-05', title: 'Trades that make sense, and shopping for picks', items: [
+    'CPU teams now judge a trade by their own depth chart: a player who would start for them counts in full, a backup for much less, and a pile of small pieces no longer adds up to a star.',
+    'Nobody gives away a franchise quarterback: a team keeps its starting QB unless a comparable starter is coming back, and it will not open a big hole in its lineup. Turned down? It tells you why.',
+    'Trades fill needs on both sides: the Trades tab shows what you and your partner need, and CPU offers go after your weakest spots and pay with players and picks you can spare.',
+    'New: shop for draft picks. In CPU offers, pick a round (or any pick) to see which teams would sell one, and for what.'
+  ] },
   { id: '2026-10-29-3', title: 'Real Madden ratings for every attribute', items: [
     'Sub-ratings are now EA\'s own Madden NFL 27 numbers (catching, route running, coverage, kick power and the rest), from EA\'s ratings database, for 1,746 of the game\'s 1,786 players. The rest (draft prospects and a few recent signings) are estimated from how each rating goes with the overall across every Madden player at that position.',
     'See them everywhere: each player\'s key ratings show under his name in the draft list, the in-game rosters and your franchise roster. Tap or click a name for his full card.'
@@ -6920,6 +6976,7 @@ const pkPick = (L, tid, side) => {
     return '<label class="pkc' + (k.o === k.t ? '' : ' via') + '" title="' + esc(tip) + '"><input type="checkbox" data-h="tr-tog" data-side="' + side + '" data-id="' + id + '"' + (FR[side].indexOf(id) >= 0 ? ' checked' : '') + '><span>R' + k.r + '</span><b>' + Math.round(LG.pickValue(L, k, fr)) + '</b>' + (k.o === k.t ? '' : '<small>' + esc(L.teams[k.o].abbr) + '</small>') + '</label>';
   }).join('') + '</div>').join('') + '</div>';
 };
+const PICKHUNT = [['PICK', 'Any pick'], ['R1', 'Round 1'], ['R2', 'Round 2'], ['R3', 'Round 3'], ['RL', 'Later rounds']];
 FRV.trades = A => {
   const L = A.L, tid = A.tid;
   LG.ensurePicks(L);
@@ -6942,7 +6999,7 @@ FRV.trades = A => {
   h += '<div class="panel"><div class="row between"><h3>Propose a trade</h3><select data-hc="trto" aria-label="Trade partner">' + others.map(t => '<option value="' + t.id + '"' + (t.id === FR.to ? ' selected' : '') + '>' + esc(t.name) + (t.owner ? ' (' + esc(t.owner) + ')' : '') + '</option>').join('') + '</select></div>' +
     '<div class="trcols"><div><h4>You send · value ' + valSum(FR.give) + '</h4>' + pkPick(L, tid, 'give') + '<div class="pklist">' + plPick(L, mine, 'give') + '</div></div><div><h4>' + esc(to.nick) + ' send · value ' + valSum(FR.get) + '</h4>' + pkPick(L, FR.to, 'get') + '<div class="pklist">' + plPick(L, theirs, 'get') + '</div></div></div>' +
     '<div class="row"><button class="btn primary" data-h="tr-prop">' + (to.owner ? 'Send offer to ' + esc(to.owner) : 'Propose to ' + esc(to.nick)) + '</button><button class="btn ghost" data-h="tr-clear">Clear</button></div>' +
-    '<p class="hint">CPU teams judge by player value, age and what they need. Draft picks are worth more the earlier the round and the worse the original team is projected to finish: by its record and rating this season, by its overall rating for later drafts (hover a pick to see its expected overall slot). A pick keeps its value however far away its draft is. Dashed picks came from another team. Rosters must keep a full set of starters and stay at ' + LG.ROSTER_MAX + ' or fewer.</p></div>';
+    (() => { const n = LG.teamNeeds(L, FR.to); return to.owner ? '' : '<p class="sub">' + esc(to.nick) + ' need: <b>' + (n.needs.slice(0, 4).join(', ') || 'nothing urgent') + '</b>' + (n.deep.length ? ' · deep at: ' + n.deep.slice(0, 4).join(', ') : '') + '</p>'; })() + '<p class="hint">CPU teams judge a deal by their own depth chart: a player who would start for them counts in full, a backup for much less, and a pile of small pieces does not add up to a star. They keep their starting quarterback, will not open a big hole in the lineup, and want the deal to fill a need or add something for the future. Draft picks are worth more the earlier the round and the worse the original team is projected to finish: by its record and rating this season, by its overall rating for later drafts (hover a pick to see its expected overall slot). A pick keeps its value however far away its draft is. Dashed picks came from another team. Rosters must keep a full set of starters and stay at ' + LG.ROSTER_MAX + ' or fewer.</p></div>';
   // trading block: your players up for trade and what CPU teams bid for them
   if (A.blockBids) {
     const blk = LG.blockOf(L, tid), bidsFor = id => (FR.bids || []).find(b => b.id === id);
@@ -6954,10 +7011,10 @@ FRV.trades = A => {
         }).join('') + (FR.bids ? '' : '<p class="hint">Get bids to see what each CPU team would give: its best offer of a player or pick (or two) that it still thinks is worth it.</p>')) + '</div>';
   }
   const opos = FR.opos || 'ALL', posName = { QB: 'quarterback', HB: 'running back', WR: 'wide receiver', TE: 'tight end', OL: 'offensive lineman', DE: 'defensive end', DT: 'defensive tackle', LB: 'linebacker', CB: 'cornerback', S: 'safety', K: 'kicker', P: 'punter', KR: 'kick returner', PR: 'punt returner' };
-  h += '<div class="panel"><div class="row between"><h3>CPU offers</h3><div class="row"><select data-hc="opos" aria-label="Position you want"><option value="ALL">Any position</option>' + POSN.map(p => '<option value="' + p + '"' + (p === opos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select><button class="btn small" data-h="tr-offers">Find offers</button></div></div>' +
+  h += '<div class="panel"><div class="row between"><h3>CPU offers</h3><div class="row"><select data-hc="opos" aria-label="What you want"><option value="ALL">My biggest needs</option><optgroup label="A player">' + POSN.map(p => '<option value="' + p + '"' + (p === opos ? ' selected' : '') + '>' + p + '</option>').join('') + '</optgroup><optgroup label="A draft pick">' + PICKHUNT.map(x => '<option value="' + x[0] + '"' + (x[0] === opos ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</optgroup></select><button class="btn small" data-h="tr-offers">Find offers</button></div></div>' +
     (FR.offers ? (FR.offers.length ? '<ul class="offers">' + FR.offers.map((o, i) => '<li>' + esc(L.teams[o.t].name) + ' would give ' + o.get.map(id => esc(plLabel(L, id))).join(', ') + ' for your ' + o.give.map(id => esc(plLabel(L, id))).join(', ') + ' <small>(value ' + valSum(o.get) + ' for ' + valSum(o.give) + ')</small><span class="row"><button class="btn small primary" data-h="tr-acc" data-i="' + i + '">Accept</button></span></li>').join('') + '</ul>'
-      : '<p class="hint">' + (FR.offersPos && FR.offersPos !== 'ALL' ? 'No CPU team has a ' + posName[FR.offersPos] + ' who would help your lineup that they would trade for a fair price right now.' : 'No teams are interested right now.') + '</p>')
-      : '<p class="hint">Ask around to see which CPU teams would make a deal. Pick a position to shop for a player there: each team offers its best one who would start for you (or come close), for the cheapest package of your players and picks it would accept.</p>') + '</div>';
+      : '<p class="hint">' + (PICKHUNT.some(x => x[0] === FR.offersPos) ? 'No CPU team would sell that kind of pick for a fair price from what you can spare right now.' : FR.offersPos && FR.offersPos !== 'ALL' ? 'No CPU team has a ' + posName[FR.offersPos] + ' who would help your lineup that they would trade for a fair price right now.' : 'No teams are interested right now.') + '</p>')
+      : '<p class="hint">Your biggest needs: <b>' + (LG.teamNeeds(L, tid).needs.slice(0, 4).join(', ') || 'nothing urgent') + '</b>. Ask around to see which CPU teams would make a deal. Pick a position to shop for a player, or a round to shop for a draft pick: each team names the cheapest fair package of the players and picks you can spare.</p>') + '</div>';
   return h;
 };
 ACT['tr-tog'] = t => { const a = FR[t.dataset.side], i = a.indexOf(t.dataset.id); if (t.checked && i < 0) a.push(t.dataset.id); else if (!t.checked && i >= 0) a.splice(i, 1); frShow(FR.A); };

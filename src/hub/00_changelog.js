@@ -2,6 +2,12 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-05', title: 'Trades that make sense, and shopping for picks', items: [
+    'CPU teams now judge a trade by their own depth chart: a player who would start for them counts in full, a backup for much less, and a pile of small pieces no longer adds up to a star.',
+    'Nobody gives away a franchise quarterback: a team keeps its starting QB unless a comparable starter is coming back, and it will not open a big hole in its lineup. Turned down? It tells you why.',
+    'Trades fill needs on both sides: the Trades tab shows what you and your partner need, and CPU offers go after your weakest spots and pay with players and picks you can spare.',
+    'New: shop for draft picks. In CPU offers, pick a round (or any pick) to see which teams would sell one, and for what.'
+  ] },
   { id: '2026-10-29-3', title: 'Real Madden ratings for every attribute', items: [
     'Sub-ratings are now EA\'s own Madden NFL 27 numbers (catching, route running, coverage, kick power and the rest), from EA\'s ratings database, for 1,746 of the game\'s 1,786 players. The rest (draft prospects and a few recent signings) are estimated from how each rating goes with the overall across every Madden player at that position.',
     'See them everywhere: each player\'s key ratings show under his name in the draft list, the in-game rosters and your franchise roster. Tap or click a name for his full card.'
