@@ -110,3 +110,12 @@ ok(L.dead && !Object.keys(L.dead).length, 'dead money clears');
   ok(left.filter(p => p.o >= 88).every(p => reason(p) === 'cap'), 'an elite player (88+) only walks when his team cannot fit him under the cap');
   ok(C.teams.filter(t => !t.owner).every(t => LG.payroll(C, t.id) <= Math.max(pay0[t.id], LG.payrollCap(C))), 'no CPU team goes over the cap re-signing its own');
   ok(left.filter(p => p.o >= 85).every(p => news.some(n => n.t.indexOf(p.n) === 0)), 'and the big names leaving make the news, with why: "' + (news[0] ? news[0].t : '') + '"'); }
+// the stupid ones: an obscure law in the team's state, one game; and real players never get any of it
+{ const C = mk(9), t = C.teams[1], fake = { i: 'g9', n: 'Dim Bulb', p: 'TE', o: 90, a: 24, t: 1, gen: 1 }; C.players.g9 = fake;
+  LG.__suspend(C, fake, 4, () => 0.1); const a = C.news[0].t;
+  ok(/obscure \w+( \w+)? law for/.test(a) && fake.sus === 1 && a.indexOf(LG.TEAM_STATE[t.abbr]) >= 0, 'a made-up player can break a dumb ' + LG.TEAM_STATE[t.abbr] + ' law, for one game: "' + a + '"');
+  const fake2 = { i: 'g8', n: 'Bad News', p: 'WR', o: 90, a: 24, t: 1, gen: 1 }; C.players.g8 = fake2; LG.__suspend(C, fake2, 4, () => 0.9);
+  ok(!/obscure/.test(C.news[0].t) && fake2.sus === 4, 'or something worse, for longer: "' + C.news[0].t + '"');
+  const real = Object.values(C.players).find(p => !p.gen && p.t >= 0); real.o = 90; LG.__suspend(C, real, 2, () => 0.1);
+  ok(/conduct policy/.test(C.news[0].t) && !/obscure/.test(C.news[0].t), 'a real player still only gets the league line');
+  ok(Object.keys(LG.TEAM_STATE).length === 32 && Object.values(LG.TEAM_STATE).every(s => LG.DUMB_LAWS[s] && LG.DUMB_LAWS[s].length >= 2), 'every team\'s state has its dumb laws'); }

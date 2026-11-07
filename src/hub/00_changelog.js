@@ -3,7 +3,8 @@
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
   { id: '2026-11-07-8', title: 'More trouble off the field', items: [
-    'Made-up players can now get suspended for over 30 different offenses, from bar fights and drug busts to driving a stolen golf cart through a Waffle House. Real players still only get the league\'s conduct-policy line.'
+    'Made-up players can now get suspended for over 30 different offenses, from bar fights and drug busts to driving a stolen golf cart through a Waffle House. Real players still only get the league\'s conduct-policy line.',
+    'They can also get cited under an obscure law in their team\'s state, like eating fried chicken with a fork in Georgia or getting a fish drunk in Ohio. The baffled league gives them one game.'
   ] },
   { id: '2026-11-07-7', title: 'CPU teams keep their stars', items: [
     'CPU teams now re-sign their great players unless they cannot fit them under the cap, or do not want to pay them: a rebuilding team with a veteran of 30+, or an aging player of 34+ when the team is not going for it now. Elite players (88+) get a short deal whatever their age. When a big name does hit free agency, the news says why.'
