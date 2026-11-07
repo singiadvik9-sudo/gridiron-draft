@@ -9,6 +9,7 @@
 const zlib = require('zlib');
 const { putZ, getZ, cmd, getJ, setJ, parse, withLock, readBody, send, fail, clean, randCode, userFrom, uKey } = require('./_lib');
 const CHAT = require('./_chat');
+const SQ = require('./_squad');
 const LG = require('../lib/league.js');
 const key = c => 'gd:cp:' + c, skey = c => 'gd:cps:' + c, chatKey = c => 'gd:cpc:' + c, onKey = n => 'gd:on:' + n.toLowerCase();
 const MAX_MEMBERS = 5, ONLINE = 90000, BUSY_MS = 45 * 60000, RD_MS = 10 * 60000, TTL = 400 * 86400;
@@ -153,20 +154,36 @@ module.exports = async function (req, res) {
         doc.rd.by[me] = 1;
         const others = (await online(doc.members)).filter(n => n !== me), waiting = others.filter(n => !doc.rd.by[n]);
         if (waiting.length) { if (Object.keys(doc.rd.by).length === 1) say(doc, me + ' wants to ' + label + '. Press Ready on the campaign page.'); return { ok: true, waiting }; }
-        const first = doc.rd.first; doc.rd = null;
+        const first = doc.rd.first; doc.rd_by = doc.rd.by; doc.rd = null;
         if (kind === 'sim') { const g = runSim(doc, arg); feed(doc, first, 'simulated the game: ' + result(L, g)); return { ok: true, done: true }; }
-        if (kind === 'play') { doc.busy = { by: first, gid: arg, at: Date.now() }; feed(doc, first, 'started playing ' + label.replace('play ', '')); return { ok: true, play: first === me }; }
+        if (kind === 'play') {
+          const ready = [first].concat(Object.keys(doc.rd_by || {}).filter(n => n !== first));
+          if (ready.length > 1) {   // more than one of them: they play it together, on the field, against the computer
+            const g = gameOf(L, arg), T = LG.teamsFor(L, g.h, g.a), side = g.h === tid ? 'a' : 'b', rc = await SQ.campRoom(LG.gameSeed(L, g), T, side, ready);
+            if (!rc) bad('busy', 503);
+            g.T = T; doc.lver++;   // (the squads as they were when the game started: what the result is checked against)
+            doc.busy = { by: first, gid: arg, at: Date.now(), room: rc, side, players: ready };
+            feed(doc, first, 'started playing ' + label.replace('play ', '') + ' with ' + ready.filter(n => n !== first).join(', '));
+            return { ok: true, room: rc };
+          }
+          doc.busy = { by: first, gid: arg, at: Date.now() }; feed(doc, first, 'started playing ' + label.replace('play ', '')); return { ok: true, play: first === me };
+        }
         const e = LG.campGo(L, tid, arg); if (e) bad(e); doc.lver++; feed(doc, me, label.replace('move on', 'moved on').replace('start ', 'started ').replace('draft up', 'drafted up').replace('trim the', 'trimmed the').replace('move the', 'moved the').replace('move free', 'moved free'));
         return { ok: true, done: true };
       }
       // the result of the game played (checked: the moves are played back and must finish the game), or giving up on it
       if (op === 'report' || op === 'abandon') {
-        if (!doc.busy || doc.busy.by !== me) bad('You are not playing a game.');
+        if (!doc.busy && b.room && doc.lastRoom === b.room) return { ok: true };   // (someone else in the game reported it first)
+        const inGame = doc.busy && (doc.busy.by === me || (doc.busy.room && (doc.busy.players || []).indexOf(me) >= 0));
+        if (!inGame) bad('You are not playing a game.');
         const g = gameOf(L, doc.busy.gid);
         if (op === 'abandon' || !g) { doc.busy = null; return { ok: true }; }
         const cpuSide = g.h === tid ? 'b' : 'a';
-        if (!LG.playVerified(L, g, b.moves || {}, [cpuSide])) bad('That game did not finish.');
-        LG.runUntilHuman(L, 60); LG.checkFinal(L); doc.busy = null; doc.lver++; feed(doc, me, 'played the game: ' + result(L, g));
+        let moves = b.moves || {};
+        if (doc.busy.room) { const rm = await SQ.roomMoves(doc.busy.room); if (!rm) bad('That game is gone.'); moves = rm.moves; doc.lastRoom = doc.busy.room; }   // (played together: the room's own record, not anyone's say-so)
+        if (!LG.playVerified(L, g, moves, [cpuSide])) bad('That game did not finish.');
+        const who = doc.busy.room ? doc.busy.players.join(', ') : me;
+        LG.runUntilHuman(L, 60); LG.checkFinal(L); doc.busy = null; doc.lver++; feed(doc, who, 'played the game' + (who !== me ? ' together' : '') + ': ' + result(L, g));
         return { ok: true };
       }
       bad('bad_request');

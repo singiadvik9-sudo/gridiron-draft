@@ -46,9 +46,10 @@ const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) process
   const s3 = await c(B, { op: 'adv', code, kind: 'sim', arg: gm2.id }); const g7 = await c(A, { op: 'get', code });
   ok(s3.done && g7.L.week > L6.week && !g7.rd, 'he presses Ready: the week is played');
   // playing: the team is reserved for whoever plays, and the result is checked when it comes in
-  const gm3 = LG.weekGames(g7.L).find(x => x.h === 0 || x.a === 0), p1 = await c(A, { op: 'adv', code, kind: 'play', arg: gm3.id });
-  ok(p1.waiting, 'playing waits for Bob too'); const p2 = await c(B, { op: 'adv', code, kind: 'play', arg: gm3.id }); const g8 = await c(B, { op: 'get', code });
-  ok(g8.busy && g8.busy.by === 'cm_ann' && !p2.play, 'when he is ready, Ann (who asked) plays it');
+  // Bob goes offline: Ann plays the game on her own
+  await require('./api/_lib').cmd(['SET', 'gd:on:cm_bob', JSON.stringify({ at: Date.now() - 600000, st: 'In the menu' }), 'EX', 300]);
+  const gm3 = LG.weekGames(g7.L).find(x => x.h === 0 || x.a === 0), p1 = await c(A, { op: 'adv', code, kind: 'play', arg: gm3.id }); const g8 = await c(B, { op: 'get', code });
+  ok(p1.play && g8.busy && g8.busy.by === 'cm_ann' && !g8.busy.room, 'with Bob offline, Ann plays it on her own straight away');
   ok(/playing/.test((await c(B, { op: 'op', code, what: 'starter', a: { pid: low.i, on: false } })).error || ''), 'and nobody else can change the team while she does');
   const T8 = LG.teamsFor(g8.L, gm3.h, gm3.a), side = gm3.h === 0 ? 'a' : 'b', seed = LG.gameSeed(g8.L, gm3);
   let mv = {}, st = E.initState(seed); const U = { a: E.teamUnits(T8.a), b: E.teamUnits(T8.b) };
@@ -61,4 +62,35 @@ const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) process
   // the owner ends it and takes the campaign back
   ok((await c(B, { op: 'end', code })).error, 'only the owner can end the sharing');
   const en = await c(A, { op: 'end', code }); ok(en.ok && en.L && en.L.season && (await c(A, { op: 'get', code })).error === 'no_campaign' && !(await c(B, { op: 'mine' })).mine.length, 'the owner ends it: she gets the campaign back, and it is gone for Bob');
+})();
+// playing together: when two co-managers are ready to play, a squad room with both on the team, the other team the computer; the
+// result is checked from the room's own record, whoever reports it
+(async () => {
+  await new Promise(r => setTimeout(r, 4000));
+  H.room = require('./api/room.js');
+  const reg = n => call('auth', { op: 'register', name: n, password: 'secret1' }).then(r => r.token), c = (tok, body) => call('camp', body, tok);
+  const A = await reg('pt_ann'), B = await reg('pt_bob');
+  const L = LG.newNFL({ user: 3, seed: 21 }); L.teams[3].owner = 'You'; LG.campInit(L); LG.runUntilHuman(L, 60);
+  const { code } = await c(A, { op: 'create', L }); await c(A, { op: 'invite', code, name: 'pt_bob' }); await c(B, { op: 'join', code });
+  for (const t of [A, B]) await call('friends', { op: 'ping', st: 'Playing a campaign' }, t);
+  const L0 = (await c(A, { op: 'get', code })).L, gm = LG.weekGames(L0).find(x => x.h === 3 || x.a === 3);
+  await c(A, { op: 'adv', code, kind: 'play', arg: gm.id }); const r2 = await c(B, { op: 'adv', code, kind: 'play', arg: gm.id });
+  const g1 = await c(A, { op: 'get', code }), busy = g1.busy;
+  ok(r2.room && busy && busy.room === r2.room && busy.players.join() === 'pt_ann,pt_bob', 'both ready: they get a room to play it together (' + r2.room + ')');
+  const st = await call('room', { op: 'state', code: busy.room }, B), side = busy.side, cpu = side === 'a' ? 'b' : 'a';
+  ok(st.lob.started && st.lob.ps.map(p => p.name + ':' + p.pos).join() === 'pt_ann:QB,pt_bob:WR1' && st.lob.ps.every(p => p.team === side && p.ds), 'in it: Ann at quarterback, Bob at receiver, both with a defender, on their team');
+  ok(st.seats[side].squad && st.seats[cpu].squad && st.seats[cpu].cpu === 1 && st.seats[side].name === L0.teams[3].nick, 'the real campaign teams, the other one the computer');
+  ok(/playing/.test((await c(B, { op: 'op', code, what: 'starter', a: { pid: LG.rosterOf(L0, 3)[0].i, on: true } })).error || ''), 'the team is locked while they play');
+  // Ann (the quarterback) calls every play from her seat; the computer plays the other side
+  const T = LG.teamsFor(g1.L, gm.h, gm.a), seed = LG.gameSeed(g1.L, gm), U = { a: E.teamUnits(T.a), b: E.teamUnits(T.b) }, mv = {};
+  let s = E.initState(seed);
+  for (let k = 0; k < 400 && !s.over; k++) {
+    const n = s.playNo, role = s.poss === side ? 'off' : 'def', pick = E.cpuMove(s, U, side, seed, role);
+    await call('room', { op: 'move', code: busy.room, seat: side, n, pick }, A); mv[n + '-' + side] = { pick };
+    s = E.replay(seed, T, mv, [cpu]).state;
+  }
+  const rb = await c(B, { op: 'report', code, room: busy.room }); const g2 = await c(A, { op: 'get', code });
+  ok(rb.ok && !g2.busy && /played the game together/.test(g2.feed[0].t), 'Bob reports it: checked from the room, and in the feed ("' + g2.feed[0].by + ' ' + g2.feed[0].t + '")');
+  ok((await c(A, { op: 'report', code, room: busy.room })).ok, 'Ann reporting it too is fine (it is already in)');
+  ok(g2.L.sched.find(x => x.id === gm.id).done, 'the game counts in the campaign');
 })();
