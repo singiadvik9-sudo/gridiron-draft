@@ -5,6 +5,7 @@
   python3 build_rosters.py salaries DIR   gives every player in lib/data.json his real salary, and writes the salary curve (SAL)
   python3 build_rosters.py returners DIR  gives every running back, receiver and corner a returner rating (and corners a speed)
   python3 build_rosters.py ratings DIR    re-rates every player already in lib/data.json from the current Madden 27 ratings (rosters and contracts stay)
+  python3 build_rosters.py draftmodel DIR what real drafts look like, from nflverse draft_picks.csv and the Madden ratings (DRAFT)
   python3 build_rosters.py attrs DIR      gives every player in lib/data.json his Madden attributes (ATTR) and fits estimates for the rest (ATTR_FIT)
 
 Each team's pool is its roster plus its injured-reserve list (nflverse status ACT, INA or RES), with injuries ignored. Every player
@@ -493,9 +494,39 @@ def attrs(d):
     json.dump(D, open(OUT, 'w'), separators=(',', ':'))
     print('attributes for', hit, 'of', len(names), 'players;', len(miss), 'estimated, e.g.', miss[:6])
 
+# what real drafts look like (nflverse draft_picks.csv in DIR). DRAFT.pos[round][pos]: players a class has at that position in that round (2011 on).
+# DRAFT.top[pos]: of the top 10 picks. DRAFT.av[slot]: what a pick in that slot went on to do (mean career value, 2000-2019, smoothed: 1 at the top).
+# DRAFT.ovr[round]: the Madden rating real rookies have by round (the classes of 2025 and 2026).
+def draftmodel(d):
+    rows = list(csv.DictReader(open(os.path.join(d, 'draft_picks.csv'))))
+    G = {'RB': 'HB', 'FB': 'HB', 'HB': 'HB', 'T': 'OL', 'G': 'OL', 'C': 'OL', 'OL': 'OL', 'OT': 'OL', 'OG': 'OL', 'DE': 'DE', 'EDGE': 'DE', 'OLB': 'LB', 'ILB': 'LB', 'LB': 'LB', 'DT': 'DT', 'NT': 'DT', 'DL': 'DT',
+         'CB': 'CB', 'DB': 'CB', 'S': 'S', 'SAF': 'S', 'FS': 'S', 'SS': 'S', 'QB': 'QB', 'WR': 'WR', 'TE': 'TE', 'K': 'K', 'P': 'P'}
+    rec = [r for r in rows if int(r['season']) >= 2011 and G.get(r['position'])]; yrs = len({r['season'] for r in rec})
+    pos = {str(k): {} for k in range(1, 8)}; top = {}
+    for r in rec:
+        q = G[r['position']]; c = pos[r['round']]; c[q] = c.get(q, 0) + 1
+        if int(r['pick']) <= 10: top[q] = top.get(q, 0) + 1
+    pos = {k: {q: round(v / yrs, 2) for q, v in c.items()} for k, c in pos.items()}; top = {q: round(v / yrs, 2) for q, v in top.items()}
+    S = collections.defaultdict(list)
+    for r in rows:
+        if 2000 <= int(r['season']) <= 2019:
+            try: S[int(r['pick'])].append(float(r['w_av'] or 0))
+            except ValueError: pass
+    mean = [sum(S[k]) / len(S[k]) if S[k] else 0 for k in range(1, 257)]
+    smooth = [sum(mean[max(0, i - (1 + i // 8)):i + (1 + i // 8) + 1]) / len(mean[max(0, i - (1 + i // 8)):i + (1 + i // 8) + 1]) for i in range(256)]
+    for i in range(1, 256): smooth[i] = min(smooth[i], smooth[i - 1])   # (never rising down the board)
+    D = json.load(open(OUT)); ov = collections.defaultdict(list)
+    for r in rows:
+        if r['season'] in ('2025', '2026') and G.get(r['position']):
+            A = D['ATTR'].get(norm(r['pfr_player_name']) + ':' + G[r['position']])
+            if A: ov[r['round']].append(A[0])
+    D['DRAFT'] = {'pos': pos, 'top': top, 'av': [round(v / smooth[0], 3) for v in smooth], 'ovr': {k: [round(sum(v) / len(v), 1), max(v), len(v)] for k, v in sorted(ov.items())}}
+    json.dump(D, open(OUT, 'w'), separators=(',', ':'))
+    print(D['DRAFT']['ovr']); print('value by slot', {k: D['DRAFT']['av'][k - 1] for k in (1, 2, 3, 5, 10, 20, 32, 33, 64, 100, 150, 200, 256)})
+
 if __name__ == '__main__':
-    if len(sys.argv) != 3 or sys.argv[1] not in ('fetch', 'build', 'salaries', 'returners', 'ratings', 'attrs'): sys.exit(__doc__)
-    {'fetch': fetch, 'build': build, 'salaries': salaries, 'returners': returners, 'ratings': ratings, 'attrs': attrs}[sys.argv[1]](sys.argv[2])
+    if len(sys.argv) != 3 or sys.argv[1] not in ('fetch', 'build', 'salaries', 'returners', 'ratings', 'attrs', 'draftmodel'): sys.exit(__doc__)
+    {'fetch': fetch, 'build': build, 'salaries': salaries, 'returners': returners, 'ratings': ratings, 'attrs': attrs, 'draftmodel': draftmodel}[sys.argv[1]](sys.argv[2])
     if sys.argv[1] == 'build':
         if os.path.exists(os.path.join(sys.argv[2], 'contracts.json')): salaries(sys.argv[2])
         returners(sys.argv[2])

@@ -67,10 +67,39 @@ ACT['camp-pick'] = async t => {
 };
 ACT['camp-exit'] = async () => { await campSave(); go('camp'); };
 
+/* the inbox: messages, contract talks in place, answers to players and PR events */
+function inboxHTML(L, tid) {
+  const sel = FR.mail; let h = '<div class="inbox"><div class="panel mlist"><h3>Inbox</h3>' + (L.inbox.length ? '<ul class="mails">' + L.inbox.map(m => '<li class="' + (m.read ? '' : 'new') + (sel === m.id ? ' on' : '') + '" data-h="mail-open" data-id="' + m.id + '"><b>' + esc(m.from) + '</b><span>' + esc(m.subj) + '</span><small>' + esc(m.when) + '</small></li>').join('') + '</ul>' : '<p class="hint">Nothing yet.</p>') + '</div><div class="panel mread">';
+  const m = L.inbox.find(x => x.id === sel), cp = sel && sel[0] === 'c' ? L.players[sel.slice(1)] : m && m.kind === 'contract' ? L.players[m.pid] : null;
+  if (cp) h += '<h3>Contract talks: ' + esc(cp.n) + ' <small>' + cp.p + ' ' + cp.o + ', age ' + cp.a + '</small></h3>' + threadHTML(L, cp);
+  else if (m) {
+    h += '<h3>' + esc(m.subj) + '</h3><p class="sub">From ' + esc(m.from) + ' · ' + esc(m.when) + '</p><p>' + esc(m.body) + '</p>';
+    if (m.opts) h += m.ans != null ? '<p class="hint">You chose: ' + esc(m.opts[m.ans].t) + '</p>' : '<div class="row">' + m.opts.map((o, i) => '<button class="btn small" data-h="mail-ans" data-id="' + m.id + '" data-i="' + i + '">' + esc(o.t) + '</button>').join('') + '</div>';
+  } else h += '<p class="hint">Pick a message.</p>';
+  return h + '</div></div>';
+}
+ACT['mail-open'] = async t => { FR.mail = t.dataset.id; await FR.A.act('read', { id: t.dataset.id }); };
+ACT['mail-ans'] = async t => { const r = await FR.A.act('mail', { id: t.dataset.id, i: +t.dataset.i }); if (r && r.msg) toast(r.msg); };
+/* the Franchise tab: morale, money, facilities, coordinators */
+function franchiseHTML(L, tid) {
+  const meter = (l, v) => '<div class="st"><span>' + l + '</span><span class="bar"><i class="' + (v >= 66 ? 'hi' : v >= 40 ? 'mid' : 'lo') + '" style="width:' + v + '%"></i></span><b>' + v + '</b></div>';
+  const stars = LG.rosterOf(L, tid).filter(p => p.o >= 78).sort((a, b) => b.o - a.o).slice(0, 12);
+  let h = '<div class="panel"><h3>Morale</h3><div class="stats">' + meter('Team', L.morale.team) + meter('Fans', L.morale.fans) + '</div><p class="hint">Team morale moves with results, press conferences and playing time, and it changes how your whole team plays. Fans follow results. Unhappy stars play worse, ask for more money and are more likely to get into trouble.</p>' +
+    tbl(['Star', 'Morale', ''], stars.map(p => '<tr><td class="nm"><span class="pos">' + p.p + '</span> ' + plLink(p) + '</td><td>' + LG.moraleOf(L, p) + '</td><td>' + (p.sus ? 'Suspended ' + p.sus : p.inj ? 'Hurt' : '') + '</td></tr>').join('')) + '</div>';
+  h += '<div class="panel"><h3>Team money: $' + L.fin.cash + 'M</h3><p class="hint">Separate from the salary cap. It comes in from home games (more with a bigger stadium and happy fans), sponsors after each season and PR deals. It pays for upgrades and coaches.</p>' +
+    tbl(['Facility', 'Level', 'What it does', ''], Object.keys(LG.FACILITY).map(k => { const f = LG.FACILITY[k], lv = L.fin.lv[k], c = LG.upgradeCost(lv); return '<tr><td class="nm">' + f.label + '</td><td>' + lv + ' / 5</td><td>' + f.desc + '</td><td>' + (lv >= 5 ? '' : '<button class="btn small" data-h="fac-up" data-k="' + k + '"' + (L.fin.cash < c ? ' disabled' : '') + '>Upgrade $' + c + 'M</button>') + '</td></tr>'; }).join('')) + '</div>';
+  const role = k => k === 'oc' ? 'Offensive coordinator' : 'Defensive coordinator';
+  h += '<div class="panel"><h3>Coordinators</h3><p class="hint">A better coordinator lifts that whole side of the ball (about a point per 6 rating over 70). Salaries come out of team money each season.</p><ul class="news">' + ['oc', 'dc'].map(k => '<li>' + role(k) + ': <b>' + esc(L.staff[k].n) + '</b> · rated ' + L.staff[k].r + ' · $' + L.staff[k].sal + 'M a year</li>').join('') + '</ul><h4 class="pos-h">Available</h4>' +
+    tbl(['Coach', 'Job', 'Rating', 'Salary', ''], LG.coachMarket(L).map((c, i) => '<tr><td class="nm">' + esc(c.n) + '</td><td>' + role(c.k) + '</td><td>' + c.r + '</td><td>$' + c.sal + 'M</td><td><button class="btn small" data-h="coach-hire" data-i="' + i + '"' + (L.fin.cash < c.sal ? ' disabled' : '') + '>Hire</button></td></tr>').join('')) + '</div>';
+  return h;
+}
+ACT['fac-up'] = async t => { const r = await FR.A.act('upgrade', { k: t.dataset.k }); if (r && r.msg) toast(r.msg); };
+ACT['coach-hire'] = async t => { const r = await FR.A.act('hire', { i: +t.dataset.i }); if (r && r.msg) toast(r.msg); };
 function campAdapter() {
-  const L = C.L, tid = L.user;
+  const L = C.L, tid = L.user; LG.campInit(L);
   const after = (now) => { campDirty(now); frShow(campAdapter()); };
   return {
+    tabs: [{ id: 'inbox', label: 'Inbox' + (LG.unread(L) ? ' (' + LG.unread(L) + ')' : ''), html: () => inboxHTML(L, tid) }, { id: 'franchise', label: 'Franchise', html: () => franchiseHTML(L, tid) }],
     kind: 'campaign', L, tid, title: 'Campaign', canAdvance: true, canEditRoster: () => true, status: savedText(),
     headBtns: '<button class="btn small" data-h="camp-exit">Save &amp; exit</button>',
     cpuOffers: async pos => LG.cpuOffers(L, tid, pos),
@@ -79,7 +108,15 @@ function campAdapter() {
       let r = { ok: true };
       if (op === 'trade') {
         if (!LG.canTrade(L)) r = { ok: false, msg: 'Trading is closed right now.' };
-        else { const x = LG.cpuTrade(L, tid, a.to, a.give, a.get); if (x.ok) LG.doTrade(L, tid, a.to, a.give, a.get); r = { ok: x.ok, msg: x.msg }; }
+        else if (!LG.tradeTalkLeft(L, a.to)) r = { ok: false, msg: L.teams[a.to].nick + ' are done talking trades for now. Try again next week.' };
+        else {
+          const x = LG.cpuTrade(L, tid, a.to, a.give, a.get); if (x.ok) LG.doTrade(L, tid, a.to, a.give, a.get); r = { ok: x.ok, msg: x.msg };
+          if (!x.ok) {   // they come back with what would get it done, and they will not talk forever
+            LG.tradeTalkUse(L, a.to);
+            const c = LG.tradeCounter(L, tid, a.to, a.give, a.get);
+            if (c.add) FR.talk = { t: a.to, give: a.give.concat([c.add]), get: a.get.slice(), line: x.msg + ' They would do it with one more piece:' };
+          } else if (L.phase === 'draft') LG.autoDraftToHuman(L);
+        }
       } else if (op === 'sign') { const e = LG.signFA(L, tid, a.pid); r = { ok: !e, msg: e || 'Signed.' }; }
       else if (op === 'release') { const e = LG.release(L, tid, a.pid); r = { ok: !e, msg: e || 'Released.' }; }
       else if (op === 'block') { const e = LG.setBlock(L, tid, a.pid, a.on); r = { ok: !e, msg: e }; }
@@ -87,22 +124,39 @@ function campAdapter() {
       else if (op === 'ir') { const e = LG.placeIR(L, tid, a.pid); r = { ok: !e, msg: e }; }
       else if (op === 'activate') { const e = LG.activateIR(L, tid, a.pid); r = { ok: !e, msg: e }; }
       else if (op === 'use') { const e = LG.setUsage(L, tid, a.pid, a.v); r = { ok: !e, msg: e }; }
+      else if (op === 'press') { LG.pressAnswer(L, a.a); }
+      else if (op === 'ct-open') { LG.contractOpen(L, a.pid); }
+      else if (op === 'ct-offer') { const x = LG.contractOffer(L, tid, a.pid, a.o); r = { ok: x.ok, msg: x.msg || (x.signed ? 'Signed!' : '') }; }
+      else if (op === 'walk') { const e = LG.letWalk(L, a.pid); r = { ok: !e, msg: e }; }
+      else if (op === 'ask') {
+        if (!LG.tradeTalkLeft(L, a.to)) r = { ok: false, msg: L.teams[a.to].nick + ' are done talking trades for now.' };
+        else { LG.tradeTalkUse(L, a.to); r = LG.tradeAsk(L, tid, a.to, a.pid); }
+      }
+      else if (op === 'mail') { const e = LG.mailAnswer(L, a.id, a.i); r = { ok: !e, msg: e }; }
+      else if (op === 'read') { LG.mailRead(L, a.id); }
+      else if (op === 'upgrade') { const e = LG.upgrade(L, a.k); r = { ok: !e, msg: e || 'Upgraded.' }; }
+      else if (op === 'hire') { const e = LG.hireCoach(L, a.i); r = { ok: !e, msg: e || 'Hired.' }; }
       else if (op === 'hof') { const e = LG.induct(L, tid, a.pid); r = { ok: !e, msg: e }; }
       else if (op === 'ret') { const e = LG.setReturner(L, tid, a.pid || null); r = { ok: !e, msg: e }; }
       else if (op === 'draft') {
         if (!LG.draftPick(L, tid, a.pid)) r = { ok: false, msg: 'That pick is not allowed.' };
         else { LG.autoDraftToHuman(L); }
-      } else if (op === 'draftauto') { L.draft.auto = L.draft.auto || {}; L.draft.auto[tid] = !!a.on; LG.autoDraftToHuman(L); }
+      } else if (op === 'draftauto') { L.draft.auto = L.draft.auto || {}; L.draft.auto[tid] = !!a.on; if (a.on) LG.draftAdvance(L, 'me'); }
       if (!r.ok && r.msg) toast(r.msg);
       after(op === 'draft' && L.phase !== 'draft'); return r;
     },
     async go(op) {
       if (op === 'offseason') {
-        LG.offseasonBegin(L, 7); FR.tab = L.phase === 'draft' ? 'draft' : 'home';
+        LG.offseasonBegin(L, 7); FR.tab = 'inbox';
         const gone = ((L.progress && L.progress.retired) || []).map(id => L.players[id]).filter(p => p && p.lt === tid);
-        if (gone.length) setTimeout(() => G.openModal('<h3>Retirements</h3><p class="sub">' + gone.length + ' of your players ' + (gone.length > 1 ? 'have' : 'has') + ' retired.</p><ul class="news">' + gone.map(p => '<li><a href="#" class="plk" data-h="fr-pl" data-id="' + G.esc(p.i) + '">' + G.esc(p.n) + '</a> (' + p.p + ', ' + p.a + ', peak ' + (p.peak || p.o) + ') <button class="btn small" data-h="fr-hof" data-id="' + p.i + '">Hall of Fame</button></li>').join('') + '</ul><p class="hint">Their stats stay with them for good (Stats tab, Your retired players).</p>'), 50);
+        const al = L.progress || {}, me2 = ids => (ids || []).map(id => L.players[id]).filter(p => p && p.t === tid);
+        const alerts = me2(al.stars).map(p => '<li><b class="slp">Superstar</b> ' + G.esc(p.n) + ' (' + p.p + ') is now a ' + p.o + '.</li>').concat(me2(al.sleepers).map(p => '<li><b class="slp">' + (p.pt >= 90 ? 'Future superstar' : 'Sleeper') + '</b> ' + G.esc(p.n) + ' (' + p.p + '): potential ' + p.pt + ', the scouts said ' + p.was + '.</li>'), me2(al.busts).map(p => '<li><i class="bust">Bust</i> ' + G.esc(p.n) + ' (' + p.p + '): potential ' + p.pt + ', the scouts said ' + p.was + '.</li>'));
+        if (alerts.length && !gone.length) setTimeout(() => G.openModal('<h3>Scouting report</h3><ul class="news">' + alerts.join('') + '</ul>'), 50);
+        if (gone.length) setTimeout(() => G.openModal((alerts.length ? '<h3>Scouting report</h3><ul class="news">' + alerts.join('') + '</ul>' : '') + '<h3>Retirements</h3><p class="sub">' + gone.length + ' of your players ' + (gone.length > 1 ? 'have' : 'has') + ' retired.</p><ul class="news">' + gone.map(p => '<li><a href="#" class="plk" data-h="fr-pl" data-id="' + G.esc(p.i) + '">' + G.esc(p.n) + '</a> (' + p.p + ', ' + p.a + ', peak ' + (p.peak || p.o) + ') <button class="btn small" data-h="fr-hof" data-id="' + p.i + '">Hall of Fame</button></li>').join('') + '</ul><p class="hint">Their stats stay with them for good (Stats tab, Your retired players).</p>'), 50);
       }
       else if (op === 'season') { LG.startSeason(L); LG.runUntilHuman(L, 60); FR.tab = 'home'; }
+      else if (op === 'fa-next') { LG.faNext(L); if (L.phase === 'draft') FR.tab = 'draft'; }
+      else if (op === 'draft-one' || op === 'draft-me') { LG.draftAdvance(L, op === 'draft-one' ? 'one' : 'me'); }
       else if (op === 'trim') LG.trimRoster(L, tid);
       after(true);
     },
@@ -114,7 +168,7 @@ function campAdapter() {
       G.startCtxCpu({ seed: LG.gameSeed(L, g), T: g.T, side, cpuSide }, {
         label: g.pl === 'po' ? 'Playoffs' : 'Week ' + g.w,
         report: async moves => { if (!LG.playVerified(L, g, moves, [cpuSide])) throw new Error('The game did not finish.'); },
-        onDone: () => { LG.runUntilHuman(L, 60); LG.checkFinal(L); campDirty(true); go('camphub'); }
+        onDone: () => { LG.runUntilHuman(L, 60); LG.checkFinal(L); campDirty(true); FR.tab = 'home'; go('camphub'); }
       });
     }
   };

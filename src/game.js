@@ -495,6 +495,7 @@ const Field = {
         else if (entry.conf && entry.confWhy && !this.flash) { this.flash = { text: { dive: 'DIVING CATCH', toe: 'TOE TAP', stiff: 'STIFF ARM', juke: 'JUKED HIM' }[entry.confWhy], color: '#ffcf3f', sub: entry.conf.toUpperCase() + ' · +' + E.CONF_BOOST + ' CONFIDENCE' }; this.celebrate('CONFIDENCE', '#ffcf3f'); }
         else if (entry.conf && this.flash && !this.flash.sub) this.flash.sub = entry.conf.toUpperCase() + ' IS FEELING IT';
         else if (entry.shaken && !this.flash) this.flash = { text: 'DROPPED', color: '#ff8a6a', sub: entry.shaken.toUpperCase() + ' IS SHAKEN' };
+        if (entry.fight && !this.flash) this.flash = { text: 'EJECTED', color: '#ff8a6a', sub: entry.fight.n.toUpperCase() + ' THROWN OUT FOR FIGHTING' };
         if (entry.fire && !this.fxFire) { this.fxFire = 1; if (!fl) this.flash = { text: 'ON FIRE', color: '#ff7a1a' }; this.celebrate('ON FIRE', '#ff7a1a'); }
       } else if (el < dur + hold + settle) {
         if (this.scene !== after) { this.scene = after; this.ballX = null; this.flash = null; this.cam0 = this.cam; }
