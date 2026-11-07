@@ -2,6 +2,10 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-6', title: 'Press conferences make sense', items: [
+    'Each press question now has its own answers that fit it. After a win you can credit the players or the game plan, after a loss take the blame or credit the other team, and questions about your star, the fans or the locker room have their own choices.',
+    'Fixed: simulating could get stuck behind the "Simulating" note if you switched browser tabs at that moment.'
+  ] },
   { id: '2026-11-07-5', title: 'A snappier campaign', items: [
     'Simulating your game and the rest of the week no longer freezes the page. A "Simulating week N" note shows while the league plays out.',
     'The Trades tab opens about twice as fast.',

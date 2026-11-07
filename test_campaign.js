@@ -32,7 +32,14 @@ for (let i = 0; i < 6; i++) LG.tradeTalkUse(L, 3); ok(LG.tradeTalkLeft(L, 3) ===
 for (let w = 0; w < 80 && L.phase !== 'offseason'; w++) { LG.runUntilHuman(L, 60); LG.weekGames(L).forEach(g => LG.simGame(L, g)); LG.advanceWeek(L); LG.checkFinal(L); }
 ok(L.phase === 'offseason', 'a season plays through');
 ok(L.press && L.press.qs.length === 3, 'a press conference follows your game: "' + L.press.qs[0] + '"');
-{ const t0 = L.morale.team; LG.pressAnswer(L, 0); ok(L.morale.team === t0 + 3, 'crediting the players lifts the team'); const s = L.players[L.press.star], m0 = LG.moraleOf(L, s); LG.pressAnswer(L, 2); ok(LG.moraleOf(L, s) < m0, 'calling out your star does not lift him'); LG.pressAnswer(L, 3); ok(!L.press, 'and then it is over'); }
+{ const o0 = LG.pressOptions(L), won = L.press.won, t0 = L.morale.team;
+  ok(won ? !o0.some(a => /blame|have to be better/i.test(a.t)) : !o0.some(a => /credit the players|bigger win/i.test(a.t)), 'the answers fit the result (' + (won ? 'a win' : L.press.tie ? 'a tie' : 'a loss') + ': ' + o0.map(a => a.t).join(' / ') + ')');
+  LG.pressAnswer(L, 0); ok(L.morale.team === t0 + o0[0].team, 'the first answer moves team morale by ' + o0[0].team);
+  const o1 = LG.pressOptions(L), s = L.players[L.press.star], m0 = LG.moraleOf(L, s); ok(o1.some(a => /praise him/i.test(a.t)) && o1.some(a => /call him out/i.test(a.t)), 'a question about the star: praise him or call him out');
+  LG.pressAnswer(L, o1.findIndex(a => /call him out/i.test(a.t))); ok(LG.moraleOf(L, s) < m0, 'calling out your star does not lift him'); LG.pressAnswer(L, 3); ok(!L.press, 'and then it is over'); }
+// every kind of question: four answers, and none of them out of place
+{ const A = LG.PRESS_ANSWERS; ok(Object.keys(A).every(k => A[k].length === 4) && !A.win.some(a => /blame|loss/i.test(a.t)) && !A.loss.some(a => /credit the players|win/i.test(a.t)) && !A.fans.some(a => /blame/i.test(a.t)), 'each kind of question has four answers that fit it (' + Object.keys(A).join(', ') + ')');
+  const old = { press: { qs: ['x', 'y'], i: 0 } }; ok(LG.pressOptions(old) === LG.COACH_ANSWERS, 'a press conference from an older save keeps the old answers'); }
 ok(L.inbox.length > 1, 'the inbox fills up (' + L.inbox.length + ')');
 ok(Object.keys(L.stats).length > 500, 'stats are kept for every team');
 const star = Object.values(L.players).filter(p => p.t >= 0 && p.t !== me && L.stats[p.i] && L.stats[p.i].ryd > 300)[0]; ok(LG.playerStats(L, star.i).games.length > 3, 'including game by game, for players on other teams (' + star.n + ')');
