@@ -32,7 +32,7 @@ function hubChat(kind, code) {
 }
 function hubChatOff() { if (H.chat) { H.chat.box.destroy(); H.chat = null; } }
 function go(view, p) {
-  stopPoll(); if (view !== 'league' && view !== 'tourney') hubChatOff(); H.view = view; H.p = p || {};
+  stopPoll(); if (view !== 'league' && view !== 'tourney' && view !== 'camphub') hubChatOff(); H.view = view; H.p = p || {};
   if (G.state.mode !== 'lobby') return;
   show();
 }
