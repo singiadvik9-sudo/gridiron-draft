@@ -662,3 +662,13 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .frdot { width: 9px; height: 9px; border-radius: 50%; background: #666; display: inline-block; }
 .frdot.on { background: #3fbf6a; box-shadow: 0 0 6px #3fbf6a; }
 #invban { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 70; background: var(--panel, #1c2230); border: 1px solid var(--flag, #e0a030); border-radius: 10px; padding: 10px 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; box-shadow: 0 8px 28px rgba(0,0,0,.4); max-width: calc(100vw - 24px); }
+/* shared campaigns */
+.frtop .shtop { margin-bottom: 10px; }
+.shwho { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.shm { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.shm small { opacity: .6; font-weight: 400; }
+.shbar { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(255, 207, 63, .08); border: 1px solid rgba(255, 207, 63, .3); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.shbar.pend { background: rgba(127, 180, 255, .08); border-color: rgba(127, 180, 255, .35); }
+.shfeed { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; }
+.shfeed li { padding: 2px 0; }
+.shfeed small { opacity: .6; }

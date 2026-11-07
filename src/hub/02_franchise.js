@@ -40,7 +40,7 @@ function frShow(A) {
     '<div class="frbtns">' + (A.headBtns || '') + '</div></div>';
   h += '<nav class="tabs" role="tablist">' + tabs.map(x => '<button class="tab' + (FR.tab === x[0] ? ' on' : '') + '" role="tab" data-h="fr-tab" data-t="' + x[0] + '">' + x[1] + '</button>').join('') + '</nav>';
   const extra = (A.tabs || []).find(x => x.id === FR.tab);
-  h += '<div class="frbody">' + (extra ? extra.html() : (FRV[FR.tab] || FRV.home)(A)) + '</div></section>';
+  h += (A.top ? '<div class="frtop">' + A.top() + '</div>' : '') + '<div class="frbody">' + (extra ? extra.html() : (FRV[FR.tab] || FRV.home)(A)) + '</div></section>';   // (top: a shared campaign's co-managers, approvals and feed)
   const keep = window.scrollY;
   setMain(h); window.scrollTo(0, keep);
 }

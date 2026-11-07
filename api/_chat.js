@@ -25,9 +25,18 @@ async function post(key, from, text, ttl, extra) {
     return msg;
   });
 }
+// a line from the game itself (an approval, someone joining): no rate limit, shown as a note
+async function sys(key, text, ttl) {
+  return withLock('chat:' + key, async () => {
+    const doc = (await getJ(key)) || { n: 0, m: [] };
+    const msg = { i: ++doc.n, f: '', t: clean(text, 300), at: Date.now(), sys: 1 };
+    doc.m.push(msg); if (doc.m.length > KEEP) doc.m.splice(0, doc.m.length - KEEP);
+    await setJ(key, doc, ttl); return msg;
+  });
+}
 // messages after id `since` (all of the last 100 when since is 0)
 async function list(key, since) {
   const doc = (await getJ(key)) || { n: 0, m: [] }, s = Number.isInteger(since) && since > 0 ? since : 0;
   return { n: doc.n, msgs: doc.m.filter(m => m.i > s) };
 }
-module.exports = { post, list, filter, LEN };
+module.exports = { post, sys, list, filter, LEN };

@@ -667,6 +667,16 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .frdot { width: 9px; height: 9px; border-radius: 50%; background: #666; display: inline-block; }
 .frdot.on { background: #3fbf6a; box-shadow: 0 0 6px #3fbf6a; }
 #invban { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 70; background: var(--panel, #1c2230); border: 1px solid var(--flag, #e0a030); border-radius: 10px; padding: 10px 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; box-shadow: 0 8px 28px rgba(0,0,0,.4); max-width: calc(100vw - 24px); }
+/* shared campaigns */
+.frtop .shtop { margin-bottom: 10px; }
+.shwho { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.shm { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.shm small { opacity: .6; font-weight: 400; }
+.shbar { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(255, 207, 63, .08); border: 1px solid rgba(255, 207, 63, .3); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.shbar.pend { background: rgba(127, 180, 255, .08); border-color: rgba(127, 180, 255, .35); }
+.shfeed { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; }
+.shfeed li { padding: 2px 0; }
+.shfeed small { opacity: .6; }
 
 </style>
 <div class="wrap">
@@ -4866,6 +4876,91 @@ function pressAnswer(L, a) {
   P.i++; if (P.i >= P.qs.length) L.press = null;
   return A;
 }
+/* ---------- a campaign action, the same in the browser (a campaign of your own) and on the server (a shared one) ----------
+   campOp(L, tid, op, a) -> { ok, msg, talk } (talk: the CPU's counter, a piece more they would want); campGo for the phase buttons. */
+function campOp(L, tid, op, a) {
+  a = a || {}; let r = { ok: true };
+  if (op === 'trade') {
+    if (!canTrade(L)) return { ok: false, msg: 'Trading is closed right now.' };
+    if (!tradeTalkLeft(L, a.to)) return { ok: false, msg: L.teams[a.to].nick + ' are done talking trades for now. Try again next week.' };
+    const x = cpuTrade(L, tid, a.to, a.give, a.get); if (x.ok) doTrade(L, tid, a.to, a.give, a.get); r = { ok: x.ok, msg: x.msg };
+    if (!x.ok) {   // they come back with what would get it done, and they will not talk forever
+      tradeTalkUse(L, a.to);
+      const c = tradeCounter(L, tid, a.to, a.give, a.get);
+      if (c.add) r.talk = { t: a.to, give: a.give.concat([c.add]), get: a.get.slice(), line: x.msg + ' They would do it with one more piece:' };
+    } else if (L.phase === 'draft') autoDraftToHuman(L);
+  } else if (op === 'sign') { const e = signFA(L, tid, a.pid); r = { ok: !e, msg: e || 'Signed.' }; }
+  else if (op === 'release') { const e = release(L, tid, a.pid); r = { ok: !e, msg: e || 'Released.' }; }
+  else if (op === 'block') { const e = setBlock(L, tid, a.pid, a.on); r = { ok: !e, msg: e }; }
+  else if (op === 'starter') { const e = setStarter(L, tid, a.pid, a.on); r = { ok: !e, msg: e }; }
+  else if (op === 'ir') { const e = placeIR(L, tid, a.pid); r = { ok: !e, msg: e }; }
+  else if (op === 'activate') { const e = activateIR(L, tid, a.pid); r = { ok: !e, msg: e }; }
+  else if (op === 'use') { const e = setUsage(L, tid, a.pid, a.v); r = { ok: !e, msg: e }; }
+  else if (op === 'press') { pressAnswer(L, a.a); }
+  else if (op === 'ct-open') { contractOpen(L, a.pid); }
+  else if (op === 'ct-offer') { const x = contractOffer(L, tid, a.pid, a.o); r = { ok: x.ok, msg: x.msg || (x.signed ? 'Signed!' : '') }; }
+  else if (op === 'walk') { const e = letWalk(L, a.pid); r = { ok: !e, msg: e }; }
+  else if (op === 'ask') {
+    if (!tradeTalkLeft(L, a.to)) r = { ok: false, msg: L.teams[a.to].nick + ' are done talking trades for now.' };
+    else { tradeTalkUse(L, a.to); r = tradeAsk(L, tid, a.to, a.pid); }
+  }
+  else if (op === 'mail') { const e = mailAnswer(L, a.id, a.i); r = { ok: !e, msg: e }; }
+  else if (op === 'read') { mailRead(L, a.id); }
+  else if (op === 'upgrade') { const e = upgrade(L, a.k); r = { ok: !e, msg: e || 'Upgraded.' }; }
+  else if (op === 'hire') { const e = hireCoach(L, a.i); r = { ok: !e, msg: e || 'Hired.' }; }
+  else if (op === 'hof') { const e = induct(L, tid, a.pid); r = { ok: !e, msg: e }; }
+  else if (op === 'ret') { const e = setReturner(L, tid, a.pid || null); r = { ok: !e, msg: e }; }
+  else if (op === 'draft') { if (!draftPick(L, tid, a.pid)) r = { ok: false, msg: 'That pick is not allowed.' }; else autoDraftToHuman(L); }
+  else if (op === 'draftauto') { L.draft.auto = L.draft.auto || {}; L.draft.auto[tid] = !!a.on; if (a.on) draftAdvance(L, 'me'); }
+  else r = { ok: false, msg: 'Unknown action.' };
+  return r;
+}
+// a move big enough that a co-manager has to say yes first (shared campaigns): its line for the approval card, or null
+const BIG_CONTRACT = 15;
+function campBig(L, tid, op, a) {
+  a = a || {}; const P = id => L.players[id], nm = id => P(id) ? P(id).n + ' (' + P(id).p + ' ' + P(id).o + ')' : 'a pick', list = ids => (ids || []).map(id => { if (isPick(id)) { const k = pickOf_(L, id); return k ? pickLabel(L, k) : 'a pick'; } return nm(id); }).join(', ');
+  if (op === 'trade') return 'trade ' + list(a.give) + ' to the ' + L.teams[a.to].nick + ' for ' + list(a.get);
+  if ((op === 'release' || op === 'walk') && P(a.pid) && P(a.pid).o >= 80) return (op === 'release' ? 'release ' : 'let ') + nm(a.pid) + (op === 'walk' ? ' walk in free agency' : '');
+  if (op === 'ct-offer' && a.o && +a.o.y > 0 && (+a.o.s + (+a.o.b || 0) / +a.o.y) > BIG_CONTRACT) return 'offer ' + nm(a.pid) + ' ' + a.o.y + ' years at $' + Math.round((+a.o.s + (+a.o.b || 0) / +a.o.y) * 10) / 10 + 'M a year';
+  if (op === 'draft' && L.draft) { const nx = draftPicksLeft(L)[0]; if (nx && nx.k.r === 1 && nx.k.t === tid) return 'take ' + nm(a.pid) + ' in the first round'; }
+  return null;
+}
+// what a co-manager did, for the activity feed (worked out before the move, while the names are still where they were)
+function campDesc(L, tid, op, a) {
+  a = a || {}; const P = id => L.players[id], nm = id => P(id) ? P(id).n : 'a player';
+  switch (op) {
+    case 'sign': return 'signed ' + nm(a.pid);
+    case 'release': return 'released ' + nm(a.pid);
+    case 'starter': return (a.on ? 'made ' : 'took away ') + nm(a.pid) + (a.on ? ' a starter' : '\'s starting job');
+    case 'use': return 'set ' + nm(a.pid) + '\'s usage to ' + (a.v == null ? 'the default' : a.v + '%');
+    case 'ir': return 'put ' + nm(a.pid) + ' on injured reserve';
+    case 'activate': return 'brought ' + nm(a.pid) + ' back from injured reserve';
+    case 'block': return (a.on ? 'put ' + nm(a.pid) + ' on the trading block' : 'took ' + nm(a.pid) + ' off the trading block');
+    case 'trade': return 'traded with the ' + L.teams[a.to].nick;
+    case 'ask': return 'asked the ' + L.teams[a.to].nick + ' about ' + nm(a.pid);
+    case 'ct-open': return 'opened contract talks with ' + nm(a.pid);
+    case 'ct-offer': return 'made ' + nm(a.pid) + ' a contract offer';
+    case 'walk': return 'let ' + nm(a.pid) + ' walk';
+    case 'mail': { const m = (L.inbox || []).find(x => x.id === a.id); return 'answered ' + (m ? '"' + m.subj + '"' : 'an email'); }
+    case 'press': return 'answered a press question';
+    case 'upgrade': return 'upgraded the ' + (FACILITY[a.k] ? FACILITY[a.k].label.toLowerCase() : a.k);
+    case 'hire': return 'hired a coach';
+    case 'hof': return 'nominated ' + nm(a.pid) + ' for the Hall of Fame';
+    case 'ret': return 'made ' + (a.pid ? nm(a.pid) : 'nobody') + ' the returner';
+    case 'draft': return 'drafted ' + nm(a.pid);
+    case 'draftauto': return (a.on ? 'turned on' : 'turned off') + ' auto-draft';
+    default: return null;   // (reading mail and the like: not worth a line)
+  }
+}
+function campGo(L, tid, op) {
+  if (op === 'offseason') offseasonBegin(L, 7);
+  else if (op === 'season') { startSeason(L); runUntilHuman(L, 60); }
+  else if (op === 'fa-next') faNext(L);
+  else if (op === 'draft-one' || op === 'draft-me') draftAdvance(L, op === 'draft-one' ? 'one' : 'me');
+  else if (op === 'trim') trimRoster(L, tid);
+  else return 'Unknown action.';
+  return null;
+}
 function campOffseason(L, rep) {
   const me = myId(L), RR = records(L), R = RR[me], mine = ids => ids.map(id => L.players[id]).filter(p => p && p.t === me);
   L.teams.forEach(t => { const x = RR[t.id]; if (x.w + x.l + x.t >= MODE.games) t.lastPct = x.pct; });   // next season starts from this one's results
@@ -5323,7 +5418,7 @@ const LG = {
   RET_POS, retRating, returnerCands, returnerOf, setReturner,
   runUntilHumanAsync, USE_DEFAULT, USE_SPOTS, usageList, setUsage, snapShare, ptCalm, PT_CALM, __ptMail: L => ptMail(L, myId(L), false, true),
   progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, UNIT_ROUNDS, fillPrice, hasLegalPick, isUnitId, unitOf, unitRating, draftOvr, salOfId, draftLabel, unitNeeds, canDraftId, affordableId, autoPickFor, startSeason, trimRoster, fillDepth, finishDraft,
-  __suspend: suspend, isStar, starterIds, modeOf, MODE, campInit, teamMode, updateModes, cpuTradesRound, tradeAsk, tradeCounter, tradeTalkLeft, tradeTalkUse, draftAdvance, draftUpOffers, draftDownBids, draftPrem, rookieScore, draftSlot, faNext, faFinish, faStart, cpuResign, TEAM_STATE, DUMB_LAWS, CRIMES, SUS_GAMES, letWalk, demandOf, contractOpen, contractOffer, contractSummary, inMail, mailRead, mailAnswer, unread, moraleOf, setMorale, moraleBump, pressAnswer, pressOptions, PRESS_ANSWERS, upgradeCost, upgrade, hireCoach, coachMarket, FACILITY, deadMoney, COACH_ANSWERS, playerValue, tradeCheck, cpuTrade, tradeEval, teamNeeds, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
+  __suspend: suspend, isStar, starterIds, modeOf, MODE, campInit, teamMode, updateModes, cpuTradesRound, tradeAsk, tradeCounter, tradeTalkLeft, tradeTalkUse, draftAdvance, draftUpOffers, draftDownBids, draftPrem, rookieScore, draftSlot, campOp, campGo, campBig, campDesc, BIG_CONTRACT, faNext, faFinish, faStart, cpuResign, TEAM_STATE, DUMB_LAWS, CRIMES, SUS_GAMES, letWalk, demandOf, contractOpen, contractOffer, contractSummary, inMail, mailRead, mailAnswer, unread, moraleOf, setMorale, moraleBump, pressAnswer, pressOptions, PRESS_ANSWERS, upgradeCost, upgrade, hireCoach, coachMarket, FACILITY, deadMoney, COACH_ANSWERS, playerValue, tradeCheck, cpuTrade, tradeEval, teamNeeds, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
   newCustom, addTeam, removeTeam, assignDivisions, startCustom, finalizeLeagueDraft, customSchedule, ownerRecord, leaders, leagueTables,
   computeAwards, makeBracket, reportSeries, setSeries, bracketOrder, nflMatchups, assignWeeks, rrSchedule, mkPlayer, rng, shuffle
 };
@@ -7811,6 +7906,11 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-10', title: 'Run a campaign with friends', items: [
+    'Open one of your campaigns and press Share, then invite friends (up to 5 co-managers). Everyone can do everything, and the campaign page shows who is online and a feed of what everyone did.',
+    'Big moves need a second yes: trades, cutting or losing a player rated 80+, contracts over $15M a year, and first-round picks. The other co-managers get Approve and Reject buttons.',
+    'Simulating, playing and moving on wait until every co-manager who is online presses Ready. The campaign has its own chat, and you can stop sharing at any time to take the campaign back.'
+  ] },
   { id: '2026-11-07-9', title: 'Friends', items: [
     'Signed in, you now have a Friends button. Add friends by their account name, then see who is online and what they are doing (in a quick game, running a campaign, in the menu…). The button shows how many friends are online and any requests waiting.',
     'Challenge an online friend to a quick game with one click. You wait in a new room, and they get an invitation to accept or decline.'
@@ -8035,7 +8135,7 @@ function hubChat(kind, code) {
 }
 function hubChatOff() { if (H.chat) { H.chat.box.destroy(); H.chat = null; } }
 function go(view, p) {
-  stopPoll(); if (view !== 'league' && view !== 'tourney') hubChatOff(); H.view = view; H.p = p || {};
+  stopPoll(); if (view !== 'league' && view !== 'tourney' && view !== 'camphub') hubChatOff(); H.view = view; H.p = p || {};
   if (G.state.mode !== 'lobby') return;
   show();
 }
@@ -8221,7 +8321,7 @@ function frShow(A) {
     '<div class="frbtns">' + (A.headBtns || '') + '</div></div>';
   h += '<nav class="tabs" role="tablist">' + tabs.map(x => '<button class="tab' + (FR.tab === x[0] ? ' on' : '') + '" role="tab" data-h="fr-tab" data-t="' + x[0] + '">' + x[1] + '</button>').join('') + '</nav>';
   const extra = (A.tabs || []).find(x => x.id === FR.tab);
-  h += '<div class="frbody">' + (extra ? extra.html() : (FRV[FR.tab] || FRV.home)(A)) + '</div></section>';
+  h += (A.top ? '<div class="frtop">' + A.top() + '</div>' : '') + '<div class="frbody">' + (extra ? extra.html() : (FRV[FR.tab] || FRV.home)(A)) + '</div></section>';   // (top: a shared campaign's co-managers, approvals and feed)
   const keep = window.scrollY;
   setMain(h); window.scrollTo(0, keep);
 }
@@ -8637,7 +8737,7 @@ const C = { L: null, slot: 0, timer: 0, state: 'saved', base: null, rev: null };
 
 async function campSave() {
   clearTimeout(C.timer); C.timer = 0;
-  if (!C.L) return;
+  if (!C.L || C.shared) return;   // (a shared campaign lives on the server: every move is saved there as it is made)
   C.state = 'saving';
   try { await SAVE.put(C.slot, C.L); C.state = 'saved'; }
   catch (e) {
@@ -8679,7 +8779,8 @@ V.camp = async () => {
     (H.user ? 'Saves are stored on your account.' : 'You are a guest: saves stay on this device. Sign in to keep them on your account.') + '</p><div class="slots">' +
     slots.map(s => s.empty ? '<div class="slot-card"><b>Slot ' + s.slot + '</b><span class="sub">Empty</span><button class="btn primary" data-h="camp-new" data-slot="' + s.slot + '">New campaign</button></div>' :
       '<div class="slot-card"><b>Slot ' + s.slot + ' · ' + esc(s.team) + '</b><span class="sub">' + s.season + ' · ' + ({ regular: 'Week ' + s.week, playoffs: 'Playoffs', offseason: 'Offseason', draft: 'Draft', preseason: 'Preseason' }[s.phase] || s.phase) + '</span>' +
-      '<div class="row"><button class="btn primary" data-h="camp-load" data-slot="' + s.slot + '">Continue</button><button class="btn ghost" data-h="camp-del" data-slot="' + s.slot + '">Delete</button></div></div>').join('') + '</div></section>');
+      '<div class="row"><button class="btn primary" data-h="camp-load" data-slot="' + s.slot + '">Continue</button><button class="btn ghost" data-h="camp-del" data-slot="' + s.slot + '">Delete</button></div></div>').join('') + '</div></section>' + (H.user ? '<section class="panel" id="shsec"><h3>Shared campaigns</h3><p class="sub">Loading…</p></section>' : ''));
+  if (H.user) sharedSection();
 };
 ACT['camp-del'] = async t => { if (!confirm('Delete this campaign for good?')) return; if (await run(() => SAVE.del(+t.dataset.slot).then(() => true))) V.camp(); };
 ACT['camp-load'] = async t => {
@@ -8713,7 +8814,7 @@ function inboxHTML(L, tid) {
   if (cp) h += '<h3>Contract talks: ' + esc(cp.n) + ' <small>' + cp.p + ' ' + cp.o + ', age ' + cp.a + '</small></h3>' + threadHTML(L, cp);
   else if (m) {
     h += '<h3>' + esc(m.subj) + '</h3><p class="sub">From ' + esc(m.from) + ' · ' + esc(m.when) + '</p><p>' + esc(m.body) + '</p>';
-    if (m.opts) h += m.ans != null ? '<p class="hint">You chose: ' + esc(m.opts[m.ans].t) + '</p>' : '<div class="row">' + m.opts.map((o, i) => '<button class="btn small" data-h="mail-ans" data-id="' + m.id + '" data-i="' + i + '">' + esc(o.t) + '</button>').join('') + '</div>';
+    if (m.opts) h += m.ans != null ? '<p class="hint">' + (m.by ? esc(m.by) + ' chose: ' : 'You chose: ') + esc(m.opts[m.ans].t) + '</p>' : '<div class="row">' + m.opts.map((o, i) => '<button class="btn small" data-h="mail-ans" data-id="' + m.id + '" data-i="' + i + '">' + esc(o.t) + '</button>').join('') + '</div>';
   } else h += '<p class="hint">Pick a message.</p>';
   return h + '</div></div>';
 }
@@ -8740,63 +8841,27 @@ function campAdapter() {
   return {
     tabs: [{ id: 'inbox', label: 'Inbox' + (LG.unread(L) ? ' (' + LG.unread(L) + ')' : ''), html: () => inboxHTML(L, tid) }, { id: 'franchise', label: 'Franchise', html: () => franchiseHTML(L, tid) }],
     kind: 'campaign', L, tid, title: 'Campaign', canAdvance: true, canEditRoster: () => true, status: savedText(),
-    headBtns: '<button class="btn small" data-h="camp-exit">Save &amp; exit</button>',
+    headBtns: (H.user ? '<button class="btn small" data-h="camp-share" title="Run this team together with friends">Share</button>' : '') + '<button class="btn small" data-h="camp-exit">Save &amp; exit</button>',
     cpuOffers: async pos => LG.cpuOffers(L, tid, pos),
     blockBids: async () => LG.blockBids(L, tid),
     async act(op, a) {
-      let r = { ok: true };
-      if (op === 'trade') {
-        if (!LG.canTrade(L)) r = { ok: false, msg: 'Trading is closed right now.' };
-        else if (!LG.tradeTalkLeft(L, a.to)) r = { ok: false, msg: L.teams[a.to].nick + ' are done talking trades for now. Try again next week.' };
-        else {
-          const x = LG.cpuTrade(L, tid, a.to, a.give, a.get); if (x.ok) LG.doTrade(L, tid, a.to, a.give, a.get); r = { ok: x.ok, msg: x.msg };
-          if (!x.ok) {   // they come back with what would get it done, and they will not talk forever
-            LG.tradeTalkUse(L, a.to);
-            const c = LG.tradeCounter(L, tid, a.to, a.give, a.get);
-            if (c.add) FR.talk = { t: a.to, give: a.give.concat([c.add]), get: a.get.slice(), line: x.msg + ' They would do it with one more piece:' };
-          } else if (L.phase === 'draft') LG.autoDraftToHuman(L);
-        }
-      } else if (op === 'sign') { const e = LG.signFA(L, tid, a.pid); r = { ok: !e, msg: e || 'Signed.' }; }
-      else if (op === 'release') { const e = LG.release(L, tid, a.pid); r = { ok: !e, msg: e || 'Released.' }; }
-      else if (op === 'block') { const e = LG.setBlock(L, tid, a.pid, a.on); r = { ok: !e, msg: e }; }
-      else if (op === 'starter') { const e = LG.setStarter(L, tid, a.pid, a.on); r = { ok: !e, msg: e }; }
-      else if (op === 'ir') { const e = LG.placeIR(L, tid, a.pid); r = { ok: !e, msg: e }; }
-      else if (op === 'activate') { const e = LG.activateIR(L, tid, a.pid); r = { ok: !e, msg: e }; }
-      else if (op === 'use') { const e = LG.setUsage(L, tid, a.pid, a.v); r = { ok: !e, msg: e }; }
-      else if (op === 'press') { LG.pressAnswer(L, a.a); }
-      else if (op === 'ct-open') { LG.contractOpen(L, a.pid); }
-      else if (op === 'ct-offer') { const x = LG.contractOffer(L, tid, a.pid, a.o); r = { ok: x.ok, msg: x.msg || (x.signed ? 'Signed!' : '') }; }
-      else if (op === 'walk') { const e = LG.letWalk(L, a.pid); r = { ok: !e, msg: e }; }
-      else if (op === 'ask') {
-        if (!LG.tradeTalkLeft(L, a.to)) r = { ok: false, msg: L.teams[a.to].nick + ' are done talking trades for now.' };
-        else { LG.tradeTalkUse(L, a.to); r = LG.tradeAsk(L, tid, a.to, a.pid); }
-      }
-      else if (op === 'mail') { const e = LG.mailAnswer(L, a.id, a.i); r = { ok: !e, msg: e }; }
-      else if (op === 'read') { LG.mailRead(L, a.id); }
-      else if (op === 'upgrade') { const e = LG.upgrade(L, a.k); r = { ok: !e, msg: e || 'Upgraded.' }; }
-      else if (op === 'hire') { const e = LG.hireCoach(L, a.i); r = { ok: !e, msg: e || 'Hired.' }; }
-      else if (op === 'hof') { const e = LG.induct(L, tid, a.pid); r = { ok: !e, msg: e }; }
-      else if (op === 'ret') { const e = LG.setReturner(L, tid, a.pid || null); r = { ok: !e, msg: e }; }
-      else if (op === 'draft') {
-        if (!LG.draftPick(L, tid, a.pid)) r = { ok: false, msg: 'That pick is not allowed.' };
-        else { LG.autoDraftToHuman(L); }
-      } else if (op === 'draftauto') { L.draft.auto = L.draft.auto || {}; L.draft.auto[tid] = !!a.on; if (a.on) LG.draftAdvance(L, 'me'); }
+      const r = LG.campOp(L, tid, op, a);
+      if (r.talk) FR.talk = r.talk;
       if (!r.ok && r.msg) toast(r.msg);
       after(op === 'draft' && L.phase !== 'draft'); return r;
     },
     async go(op) {
       if (op === 'offseason') {
-        LG.offseasonBegin(L, 7); FR.tab = 'inbox';
+        LG.campGo(L, tid, 'offseason'); FR.tab = 'inbox';
         const gone = ((L.progress && L.progress.retired) || []).map(id => L.players[id]).filter(p => p && p.lt === tid);
         const al = L.progress || {}, me2 = ids => (ids || []).map(id => L.players[id]).filter(p => p && p.t === tid);
         const alerts = me2(al.stars).filter(p => LG.isStar(L, p)).map(p => '<li><b class="slp">Superstar</b> ' + G.esc(p.n) + ' (' + p.p + ') is now a ' + p.o + '.</li>').concat(me2(al.sleepers).map(p => '<li><b class="slp">' + (p.pt >= 90 && p.p !== 'OL' && p.p !== 'K' && p.p !== 'P' ? 'Future superstar' : 'Sleeper') + '</b> ' + G.esc(p.n) + ' (' + p.p + '): potential ' + p.pt + ', the scouts said ' + p.was + '.</li>'), me2(al.busts).map(p => '<li><i class="bust">Bust</i> ' + G.esc(p.n) + ' (' + p.p + '): potential ' + p.pt + ', the scouts said ' + p.was + '.</li>'));
         if (alerts.length && !gone.length) setTimeout(() => G.openModal('<h3>Scouting report</h3><ul class="news">' + alerts.join('') + '</ul>'), 50);
         if (gone.length) setTimeout(() => G.openModal((alerts.length ? '<h3>Scouting report</h3><ul class="news">' + alerts.join('') + '</ul>' : '') + '<h3>Retirements</h3><p class="sub">' + gone.length + ' of your players ' + (gone.length > 1 ? 'have' : 'has') + ' retired.</p><ul class="news">' + gone.map(p => '<li><a href="#" class="plk" data-h="fr-pl" data-id="' + G.esc(p.i) + '">' + G.esc(p.n) + '</a> (' + p.p + ', ' + p.a + ', peak ' + (p.peak || p.o) + ') <button class="btn small" data-h="fr-hof" data-id="' + p.i + '">Hall of Fame</button></li>').join('') + '</ul><p class="hint">Their stats stay with them for good (Stats tab, Your retired players).</p>'), 50);
       }
-      else if (op === 'season') { LG.startSeason(L); LG.runUntilHuman(L, 60); FR.tab = 'home'; }
-      else if (op === 'fa-next') { LG.faNext(L); if (L.phase === 'draft') FR.tab = 'draft'; }
-      else if (op === 'draft-one' || op === 'draft-me') { LG.draftAdvance(L, op === 'draft-one' ? 'one' : 'me'); }
-      else if (op === 'trim') LG.trimRoster(L, tid);
+      else if (op === 'season') { LG.campGo(L, tid, 'season'); FR.tab = 'home'; }
+      else if (op === 'fa-next') { LG.campGo(L, tid, 'fa-next'); if (L.phase === 'draft') FR.tab = 'draft'; }
+      else LG.campGo(L, tid, op);
       after(true);
     },
     async sim(gid) { const g = L.sched.find(x => x.id === gid); if (!g || g.done) return; await simAway(L, () => LG.simGame(L, g)); LG.checkFinal(L); after(true); },
@@ -8812,7 +8877,7 @@ function campAdapter() {
     }
   };
 }
-V.camphub = () => { if (!C.L) { go('camp'); return; } frShow(campAdapter()); };
+V.camphub = () => { if (!C.L) { go('camp'); return; } if (C.shared) { sharedShow(); return; } frShow(campAdapter()); };
 
 /* ---------- custom leagues (accounts only, shared through the server) ---------- */
 const NEWL = { name: 'My League', entry: 'nfl', divisions: false, nDivs: 2, cpus: true, games: 8, playoffs: 4, trades: true, deadline: 10, rounds: 16, rookieRounds: 3, cap: 0 };
@@ -9314,6 +9379,144 @@ ACT['inv-yes'] = async t => {
 };
 ACT['inv-no'] = async t => { await run(() => call('friends', { op: 'answer', name: t.dataset.n, yes: 0 })); invShow(null); };
 ACT.friends = () => go('friends');
+
+/* ---------- shared campaigns: one team, run by friends together ----------
+   The campaign lives on the server (api/camp.js); every move goes there and comes back to everyone within a few seconds. Big moves wait
+   for a co-manager's yes; simulating, playing and moving on wait until everyone online is ready. C.shared = { code, ver, lver, meta }. */
+const SH = { busyStarted: null };
+const shCall = (op, extra) => call('camp', Object.assign({ op, code: C.shared.code }, extra || {}));
+// the latest from the server (the league itself only when it changed)
+async function sharedLoad() {
+  const S0 = C.shared; if (!S0) return false;
+  const r = await call('camp', { op: 'get', code: S0.code, lver: S0.lver });
+  if (C.shared !== S0) return false;
+  const changed = r.ver !== S0.ver; S0.ver = r.ver; S0.meta = r;
+  if (r.L) { C.L = r.L; S0.lver = r.lver; }
+  return changed;
+}
+async function sharedOpen(code) {
+  const r = await run(() => call('camp', { op: 'get', code })); if (!r) return;
+  C.shared = { code, ver: r.ver, lver: r.lver, meta: r }; C.L = r.L; C.slot = 0; C.state = 'saved'; FR.tab = 'home'; FR.give = []; FR.get = []; FR.offers = null; FR.rtid = null;
+  go('camphub');
+}
+function sharedShow() {
+  frShow(sharedAdapter()); hubChat('camp', C.shared.code);
+  // keep up with the others: a fresh look every 3 s (drawn again only when something changed, and not while you are typing)
+  poll(async () => {
+    if (!C.shared) return;
+    if (await sharedLoad()) { const f = document.activeElement; if (!(f && /INPUT|SELECT|TEXTAREA/.test(f.tagName) && $('#main').contains(f))) frShow(sharedAdapter()); }
+    sharedBusyCheck();
+  }, 3000);
+  sharedBusyCheck();
+}
+// the team's game is yours to play (everyone said they were ready): off you go
+function sharedBusyCheck() {
+  const b = C.shared && C.shared.meta.busy;
+  if (b && b.by === H.user && SH.busyStarted !== b.gid + ':' + b.at && G.state.mode === 'lobby') { SH.busyStarted = b.gid + ':' + b.at; sharedPlay(b.gid); }
+}
+function sharedPlay(gid) {
+  const L = C.L, tid = L.user, g = L.sched.find(x => x.id === gid); if (!g) return;
+  g.T = LG.teamsFor(L, g.h, g.a);
+  const side = g.h === tid ? 'a' : 'b', cpuSide = side === 'a' ? 'b' : 'a', code = C.shared.code;
+  G.startCtxCpu({ seed: LG.gameSeed(L, g), T: g.T, side, cpuSide }, {
+    label: g.pl === 'po' ? 'Playoffs' : 'Week ' + g.w,
+    report: async moves => { await call('camp', { op: 'report', code, moves }); },
+    onDone: async () => { if (C.shared && C.shared.code === code) { await sharedLoad(); FR.tab = 'home'; go('camphub'); } }
+  });
+}
+// after a move: what the server said, then the latest
+async function sharedAfter(r) {
+  if (r && r.msg && (!r.ok || r.pending)) toast(r.msg);
+  if (r && r.waiting) toast('Waiting for ' + r.waiting.join(', ') + ' to be ready.');
+  await sharedLoad(); if (H.view === 'camphub') frShow(sharedAdapter());
+  sharedBusyCheck();
+}
+function sharedAdapter() {
+  const L = C.L, tid = L.user, S0 = C.shared, M = S0.meta || {}; LG.campInit(L);
+  const owner = M.owner === H.user, on = M.online || [];
+  return {
+    tabs: [{ id: 'inbox', label: 'Inbox' + (LG.unread(L) ? ' (' + LG.unread(L) + ')' : ''), html: () => inboxHTML(L, tid) }, { id: 'franchise', label: 'Franchise', html: () => franchiseHTML(L, tid) }],
+    kind: 'campaign', L, tid, title: 'Shared campaign', canAdvance: true, canEditRoster: () => !(M.busy && M.busy.by !== H.user), status: on.length + ' of ' + (M.members || []).length + ' online',
+    headBtns: '<button class="btn small" data-h="sh-invite">Invite</button>' + (owner ? '<button class="btn small ghost" data-h="sh-end">Stop sharing</button>' : '<button class="btn small ghost" data-h="sh-leave">Leave</button>') + '<button class="btn small" data-h="sh-exit">Exit</button>',
+    cpuOffers: async pos => LG.cpuOffers(L, tid, pos),
+    blockBids: async () => LG.blockBids(L, tid),
+    top: () => sharedTopHTML(L, M),
+    async act(op, a) {
+      const r = await run(() => shCall('op', { what: op, a })); if (!r) return { ok: false };
+      if (r.talk) FR.talk = r.talk;
+      await sharedAfter(r); return r;
+    },
+    async go(op) { await sharedAdv('go', op); },
+    async sim(gid) { await sharedAdv('sim', gid); },
+    async play(gid) { await sharedAdv('play', gid); }
+  };
+}
+async function sharedAdv(kind, arg) {
+  let ov = document.getElementById('simov'); if (!ov) { ov = document.createElement('div'); ov.id = 'simov'; ov.setAttribute('role', 'status'); document.body.appendChild(ov); }
+  ov.textContent = kind === 'play' ? 'Getting the game ready…' : 'Working…'; ov.hidden = false;
+  try { const r = await run(() => shCall('adv', { kind, arg })); await sharedAfter(r); } finally { ov.hidden = true; }
+}
+const agoS = t => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? 'just now' : s < 3600 ? Math.round(s / 60) + ' min ago' : s < 86400 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago'; };
+// the panel above the tabs: who is here, what waits for a yes, the ready check, someone playing, what everyone did
+function sharedTopHTML(L, M) {
+  const me = H.user, on = M.online || [];
+  let h = '<div class="panel shtop"><div class="row between"><span class="shwho">' + (M.members || []).map(n => '<span class="shm"><i class="frdot' + (on.indexOf(n) >= 0 ? ' on' : '') + '"></i>' + esc(n) + (n === M.owner ? ' <small>owner</small>' : '') + '</span>').join('') +
+    ((M.inv || []).length ? '<span class="sub">invited: ' + M.inv.map(esc).join(', ') + '</span>' : '') + '</span></div>';
+  if (M.busy) h += '<div class="shbar">' + (M.busy.by === me ? 'You are playing the game. <button class="btn small ghost" data-h="sh-abandon">Give it up</button>' : '<b>' + esc(M.busy.by) + '</b> is playing the game. The team cannot be changed until it is over.') + '</div>';
+  if (M.rd) { const mine = !!M.rd.by[me], who = Object.keys(M.rd.by), wait = on.filter(n => !M.rd.by[n]);
+    h += '<div class="shbar"><b>' + esc(M.rd.first) + '</b> wants to ' + esc(M.rd.label) + '. Ready: ' + who.map(esc).join(', ') + (wait.length ? ' · waiting for ' + wait.map(esc).join(', ') : '') + ' ' +
+      (mine ? '<button class="btn small ghost" data-h="sh-unready">Not ready</button>' : '<button class="btn small primary" data-h="sh-ready" data-k="' + esc(M.rd.key) + '">Ready</button>') + '</div>'; }
+  (M.pend || []).forEach(p => { h += '<div class="shbar pend"><b>' + esc(p.by) + '</b> wants to ' + esc(p.t) + '. ' + (p.by === me ? '<span class="sub">Waiting for a co-manager.</span> <button class="btn small ghost" data-h="sh-cancel" data-id="' + p.id + '">Take it back</button>' : '<button class="btn small primary" data-h="sh-yes" data-id="' + p.id + '">Approve</button><button class="btn small ghost" data-h="sh-no" data-id="' + p.id + '">Reject</button>') + '</div>'; });
+  const fd = (M.feed || []).slice(0, 6);
+  if (fd.length) h += '<ul class="shfeed">' + fd.map(f => '<li><b>' + esc(f.by) + '</b> ' + esc(f.t) + ' <small>' + agoS(f.at) + '</small></li>').join('') + '</ul>';
+  return h + '</div>';
+}
+ACT['sh-yes'] = async t => { const r = await run(() => shCall('approve', { id: t.dataset.id })); if (r) toast(r.msg || 'Approved.'); await sharedAfter(null); };
+ACT['sh-no'] = async t => { await run(() => shCall('reject', { id: t.dataset.id })); await sharedAfter(null); };
+ACT['sh-cancel'] = async t => { await run(() => shCall('cancel', { id: t.dataset.id })); await sharedAfter(null); };
+ACT['sh-ready'] = async t => { const [kind, arg] = t.dataset.k.split(':'); await sharedAdv(kind, arg); };
+ACT['sh-unready'] = async () => { await run(() => shCall('unready')); await sharedAfter(null); };
+ACT['sh-abandon'] = async () => { if (confirm('Give up the game? It stays unplayed.')) { await run(() => shCall('abandon')); await sharedAfter(null); } };
+ACT['sh-exit'] = () => { C.shared = null; C.L = null; hubChatOff(); go('camp'); };
+ACT['sh-leave'] = async () => { if (!confirm('Leave this shared campaign? You can only come back if someone invites you again.')) return; if (await run(() => shCall('leave'))) ACT['sh-exit'](); };
+ACT['sh-end'] = async () => {
+  if (!confirm('Stop sharing? The campaign comes back to you as one of your own (in an empty slot), and your co-managers lose it.')) return;
+  const slots = await run(() => SAVE.list()); if (!slots) return; const free = slots.find(s => s.empty);
+  if (!free) { toast('Free up a campaign slot first: the campaign comes back to you there.'); return; }
+  const r = await run(() => shCall('end')); if (!r || !r.L) return;
+  C.shared = null; C.L = r.L; C.slot = free.slot; C.rev = null; hubChatOff(); await campSave(); toast('The campaign is yours again, in slot ' + free.slot + '.'); go('camphub');
+};
+// invite: your friends (one click each), or anyone by name
+ACT['sh-invite'] = async () => {
+  const F = await run(() => call('friends', { op: 'list' })) || { friends: [] }, M = C.shared.meta || {}, inn = n => (M.members || []).concat(M.inv || []).some(x => x.toLowerCase() === n.toLowerCase());
+  G.openModal('<h3>Invite co-managers</h3><p class="sub">They run the team with you: everyone can do everything, big moves need a second yes. Up to 5 in all.</p>' +
+    (F.friends.length ? '<ul class="frlist">' + F.friends.map(f => '<li><span class="frwho"><i class="frdot' + (f.online ? ' on' : '') + '"></i><b>' + esc(f.name) + '</b></span>' + (inn(f.name) ? '<span class="sub">in</span>' : '<button class="btn small primary" data-h="sh-inv1" data-n="' + esc(f.name) + '">Invite</button>') + '</li>').join('') + '</ul>' : '<p class="hint">Add friends on the Friends page, or invite anyone by account name:</p>') +
+    '<div class="row"><input id="sh-name" type="text" maxlength="16" placeholder="Account name" aria-label="Account name"><button class="btn" data-h="sh-inv1">Invite</button></div>');
+};
+ACT['sh-inv1'] = async t => {
+  const n = t.dataset.n || (($('#sh-name') || {}).value || '').trim(); if (!n) return;
+  const r = await run(() => shCall('invite', { name: n })); if (!r) return;
+  toast(r.already ? n + ' is already in.' : n + ' is invited. They will find it under Campaign.'); t.disabled = true; await sharedAfter(null);
+};
+// share the campaign you have open: it moves to your account's shared campaigns
+ACT['camp-share'] = async () => {
+  if (!confirm('Share this campaign? It moves out of slot ' + C.slot + ' into your shared campaigns, and you can invite friends to run the team with you. (You can stop sharing later and take it back.)')) return;
+  await campSave();
+  const z = await gz(JSON.stringify(C.L)), r = await run(() => call('camp', Object.assign({ op: 'create' }, z ? { Lz: z } : { L: C.L }))); if (!r) return;
+  await run(() => SAVE.del(C.slot).then(() => true));
+  await sharedOpen(r.code); ACT['sh-invite']();
+};
+// the Campaign screen: your shared campaigns, and invitations
+async function sharedSection() {
+  const r = await run(() => call('camp', { op: 'mine' })), el = $('#shsec'); if (!el || !r) return;
+  const card = (s, inv) => '<div class="slot-card"><b>' + esc(s.team) + '</b><span class="sub">' + s.season + ' · ' + ({ regular: 'Week ' + s.week, playoffs: 'Playoffs', offseason: 'Offseason', draft: 'Draft', fa: 'Free agency', preseason: 'Preseason' }[s.phase] || s.phase) + ' · with ' + s.members.filter(n => n !== H.user).map(esc).join(', ') + '</span>' +
+    '<div class="row">' + (inv ? '<button class="btn primary" data-h="sh-join" data-code="' + s.code + '">Join</button><button class="btn ghost" data-h="sh-dec" data-code="' + s.code + '">Decline</button>' : '<button class="btn primary" data-h="sh-open" data-code="' + s.code + '">Open</button>') + '</div></div>';
+  el.innerHTML = '<h3>Shared campaigns</h3>' + (r.invites.length ? '<h4 class="pos-h">Invitations</h4><div class="slots">' + r.invites.map(s => card(s, true)).join('') + '</div>' : '') +
+    (r.mine.length ? '<div class="slots">' + r.mine.map(s => card(s, false)).join('') + '</div>' : '<p class="hint">Run a team together with friends: open one of your campaigns and press Share.</p>');
+}
+ACT['sh-open'] = t => sharedOpen(t.dataset.code);
+ACT['sh-join'] = async t => { if (await run(() => call('camp', { op: 'join', code: t.dataset.code }))) sharedOpen(t.dataset.code); };
+ACT['sh-dec'] = async t => { if (await run(() => call('camp', { op: 'decline', code: t.dataset.code }))) sharedSection(); };
 
 })();
 </script>

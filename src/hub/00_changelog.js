@@ -2,6 +2,11 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-10', title: 'Run a campaign with friends', items: [
+    'Open one of your campaigns and press Share, then invite friends (up to 5 co-managers). Everyone can do everything, and the campaign page shows who is online and a feed of what everyone did.',
+    'Big moves need a second yes: trades, cutting or losing a player rated 80+, contracts over $15M a year, and first-round picks. The other co-managers get Approve and Reject buttons.',
+    'Simulating, playing and moving on wait until every co-manager who is online presses Ready. The campaign has its own chat, and you can stop sharing at any time to take the campaign back.'
+  ] },
   { id: '2026-11-07-9', title: 'Friends', items: [
     'Signed in, you now have a Friends button. Add friends by their account name, then see who is online and what they are doing (in a quick game, running a campaign, in the menu…). The button shows how many friends are online and any requests waiting.',
     'Challenge an online friend to a quick game with one click. You wait in a new room, and they get an invitation to accept or decline.'
