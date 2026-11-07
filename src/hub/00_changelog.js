@@ -2,6 +2,11 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-13', title: 'Tougher CPU defense', items: [
+    'A juke is now a contest. A shifty back beats a slow linebacker more often than an elite one, timing matters, and a juke that fails leaves the runner off balance for the tackle. Pressing it on every play no longer gains easy yards.',
+    'CPU defenses read what you have been doing this game: run it every early down and you will see the box stacked; throw on every passing down and you will see more coverage.',
+    'Fixed: a juke on a kick or punt return could freeze the play.'
+  ] },
   { id: '2026-11-07-12', title: 'Faster, and a few fixes', items: [
     'The game loads a quarter less to download and starts about 12% faster on phones.',
     'Fixed: league and tournament games against the computer could sometimes not be reported ("That game did not finish"), when a play picked for you came back empty. The computer also finally calls the occasional fake punt it was meant to.',

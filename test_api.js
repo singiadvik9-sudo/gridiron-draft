@@ -7,9 +7,10 @@ const ok=(c,m)=>{if(!c){console.log('FAIL',m);process.exitCode=1}else console.lo
 function playSide(info,live){
   const T=info.T,U={a:E.teamUnits(T.a),b:E.teamUnits(T.b)}; let st=E.initState(info.seed); const mine=info.side, other=mine==='a'?'b':'a', moves={}; let g=0;
   const r=E.mulberry32(info.seed);
+  let lg=[];   // (the game so far: the CPU defense reads it, so a side played by script reads it the same way)
   while(!st.over&&g++<200){const n=st.playNo,off=st.poss,def=off==='a'?'b':'a';
     const role=off===mine?'off':'def';
-    const pick=E.cpuMove(st,U,mine,info.seed,role);
+    const pick=E.cpuMove(st,U,mine,info.seed,role,lg);
     const kick=role==='off'&&E.noDef(E.legalOff(st,pick));
     const ctl=live&&!kick&&n%3===0;
     const to=E.cpuTO(st,mine)?1:0;
@@ -19,7 +20,7 @@ function playSide(info,live){
     let R=E.replay(info.seed,T,moves,[other]);
     if(R.wait&&R.wait.kind==='ret'){const a=[];let t=2;for(let k=0;k<8;k++){t+=2+Math.floor(r()*9);a.push(E.LIVE.enc(t,1,Math.floor(r()*3)-1,r()<.2?5:0))}
       moves[R.wait.n+'-rv']={s:mine,ev:a}; R=E.replay(info.seed,T,moves,[other]);}
-    st=R.state;}
+    st=R.state;lg=R.log;}
   return moves;
 }
 (async()=>{
