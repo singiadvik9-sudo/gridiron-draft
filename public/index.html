@@ -615,6 +615,32 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .netst.server::before { background: #e0a030; }
 .netst.conn::before { background: #888; animation: netblink 1s infinite; }
 @keyframes netblink { 50% { opacity: .3; } }
+/* chat: a dock in the corner during online games; the same box inside league and tournament pages */
+#chatdock { position: fixed; right: 12px; bottom: 12px; z-index: 40; max-width: calc(100vw - 24px); }
+.chatbox { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; font-size: 13px; }
+.chatbox .chat-tab { background: var(--panel, #1c2230); color: inherit; border: 1px solid var(--line, #333c4e); border-radius: 18px; padding: 6px 14px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; font: inherit; }
+.chatbox.open .chat-tab { border-color: var(--flag, #e0a030); }
+.chat-badge { background: #e2463c; color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; }
+.chat-body { width: 320px; max-width: calc(100vw - 24px); background: var(--panel, #1c2230); border: 1px solid var(--line, #333c4e); border-radius: 10px; padding: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+.chat-log { list-style: none; margin: 0 0 6px; padding: 0; max-height: 220px; overflow-y: auto; }
+.chat-log li { padding: 3px 2px; line-height: 1.35; word-wrap: break-word; }
+.chat-log li.sys { opacity: .65; font-style: italic; }
+.chat-log li.mine .chat-who { color: var(--flag, #e0a030); }
+.chat-who { background: none; border: 0; padding: 0; color: #7fb4ff; font-weight: 700; cursor: pointer; font: inherit; font-weight: 700; }
+.chat-emotes { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.emo-b { background: none; border: 1px solid var(--line, #333c4e); border-radius: 8px; font-size: 18px; padding: 2px 6px; cursor: pointer; }
+.chat-quick { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.chat-quick .btn { font-size: 11px; padding: 3px 7px; }
+.chat-form { display: flex; gap: 6px; }
+.chat-form input { flex: 1; min-width: 0; }
+.chatbox.inline { align-items: stretch; }
+.chatbox.inline .chat-body { width: auto; box-shadow: none; }
+/* an emote by a team's name on the scoreboard */
+.sb-team { position: relative; }
+.emo-bubble { position: absolute; left: 50%; top: -6px; transform: translate(-50%, 0) scale(.6); opacity: 0; background: #fff; color: #111; border-radius: 14px; padding: 4px 10px; font-weight: 700; font-size: 14px; white-space: nowrap; pointer-events: none; transition: transform .25s, opacity .25s; z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+.emo-bubble.go { transform: translate(-50%, -100%) scale(1); opacity: 1; }
+.netst.away::before { background: #e2463c; }
+@media (max-width: 640px) { #chatdock { right: 8px; bottom: 8px; } .chat-log { max-height: 160px; } }
 
 </style>
 <div class="wrap">
@@ -5344,6 +5370,76 @@ const NET = {
 };
 window.GD_NET = NET;   // (for the tests and the console)
 
+/* ---------- chat, quick lines and emotes ----------
+   One widget for every conversation: an online game's room, a league, a tournament. CHAT.mount(host, opts) puts a collapsible chat box
+   in host and keeps it fed; opts: { me: your name, fetch(since) -> { n, msgs }, post(text) -> { msg }, emote(k) (games only),
+   quick: [lines], poll: ms (0: the caller pushes news with box.setN / box.add) }. Players you mute (click a name) are hidden everywhere,
+   on this device. Messages: { i: id, f: from, t: text, at, s: seat }. */
+const EMOTE = { gg: ['GG', '🤝'], nice: ['Nice!', '👍'], wow: ['Wow', '😮'], oops: ['Oops', '😬'], lol: ['Haha', '😂'], fire: ['On fire', '🔥'], clap: ['Clap', '👏'], mad: ['Ugh', '😤'] };
+const QUICK = ['Nice play!', 'Good game!', 'Run it back?', 'Good luck!', 'Ouch.', 'Let\'s go!'];
+const CHAT = {
+  muted() { try { return JSON.parse(localStorage.getItem('gd_mute') || '[]'); } catch (e) { return []; } },
+  isMuted(n) { return !!n && this.muted().indexOf(String(n).toLowerCase()) >= 0; },
+  toggleMute(n) { const l = this.muted(), k = String(n).toLowerCase(), i = l.indexOf(k); if (i >= 0) l.splice(i, 1); else l.push(k); try { localStorage.setItem('gd_mute', JSON.stringify(l.slice(-200))); } catch (e) {} return i < 0; },
+  mount(host, opts) {
+    if (!host) return null;
+    if (this.cur && !this.cur.dead) this.cur.destroy();   // (one conversation on screen at a time)
+    const box = { opts, last: 0, seen: 0, msgs: [], open: false, busy: false, timer: 0, dead: false, el: document.createElement('div') };
+    box.el.className = 'chatbox';
+    box.el.innerHTML = '<button class="chat-tab" type="button" aria-expanded="false"><span>Chat</span><b class="chat-badge" hidden></b></button>' +
+      '<div class="chat-body" hidden><ul class="chat-log" aria-live="polite"></ul>' +
+      (opts.emote ? '<div class="chat-emotes">' + Object.keys(EMOTE).map(k => '<button type="button" class="emo-b" data-emo="' + k + '" title="' + EMOTE[k][0] + '">' + EMOTE[k][1] + '</button>').join('') + '</div>' : '') +
+      '<div class="chat-quick">' + (opts.quick || QUICK).map(q => '<button type="button" class="btn small ghost" data-q="' + esc(q) + '">' + esc(q) + '</button>').join('') + '</div>' +
+      '<form class="chat-form"><input type="text" maxlength="200" placeholder="Say something" aria-label="Chat message"><button class="btn small primary" type="submit">Send</button></form></div>';
+    host.appendChild(box.el);
+    const $b = s => box.el.querySelector(s), log = $b('.chat-log'), input = $b('input');
+    box.toggle = (on) => { box.open = on == null ? !box.open : on; $b('.chat-body').hidden = !box.open; $b('.chat-tab').setAttribute('aria-expanded', box.open); box.el.classList.toggle('open', box.open); if (box.open) { box.seen = box.last; box.badge(); log.scrollTop = log.scrollHeight; } };
+    box.badge = () => { const n = box.msgs.filter(m => m.i > box.seen && m.f !== opts.me && !CHAT.isMuted(m.f)).length, b = $b('.chat-badge'); b.hidden = !n || box.open; b.textContent = n > 9 ? '9+' : n; };
+    box.paint = () => {
+      log.innerHTML = box.msgs.filter(m => !CHAT.isMuted(m.f) || m.sys).map(m => m.sys ? '<li class="sys">' + esc(m.t) + (m.who && CHAT.isMuted(m.who) ? ' <button type="button" class="btn small ghost" data-unmute="' + esc(m.who) + '">Unmute</button>' : '') + '</li>' :
+        '<li' + (m.f === opts.me ? ' class="mine"' : '') + '><button type="button" class="chat-who" data-who="' + esc(m.f) + '" title="Click to mute">' + esc(m.f) + '</button> ' + esc(m.t) + '</li>').join('');
+      log.scrollTop = log.scrollHeight; box.badge();
+    };
+    box.add = (msgs) => {
+      let ch = false;
+      (msgs || []).forEach(m => { if (!m || m.i == null || box.msgs.some(x => x.i === m.i && !x.sys)) return; box.msgs.push(m); ch = true; if (m.i > box.last) box.last = m.i; });
+      if (!ch) return;
+      box.msgs.sort((a, b) => (a.at || 0) - (b.at || 0)); if (box.msgs.length > 120) box.msgs.splice(0, box.msgs.length - 120);
+      if (box.open) box.seen = box.last;
+      box.paint();
+    };
+    box.sys = (t, who) => { box.msgs.push({ sys: 1, i: -1, t, who, at: Date.now() }); box.paint(); };
+    box.pull = async () => { if (box.busy || box.dead) return; box.busy = true; try { const r = await opts.fetch(box.last); if (r) box.add(r.msgs); } catch (e) {} box.busy = false; };
+    box.setN = n => { if (n > box.last) box.pull(); };   // the other side knows there is something new
+    box.send = async t => {
+      t = String(t || '').trim().slice(0, 200); if (!t) return;
+      try { const r = await opts.post(t); if (r && r.msg) box.add([r.msg]); input.value = ''; }
+      catch (e) { box.sys(e && e.code === 'slow' ? 'Slow down a little.' : e && e.code === 'forbidden' ? 'Only members can chat here.' : 'Could not send. Check your connection.'); }
+    };
+    box.el.addEventListener('click', ev => {
+      const t = ev.target.closest('button'); if (!t || !box.el.contains(t)) return;
+      if (t.classList.contains('chat-tab')) { box.toggle(); if (box.open) input.focus(); return; }
+      if (t.dataset.q) { box.send(t.dataset.q); return; }
+      if (t.dataset.emo && opts.emote) { opts.emote(t.dataset.emo); return; }
+      if (t.dataset.unmute) { if (CHAT.isMuted(t.dataset.unmute)) CHAT.toggleMute(t.dataset.unmute); box.sys('Unmuted ' + t.dataset.unmute + '.'); return; }
+      if (t.dataset.who && t.dataset.who !== opts.me) { const on = CHAT.toggleMute(t.dataset.who); box.sys((on ? 'Muted ' : 'Unmuted ') + t.dataset.who + '.', on ? t.dataset.who : null); }
+    });
+    box.el.querySelector('form').addEventListener('submit', ev => { ev.preventDefault(); box.send(input.value); });
+    input.addEventListener('keydown', ev => { if (ev.key === 'Escape') { input.blur(); box.toggle(false); } ev.stopPropagation(); });
+    box.destroy = () => { box.dead = true; clearInterval(box.timer); box.el.remove(); };
+    if (opts.poll) box.timer = setInterval(() => { if (!document.hidden) box.pull(); }, opts.poll);
+    box.pull(); this.cur = box;
+    return box;
+  },
+  // an emote over a team: a bubble that pops up for a couple of seconds next to its name on the scoreboard
+  bubble(anchor, k, who) {
+    if (!anchor || !EMOTE[k] || this.isMuted(who)) return;
+    const b = document.createElement('span'); b.className = 'emo-bubble'; b.textContent = EMOTE[k][1] + ' ' + EMOTE[k][0];
+    anchor.appendChild(b); setTimeout(() => b.classList.add('go'), 20); setTimeout(() => b.remove(), 2600);
+  }
+};
+window.GD_CHAT = CHAT;
+
 const ord = n => ['', '1st', '2nd', '3rd', '4th'][n] || n + 'th';
 
 /* ---------- tiny storage helpers (all optional) ---------- */
@@ -5863,8 +5959,8 @@ function renderHeader() {
   const el = $('#hdr-right'); if (!el) return;
   if (S.mode === 'lobby') { if (window.HUB) window.HUB.renderHeader(); else el.innerHTML = ''; return; }
   const label = S.ctx ? S.ctx.label : S.mode === 'local' ? 'Practice' : S.mode === 'sdraft' ? ((S.sd && S.sd.label) || 'Draft') : 'Room ' + S.code;
-  el.innerHTML = '<span class="chip room">' + esc(label) + '</span>' + (S.mode === 'online' && S.me ? '<span id="netst" class="netst"></span>' : '') + '<button class="btn small" data-act="leave">Leave</button>';
-  if (S.mode === 'online') NET.paint();
+  el.innerHTML = '<span class="chip room">' + esc(label) + '</span>' + (S.mode === 'online' && S.me ? '<span id="oppst" class="netst" hidden></span><span id="netst" class="netst"></span>' : '') + '<button class="btn small" data-act="leave">Leave</button>';
+  if (S.mode === 'online') { NET.paint(); paintOpp(); }
 }
 
 
@@ -5938,14 +6034,14 @@ async function api(body, ep) {
   finally { clearTimeout(to); }
   if (!ep && (body.op === 'live' || body.op === 'state') && r.ok) NET.srv(performance.now() - t0);
   let j = null; try { j = await r.json(); } catch (e) {}
-  if (!r.ok) { const err = new Error((j && j.error) || 'http ' + r.status); err.code = (j && j.error) || 'http'; err.status = r.status; throw err; }
+  if (!r.ok) { const err = new Error((j && j.error) || 'http ' + r.status); err.code = (j && j.error) || 'http'; err.status = r.status; err.body = j; throw err; }
   if (!ep && (body.op === 'move' || body.op === 'pick') && S.mode === 'online') NET.send({ t: 'nudge' });   // the other screen looks right away instead of at its next poll
   return j;
 }
 
 /* ---------- starting modes ---------- */
 function resetForMode() {
-  stopPoll();
+  stopPoll(); socUnmount();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
   S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.scene = null;
   S.ctlN = {}; S.toN = {}; S.dpN = {}; S.ktN = {}; S.km = null; S.csN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
@@ -5986,6 +6082,10 @@ async function joinRoom(code, quiet) {
   }
   finally { S.busy = false; setBusy(false); }
 }
+async function rematch() {
+  try { const next = SOC.next || (await api({ op: 'rematch', code: S.code, seat: S.me, pid: PID })).next; NET.stop(); socUnmount(); await joinRoom(next, true); }
+  catch (e) { handleErr(e); }
+}
 function enterRoom(code, seed, seat) {
   resetForMode();
   S.mode = 'online'; S.code = code; S.seed = seed; S.me = seat; S.lvLoaded = false;
@@ -5999,8 +6099,9 @@ function startPoll() {
   const tick = async () => {
     if (S.mode !== 'online') return;
     if (!LV.on) try {
-      const r = await api({ op: 'state', code: S.code, lvall: S.lvLoaded && !(S.G && S.G.wait && !S.me) ? 0 : 1 });
-      const sig = JSON.stringify(r);
+      const r = await api({ op: 'state', code: S.code, lvall: S.lvLoaded && !(S.G && S.G.wait && !S.me) ? 0 : 1, seat: S.me || undefined, pid: S.me ? PID : undefined, dev: PID });
+      socTake(r);
+      const sig = JSON.stringify(Object.assign({}, r, { seen: 0, emo: 0, chatN: 0, dup: 0, next: 0 }));
       if (!LV.on && sig !== lastPoll) {
         lastPoll = sig;
         S.seats = r.seats || {};
@@ -6036,8 +6137,54 @@ function takeLv(lv) {
 const RVN = 1000;   // return moves are numbered 1000 + the play they belong to
 function stopPoll() { if (S.poll) { clearTimeout(S.poll); S.poll = null; } }
 NET.listen('nudge', () => { if (S.pollNow) S.pollNow(); });
+/* ---------- the room's social side: chat, emotes, the other player's connection, a rematch ---------- */
+const SOC = { box: null, code: null, emo: { a: 0, b: 0 }, seen: null, dup: false, next: null };
+function socMount() {
+  if (S.mode !== 'online' || !S.code) return;
+  if (SOC.box && SOC.code === S.code && document.body.contains(SOC.box.el)) return;
+  socUnmount(); SOC.code = S.code; SOC.emo = { a: 0, b: 0 }; SOC.next = null; SOC.dup = false; SOC.seen = null;
+  SOC.box = CHAT.mount(chatDock(), { me: myName(), poll: 0,
+    fetch: since => api({ op: 'chatget', code: S.code, since }),
+    post: async text => { const r = await api({ op: 'chat', code: S.code, seat: S.me, pid: PID, text }); NET.send({ t: 'chat', msg: r.msg }); return r; },
+    emote: S.me ? k => sendEmote(k) : null });
+}
+function socUnmount() { if (SOC.box) SOC.box.destroy(); SOC.box = null; SOC.code = null; }
+function chatDock() { let d = $('#chatdock'); if (!d) { d = document.createElement('div'); d.id = 'chatdock'; document.body.appendChild(d); } return d; }
+const myName = () => S.me && S.seats && S.seats[S.me] ? S.seats[S.me].name : '';
+async function sendEmote(k) {
+  try { const r = await api({ op: 'emo', code: S.code, seat: S.me, pid: PID, k }); showEmote(S.me, r.emo); NET.send({ t: 'emo', s: S.me, e: r.emo }); }
+  catch (e) { toast(e.code === 'slow' ? 'One emote every few seconds.' : 'Could not send that.'); }
+}
+function showEmote(s, e) {
+  if (!e || (s !== 'a' && s !== 'b') || e.i === SOC.emo[s]) return;
+  const first = SOC.emo[s] === 0; SOC.emo[s] = e.i;
+  if (first && Date.now() - e.at > 5000) return;   // (an old one, from before you came in)
+  const who = S.seats && S.seats[s] ? S.seats[s].name : '';
+  CHAT.bubble($('.sb-team.' + s) || $('#hdr-right'), e.k, who);
+}
+NET.listen('chat', o => { if (SOC.box && o.msg) SOC.box.add([o.msg]); });
+NET.listen('emo', o => showEmote(o.s, o.e));
+// everything social from a room poll
+function socTake(r) {
+  socMount(); if (!SOC.box) return;
+  SOC.box.opts.me = myName();
+  if (r.chatN) SOC.box.setN(r.chatN);
+  if (r.emo) ['a', 'b'].forEach(s => { if (r.emo[s]) showEmote(s, r.emo[s]); });
+  SOC.seen = r.seen && S.me ? r.seen[other(S.me)] : null; paintOpp();
+  if (r.dup && !SOC.dup) { SOC.dup = true; toast('This game is also open on another device signed in to your account. Close one of them so they do not get in each other\'s way.'); }
+  if (r.next && r.next !== SOC.next) { SOC.next = r.next; if (S.G && S.G.state.over) { S.callSig = null; render(); } }
+}
+// the other player's dot: a direct link, playing through the server, or not heard from for a while (reconnecting)
+function paintOpp() {
+  const el = $('#oppst'); if (!el) return;
+  const o = S.me && S.seats && S.seats[other(S.me)]; if (!o) { el.hidden = true; return; }
+  const away = SOC.seen == null || SOC.seen > 15000, d = NET.ok() && !away;
+  el.hidden = false; el.className = 'netst ' + (d ? 'direct' : away ? 'away' : 'server');
+  el.textContent = o.name + (away ? ' · reconnecting…' : '');
+  el.title = away ? o.name + ' has not been heard from for a while: they may be reconnecting. The computer can take over their player in a live snap.' : d ? o.name + ' is linked directly to you' : o.name + ' is connected through the server';
+}
 function leave() {
-  stopPoll(); NET.stop(); ssSet('gd_room', null);
+  stopPoll(); NET.stop(); socUnmount(); ssSet('gd_room', null);
   S.mode = 'lobby'; S.code = null; S.me = null; resetForMode();
   render();
 }
@@ -6442,13 +6589,14 @@ function renderCall0(G) {
   const p = $('#callpanel'); if (!p) return;
   const st = G.state, T = G.teams;
   if (st.over) {
-    const sig = 'over' + (S.ctx ? S.ctx.status : ''); if (S.callSig === sig) return; S.callSig = sig;
+    const sig = 'over' + (S.ctx ? S.ctx.status : '') + (SOC.next || ''); if (S.callSig === sig) return; S.callSig = sig;
     const w = st.winner;
     const head = w === null ? 'Tie game' : (S.me ? (w === S.me ? 'You win' : 'You lose') : T[w].name + ' win');
     const cx = S.ctx, cxRow = cx ? (cx.status === 'saving' ? '<p class="sub">Saving the result…</p>' : cx.status === 'err' ? '<p class="sub bad">Could not save the result' + (cx.err ? ': ' + esc(cx.err) : '') + '.</p><div class="row"><button class="btn primary" data-act="ctx-retry">Try again</button></div>' : '<div class="row"><button class="btn primary" data-act="ctx-done">Continue</button><button class="btn" data-act="rosters">Rosters</button></div>') : '';
     p.innerHTML = '<div class="final"><span class="eyebrow">Final</span><h2>' + esc(head) + '</h2><div class="fscore"><span style="color:' + TEAM_COL.a + '">' + esc(T.a.name) + ' <b>' + st.score.a + '</b></span><span style="color:' + TEAM_COL.b + '">' + esc(T.b.name) + ' <b>' + st.score.b + '</b></span></div>' +
       boxHTML(G) +
-      (cx ? cxRow : '<div class="row"><button class="btn primary" data-act="leave">Back to menu</button><button class="btn" data-act="rosters">Rosters</button></div>') + '</div>';
+      (cx ? cxRow : (S.mode === 'online' && S.me && SOC.next ? '<p class="sub">' + esc((S.seats[other(S.me)] || {}).name || 'The other player') + ' wants a rematch.</p>' : '') +
+        '<div class="row">' + (S.mode === 'online' && S.me ? '<button class="btn primary" data-act="rematch">' + (SOC.next ? 'Join the rematch' : 'Rematch') + '</button>' : '') + '<button class="btn' + (S.mode === 'online' && S.me ? '' : ' primary') + '" data-act="leave">Back to menu</button><button class="btn" data-act="rosters">Rosters</button></div>') + '</div>';
     return;
   }
   if (!S.me) {
@@ -7106,7 +7254,7 @@ function startBoard(o) {   // hub-driven snake draft (tournaments): {label, d, m
   sdStart(o); sdPollLoop(); render(); sdStep();
 }
 function exitToHub() { leave(); }
-window.GAME = { attrGrid, keyAttrs, resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field };
+window.GAME = { attrGrid, keyAttrs, resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field, chatDock, render: () => render() };
 
 /* ---------- router ---------- */
 function render() {
@@ -7128,6 +7276,7 @@ document.addEventListener('click', ev => {
   else if (a === 'cpu') startLocal();
   else if (a === 'fullscreen') toggleFull();
   else if (a === 'leave') leave();
+  else if (a === 'rematch') rematch();
   else if (a === 'ctx-done') { const c = S.ctx; leave(); if (c && c.onDone) c.onDone(); }
   else if (a === 'ctx-retry') { const c = S.ctx; if (c) { c.sent = false; ctxFinish(S.G); renderCall(S.G); } }
   else if (a === 'sd-pick') sdPick(t.dataset.id);
@@ -7211,6 +7360,12 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-3', title: 'Chat, emotes and rematches', items: [
+    'Every online game, league and tournament now has a chat in the corner. There are quick lines like "Good game!", and click a name to mute someone (only on your device). League and tournament chats are for members only.',
+    'In games, send emotes from the chat box. They pop up by your team\'s name on the other player\'s scoreboard.',
+    'Next to the room code you can see the other player\'s connection, and when they seem to be reconnecting. After a quick game, Rematch puts you both in a fresh room.',
+    'If your account has the same game open on two devices, you get a warning. A campaign saved from one device will not quietly wipe out progress saved on another: you choose which version to keep.'
+  ] },
   { id: '2026-11-07-2', title: 'Faster online games', items: [
     'Online games now connect your device straight to the other player\'s whenever the network allows it. Your controls respond instantly, the other player\'s moves arrive in about the time of a ping, and play calls show up on the other screen right away. Next to the room code you can see whether you have a direct link and your ping.',
     'On networks that block direct links, the game runs through the server as before, now with less delay.',
@@ -7394,8 +7549,16 @@ async function run(fn) { try { return await fn(); } catch (e) { toast(errText(e)
 
 /* ---------- navigation ---------- */
 function stopPoll() { if (H.poll) { clearTimeout(H.poll); H.poll = null; } }
+// a league's or tournament's chat in the corner while you are on its page (members only)
+function hubChat(kind, code) {
+  const id = kind + ':' + code; if (H.chat && H.chat.id === id && !H.chat.box.dead) return;
+  hubChatOff();
+  const box = window.GD_CHAT.mount(G.chatDock(), { me: H.user, poll: 6000, fetch: since => call(kind, { op: 'chatget', code, since }), post: text => call(kind, { op: 'chat', code, text }) });
+  H.chat = box ? { id, box } : null;
+}
+function hubChatOff() { if (H.chat) { H.chat.box.destroy(); H.chat = null; } }
 function go(view, p) {
-  stopPoll(); H.view = view; H.p = p || {};
+  stopPoll(); if (view !== 'league' && view !== 'tourney') hubChatOff(); H.view = view; H.p = p || {};
   if (G.state.mode !== 'lobby') return;
   show();
 }
@@ -7973,24 +8136,38 @@ const SAVE = {
     return out;
   },
   async get(slot) {
-    if (H.user) return (await call('save', { op: 'get', slot })).L;
+    if (H.user) { const r = await call('save', { op: 'get', slot }); C.rev = r.rev || 0; return r.L; }
     return JSON.parse(lsGet('gd_c' + slot));
   },
-  async put(slot, L) {
-    if (H.user) { await call('save', { op: 'put', slot, L }); return; }
+  async put(slot, L, force) {
+    // (base: the version this device loaded; the server refuses if another device has saved since)
+    if (H.user) { const r = await call('save', { op: 'put', slot, L, base: C.rev, force: force ? 1 : undefined }); C.rev = r.meta ? r.meta.updated : C.rev; return; }
     if (!lsSet('gd_c' + slot, JSON.stringify(L)) || !lsSet('gd_cm' + slot, JSON.stringify(SAVE.meta(L)))) throw new Error('This device ran out of storage. Sign in to save online.');
   },
   async del(slot) { if (H.user) await call('save', { op: 'delete', slot }); else { lsSet('gd_c' + slot, null); lsSet('gd_cm' + slot, null); } }
 };
-const C = { L: null, slot: 0, timer: 0, state: 'saved', base: null };
+const C = { L: null, slot: 0, timer: 0, state: 'saved', base: null, rev: null };
 
 async function campSave() {
   clearTimeout(C.timer); C.timer = 0;
   if (!C.L) return;
   C.state = 'saving';
-  try { await SAVE.put(C.slot, C.L); C.state = 'saved'; } catch (e) { C.state = 'error'; toast(e.message && /\s/.test(e.message) ? e.message : 'Could not save. Check your connection.'); }
+  try { await SAVE.put(C.slot, C.L); C.state = 'saved'; }
+  catch (e) {
+    C.state = 'error';
+    if (e.code === 'stale') staleSave(e.body && e.body.meta);
+    else toast(e.message && /\s/.test(e.message) ? e.message : 'Could not save. Check your connection.');
+  }
   const el = $('.chip.savechip'); if (el) el.textContent = savedText();
 }
+// this campaign was saved on another device after this one loaded it: load that version, or keep this one (overwriting the other)
+function staleSave(meta) {
+  const w = meta ? esc((meta.team || '') + ' · ' + meta.season + (meta.phase === 'season' || meta.phase === 'reg' ? ' week ' + meta.week : '') + ' · saved ' + new Date(meta.updated).toLocaleTimeString()) : 'a newer save';
+  G.openModal('<h3>Saved on another device</h3><p>This campaign was saved on another device after you opened it here (' + w + '). Saving now would wipe out that progress.</p>' +
+    '<div class="row"><button class="btn primary" data-h="stale-load">Load the other device\'s version</button><button class="btn" data-h="stale-keep">Keep this one (overwrite it)</button></div>');
+}
+ACT['stale-load'] = async () => { G.closeModal(); const L = await run(() => SAVE.get(C.slot)); if (!L) return; C.L = L; C.state = 'saved'; FR.offers = null; go('camphub'); toast('Loaded the newer save.'); };
+ACT['stale-keep'] = async () => { G.closeModal(); C.state = 'saving'; try { await SAVE.put(C.slot, C.L, true); C.state = 'saved'; toast('Saved over the other version.'); } catch (e) { C.state = 'error'; toast('Could not save. Check your connection.'); } const el = $('.chip.savechip'); if (el) el.textContent = savedText(); };
 const savedText = () => C.state === 'saved' ? 'Saved' : C.state === 'saving' ? 'Saving…' : C.state === 'error' ? 'Not saved!' : 'Unsaved changes';
 function campDirty(now) {
   C.state = 'dirty'; clearTimeout(C.timer);
@@ -8026,7 +8203,7 @@ ACT['camp-pick'] = async t => {
   const L = LG.newNFL({ user: tid, seed: Math.floor(Math.random() * 2147483647) });
   L.teams[tid].owner = 'You'; L.user = tid;
   LG.runUntilHuman(L, 60);
-  C.L = L; C.slot = slot; FR.tab = 'home'; FR.give = []; FR.get = []; FR.offers = null; FR.rtid = null;
+  C.L = L; C.slot = slot; C.rev = null; FR.tab = 'home'; FR.give = []; FR.get = []; FR.offers = null; FR.rtid = null;   // (a new campaign replaces whatever was in the slot)
   await campSave(); go('camphub');
 };
 ACT['camp-exit'] = async () => { await campSave(); go('camp'); };
@@ -8209,6 +8386,7 @@ function lgRender() {
   if (H.view !== 'league' || G.state.mode !== 'lobby') return;
   const L = LGS.L;
   if (!LGS.member) { setMain('<section class="panel narrow"><h2>' + esc(L.cfg.name) + '</h2><p class="sub">You have not joined this league.</p><div class="row"><button class="btn primary" data-h="lg-join">Join league</button></div></section>'); return; }
+  hubChat('league', LGS.code);
   if (L.phase === 'setup') lgLobby(); else frShow(lgAdapter());
 }
 ACT['lg-join'] = async () => { if (await run(() => call('league', { op: 'join', code: LGS.code }))) lgReload(); };
@@ -8420,6 +8598,7 @@ function tnRender() {
   else h += tnBracket(T, me, mgr, mine);
   h += '<section class="panel"><div class="row"><button class="btn" data-h="tourneys">All tournaments</button>' + (mgr ? '<button class="btn ghost" data-h="tn-del">Delete tournament</button>' : (T.phase === 'setup' && mine ? '<button class="btn ghost" data-h="tn-leave">Leave</button>' : '')) + '</div></section>';
   setMain(h);
+  if (mine || mgr) hubChat('tourney', T.code);
 }
 function tnSetup(T, me, mgr, mine) {
   const c = T.cfg;

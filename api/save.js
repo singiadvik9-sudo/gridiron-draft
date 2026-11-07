@@ -11,10 +11,13 @@ module.exports = async function (req, res) {
       return send(res, 200, { slots: m.map((x, i) => x ? Object.assign({ slot: i + 1 }, JSON.parse(x)) : { slot: i + 1, empty: true }) });
     }
     const slot = +b.slot; if (!(slot >= 1 && slot <= 5)) return fail(res, 400, 'bad_request');
-    if (b.op === 'get') { const v = await getZ(slotKey(slot)); return v ? send(res, 200, { L: v }) : fail(res, 404, 'empty'); }
+    if (b.op === 'get') { const [v, m] = await Promise.all([getZ(slotKey(slot)), getJ(metaKey(slot))]); return v ? send(res, 200, { L: v, rev: m ? m.updated : 0 }) : fail(res, 404, 'empty'); }
     if (b.op === 'put') {
       const L = b.L; if (!L || typeof L !== 'object' || !L.teams || !L.players) return fail(res, 400, 'bad_request');
       const s = JSON.stringify(L); if (s.length > 2500000) return fail(res, 413, 'too_big');
+      // (saved from another device since this one loaded it: refuse, unless told to overwrite, so neither one silently wipes the other's progress)
+      const cur = await getJ(metaKey(slot));
+      if (cur && b.base != null && !b.force && cur.updated !== b.base) return send(res, 409, { error: 'stale', meta: cur });
       const t = L.teams[L.user]; const meta = { team: t ? t.name : '', season: L.season, week: L.week, phase: L.phase, updated: Date.now() };
       await putZ(slotKey(slot), L); await cmd(['SET', metaKey(slot), JSON.stringify(meta)]);
       return send(res, 200, { ok: true, meta });

@@ -6,6 +6,7 @@ const esc = s => String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;'
 const TEAM_COL = { a: '#ff6b4a', b: '#4aa8ff' };
 const other = t => t === 'a' ? 'b' : 'a';
 /*NET*/
+/*CHAT*/
 const ord = n => ['', '1st', '2nd', '3rd', '4th'][n] || n + 'th';
 
 /* ---------- tiny storage helpers (all optional) ---------- */
@@ -525,8 +526,8 @@ function renderHeader() {
   const el = $('#hdr-right'); if (!el) return;
   if (S.mode === 'lobby') { if (window.HUB) window.HUB.renderHeader(); else el.innerHTML = ''; return; }
   const label = S.ctx ? S.ctx.label : S.mode === 'local' ? 'Practice' : S.mode === 'sdraft' ? ((S.sd && S.sd.label) || 'Draft') : 'Room ' + S.code;
-  el.innerHTML = '<span class="chip room">' + esc(label) + '</span>' + (S.mode === 'online' && S.me ? '<span id="netst" class="netst"></span>' : '') + '<button class="btn small" data-act="leave">Leave</button>';
-  if (S.mode === 'online') NET.paint();
+  el.innerHTML = '<span class="chip room">' + esc(label) + '</span>' + (S.mode === 'online' && S.me ? '<span id="oppst" class="netst" hidden></span><span id="netst" class="netst"></span>' : '') + '<button class="btn small" data-act="leave">Leave</button>';
+  if (S.mode === 'online') { NET.paint(); paintOpp(); }
 }
 
 
@@ -600,14 +601,14 @@ async function api(body, ep) {
   finally { clearTimeout(to); }
   if (!ep && (body.op === 'live' || body.op === 'state') && r.ok) NET.srv(performance.now() - t0);
   let j = null; try { j = await r.json(); } catch (e) {}
-  if (!r.ok) { const err = new Error((j && j.error) || 'http ' + r.status); err.code = (j && j.error) || 'http'; err.status = r.status; throw err; }
+  if (!r.ok) { const err = new Error((j && j.error) || 'http ' + r.status); err.code = (j && j.error) || 'http'; err.status = r.status; err.body = j; throw err; }
   if (!ep && (body.op === 'move' || body.op === 'pick') && S.mode === 'online') NET.send({ t: 'nudge' });   // the other screen looks right away instead of at its next poll
   return j;
 }
 
 /* ---------- starting modes ---------- */
 function resetForMode() {
-  stopPoll();
+  stopPoll(); socUnmount();
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
   S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.scene = null;
   S.ctlN = {}; S.toN = {}; S.dpN = {}; S.ktN = {}; S.km = null; S.csN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
@@ -648,6 +649,10 @@ async function joinRoom(code, quiet) {
   }
   finally { S.busy = false; setBusy(false); }
 }
+async function rematch() {
+  try { const next = SOC.next || (await api({ op: 'rematch', code: S.code, seat: S.me, pid: PID })).next; NET.stop(); socUnmount(); await joinRoom(next, true); }
+  catch (e) { handleErr(e); }
+}
 function enterRoom(code, seed, seat) {
   resetForMode();
   S.mode = 'online'; S.code = code; S.seed = seed; S.me = seat; S.lvLoaded = false;
@@ -661,8 +666,9 @@ function startPoll() {
   const tick = async () => {
     if (S.mode !== 'online') return;
     if (!LV.on) try {
-      const r = await api({ op: 'state', code: S.code, lvall: S.lvLoaded && !(S.G && S.G.wait && !S.me) ? 0 : 1 });
-      const sig = JSON.stringify(r);
+      const r = await api({ op: 'state', code: S.code, lvall: S.lvLoaded && !(S.G && S.G.wait && !S.me) ? 0 : 1, seat: S.me || undefined, pid: S.me ? PID : undefined, dev: PID });
+      socTake(r);
+      const sig = JSON.stringify(Object.assign({}, r, { seen: 0, emo: 0, chatN: 0, dup: 0, next: 0 }));
       if (!LV.on && sig !== lastPoll) {
         lastPoll = sig;
         S.seats = r.seats || {};
@@ -698,8 +704,54 @@ function takeLv(lv) {
 const RVN = 1000;   // return moves are numbered 1000 + the play they belong to
 function stopPoll() { if (S.poll) { clearTimeout(S.poll); S.poll = null; } }
 NET.listen('nudge', () => { if (S.pollNow) S.pollNow(); });
+/* ---------- the room's social side: chat, emotes, the other player's connection, a rematch ---------- */
+const SOC = { box: null, code: null, emo: { a: 0, b: 0 }, seen: null, dup: false, next: null };
+function socMount() {
+  if (S.mode !== 'online' || !S.code) return;
+  if (SOC.box && SOC.code === S.code && document.body.contains(SOC.box.el)) return;
+  socUnmount(); SOC.code = S.code; SOC.emo = { a: 0, b: 0 }; SOC.next = null; SOC.dup = false; SOC.seen = null;
+  SOC.box = CHAT.mount(chatDock(), { me: myName(), poll: 0,
+    fetch: since => api({ op: 'chatget', code: S.code, since }),
+    post: async text => { const r = await api({ op: 'chat', code: S.code, seat: S.me, pid: PID, text }); NET.send({ t: 'chat', msg: r.msg }); return r; },
+    emote: S.me ? k => sendEmote(k) : null });
+}
+function socUnmount() { if (SOC.box) SOC.box.destroy(); SOC.box = null; SOC.code = null; }
+function chatDock() { let d = $('#chatdock'); if (!d) { d = document.createElement('div'); d.id = 'chatdock'; document.body.appendChild(d); } return d; }
+const myName = () => S.me && S.seats && S.seats[S.me] ? S.seats[S.me].name : '';
+async function sendEmote(k) {
+  try { const r = await api({ op: 'emo', code: S.code, seat: S.me, pid: PID, k }); showEmote(S.me, r.emo); NET.send({ t: 'emo', s: S.me, e: r.emo }); }
+  catch (e) { toast(e.code === 'slow' ? 'One emote every few seconds.' : 'Could not send that.'); }
+}
+function showEmote(s, e) {
+  if (!e || (s !== 'a' && s !== 'b') || e.i === SOC.emo[s]) return;
+  const first = SOC.emo[s] === 0; SOC.emo[s] = e.i;
+  if (first && Date.now() - e.at > 5000) return;   // (an old one, from before you came in)
+  const who = S.seats && S.seats[s] ? S.seats[s].name : '';
+  CHAT.bubble($('.sb-team.' + s) || $('#hdr-right'), e.k, who);
+}
+NET.listen('chat', o => { if (SOC.box && o.msg) SOC.box.add([o.msg]); });
+NET.listen('emo', o => showEmote(o.s, o.e));
+// everything social from a room poll
+function socTake(r) {
+  socMount(); if (!SOC.box) return;
+  SOC.box.opts.me = myName();
+  if (r.chatN) SOC.box.setN(r.chatN);
+  if (r.emo) ['a', 'b'].forEach(s => { if (r.emo[s]) showEmote(s, r.emo[s]); });
+  SOC.seen = r.seen && S.me ? r.seen[other(S.me)] : null; paintOpp();
+  if (r.dup && !SOC.dup) { SOC.dup = true; toast('This game is also open on another device signed in to your account. Close one of them so they do not get in each other\'s way.'); }
+  if (r.next && r.next !== SOC.next) { SOC.next = r.next; if (S.G && S.G.state.over) { S.callSig = null; render(); } }
+}
+// the other player's dot: a direct link, playing through the server, or not heard from for a while (reconnecting)
+function paintOpp() {
+  const el = $('#oppst'); if (!el) return;
+  const o = S.me && S.seats && S.seats[other(S.me)]; if (!o) { el.hidden = true; return; }
+  const away = SOC.seen == null || SOC.seen > 15000, d = NET.ok() && !away;
+  el.hidden = false; el.className = 'netst ' + (d ? 'direct' : away ? 'away' : 'server');
+  el.textContent = o.name + (away ? ' · reconnecting…' : '');
+  el.title = away ? o.name + ' has not been heard from for a while: they may be reconnecting. The computer can take over their player in a live snap.' : d ? o.name + ' is linked directly to you' : o.name + ' is connected through the server';
+}
 function leave() {
-  stopPoll(); NET.stop(); ssSet('gd_room', null);
+  stopPoll(); NET.stop(); socUnmount(); ssSet('gd_room', null);
   S.mode = 'lobby'; S.code = null; S.me = null; resetForMode();
   render();
 }
@@ -1104,13 +1156,14 @@ function renderCall0(G) {
   const p = $('#callpanel'); if (!p) return;
   const st = G.state, T = G.teams;
   if (st.over) {
-    const sig = 'over' + (S.ctx ? S.ctx.status : ''); if (S.callSig === sig) return; S.callSig = sig;
+    const sig = 'over' + (S.ctx ? S.ctx.status : '') + (SOC.next || ''); if (S.callSig === sig) return; S.callSig = sig;
     const w = st.winner;
     const head = w === null ? 'Tie game' : (S.me ? (w === S.me ? 'You win' : 'You lose') : T[w].name + ' win');
     const cx = S.ctx, cxRow = cx ? (cx.status === 'saving' ? '<p class="sub">Saving the result…</p>' : cx.status === 'err' ? '<p class="sub bad">Could not save the result' + (cx.err ? ': ' + esc(cx.err) : '') + '.</p><div class="row"><button class="btn primary" data-act="ctx-retry">Try again</button></div>' : '<div class="row"><button class="btn primary" data-act="ctx-done">Continue</button><button class="btn" data-act="rosters">Rosters</button></div>') : '';
     p.innerHTML = '<div class="final"><span class="eyebrow">Final</span><h2>' + esc(head) + '</h2><div class="fscore"><span style="color:' + TEAM_COL.a + '">' + esc(T.a.name) + ' <b>' + st.score.a + '</b></span><span style="color:' + TEAM_COL.b + '">' + esc(T.b.name) + ' <b>' + st.score.b + '</b></span></div>' +
       boxHTML(G) +
-      (cx ? cxRow : '<div class="row"><button class="btn primary" data-act="leave">Back to menu</button><button class="btn" data-act="rosters">Rosters</button></div>') + '</div>';
+      (cx ? cxRow : (S.mode === 'online' && S.me && SOC.next ? '<p class="sub">' + esc((S.seats[other(S.me)] || {}).name || 'The other player') + ' wants a rematch.</p>' : '') +
+        '<div class="row">' + (S.mode === 'online' && S.me ? '<button class="btn primary" data-act="rematch">' + (SOC.next ? 'Join the rematch' : 'Rematch') + '</button>' : '') + '<button class="btn' + (S.mode === 'online' && S.me ? '' : ' primary') + '" data-act="leave">Back to menu</button><button class="btn" data-act="rosters">Rosters</button></div>') + '</div>';
     return;
   }
   if (!S.me) {
@@ -1319,7 +1372,7 @@ function startBoard(o) {   // hub-driven snake draft (tournaments): {label, d, m
   sdStart(o); sdPollLoop(); render(); sdStep();
 }
 function exitToHub() { leave(); }
-window.GAME = { attrGrid, keyAttrs, resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field };
+window.GAME = { attrGrid, keyAttrs, resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field, chatDock, render: () => render() };
 
 /* ---------- router ---------- */
 function render() {
@@ -1341,6 +1394,7 @@ document.addEventListener('click', ev => {
   else if (a === 'cpu') startLocal();
   else if (a === 'fullscreen') toggleFull();
   else if (a === 'leave') leave();
+  else if (a === 'rematch') rematch();
   else if (a === 'ctx-done') { const c = S.ctx; leave(); if (c && c.onDone) c.onDone(); }
   else if (a === 'ctx-retry') { const c = S.ctx; if (c) { c.sent = false; ctxFinish(S.G); renderCall(S.G); } }
   else if (a === 'sd-pick') sdPick(t.dataset.id);

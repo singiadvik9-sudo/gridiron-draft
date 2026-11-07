@@ -2,6 +2,12 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-3', title: 'Chat, emotes and rematches', items: [
+    'Every online game, league and tournament now has a chat in the corner. There are quick lines like "Good game!", and click a name to mute someone (only on your device). League and tournament chats are for members only.',
+    'In games, send emotes from the chat box. They pop up by your team\'s name on the other player\'s scoreboard.',
+    'Next to the room code you can see the other player\'s connection, and when they seem to be reconnecting. After a quick game, Rematch puts you both in a fresh room.',
+    'If your account has the same game open on two devices, you get a warning. A campaign saved from one device will not quietly wipe out progress saved on another: you choose which version to keep.'
+  ] },
   { id: '2026-11-07-2', title: 'Faster online games', items: [
     'Online games now connect your device straight to the other player\'s whenever the network allows it. Your controls respond instantly, the other player\'s moves arrive in about the time of a ping, and play calls show up on the other screen right away. Next to the room code you can see whether you have a direct link and your ping.',
     'On networks that block direct links, the game runs through the server as before, now with less delay.',

@@ -23,8 +23,16 @@ async function run(fn) { try { return await fn(); } catch (e) { toast(errText(e)
 
 /* ---------- navigation ---------- */
 function stopPoll() { if (H.poll) { clearTimeout(H.poll); H.poll = null; } }
+// a league's or tournament's chat in the corner while you are on its page (members only)
+function hubChat(kind, code) {
+  const id = kind + ':' + code; if (H.chat && H.chat.id === id && !H.chat.box.dead) return;
+  hubChatOff();
+  const box = window.GD_CHAT.mount(G.chatDock(), { me: H.user, poll: 6000, fetch: since => call(kind, { op: 'chatget', code, since }), post: text => call(kind, { op: 'chat', code, text }) });
+  H.chat = box ? { id, box } : null;
+}
+function hubChatOff() { if (H.chat) { H.chat.box.destroy(); H.chat = null; } }
 function go(view, p) {
-  stopPoll(); H.view = view; H.p = p || {};
+  stopPoll(); if (view !== 'league' && view !== 'tourney') hubChatOff(); H.view = view; H.p = p || {};
   if (G.state.mode !== 'lobby') return;
   show();
 }
