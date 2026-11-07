@@ -2,6 +2,10 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-06-3', title: 'Who counts as a star', items: [
+    'Only your QB1, RB1, top two receivers, TE1 and defensive starters can be stars, and only if they are rated 78 or better. Linemen, kickers, punters and backups have no morale score of their own, and press questions and superstar alerts are about stars only.',
+    'Good backups can still email you about playing time. What you tell them affects team morale.'
+  ] },
   { id: '2026-11-06-2', title: 'Win-now and rebuilding mean what they say', items: [
     'Only real contenders are win-now, and only really bad teams are rebuilding. It goes by how good a team is and how it is actually doing, and most teams are neither. Standings show who is which.'
   ] },
