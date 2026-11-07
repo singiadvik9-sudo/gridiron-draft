@@ -2,6 +2,11 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07', title: 'Handoffs, usage and playing time', items: [
+    'On designed runs the quarterback hands the ball off. He is locked into the handoff until the back has it, and you can see the ball go from his hands to the back\'s instead of jumping across the field.',
+    'Usage now adds up. Each player\'s number is the share of plays he is on the field for. Change one and the rest of his group adjust automatically. Each position shows its total: 100% for backs and tight ends, and 200% for receivers because two play at once.',
+    'A player you just gave more playing time, by raising his usage or keeping a promise, will not ask for more for 6 games, unless you take it away again.'
+  ] },
   { id: '2026-11-06-3', title: 'Who counts as a star', items: [
     'Only your QB1, RB1, top two receivers, TE1 and defensive starters can be stars, and only if they are rated 78 or better. Linemen, kickers, punters and backups have no morale score of their own, and press questions and superstar alerts are about stars only.',
     'Good backups can still email you about playing time. What you tell them affects team morale.'

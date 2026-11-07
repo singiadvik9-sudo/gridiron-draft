@@ -526,6 +526,7 @@ body.ingame.fs.gover .mast { display: flex; }
 .fvbar { position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; gap: 6px; align-items: flex-start; line-height: 1.2; }
 .use input { width: 3.6em; padding: 3px 4px; margin-right: 2px; }
 .use small { opacity: .75; }
+.usetot.short { color: var(--warn, #e0a030); }
 .inj { font-size: 10px; letter-spacing: .06em; color: #fff; background: #b3261e; border-radius: 4px; padding: 1px 5px; }
 .rotl { opacity: .85; }
 .rel { display: grid; gap: 6px; }

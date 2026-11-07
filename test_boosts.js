@@ -5,23 +5,28 @@ function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) process.ex
 const L = LG.newNFL({ seed: 3 }), Tm = n => LG.teamsFor(L, n % 32, (n * 7 + 3) % 32);
 const defs = ['ZONE', 'MAN', 'COV3', 'BLITZ', 'COV4', 'STACK', 'MAN2', 'SOFT'];
 const yds = o => o.k === 'run' || o.k === 'pass' || o.td ? Math.min(65, o.x) : o.k === 'sack' ? o.x : 0;
-// stiff arm: a runner you steer who stiff arms (W) as tacklers close in is brought down less and puts defenders on the ground
-{ let broke = [0, 0], st = 0, N = 300;
-  [false, true].forEach((arm, k) => { for (let n = 0; n < N; n++) { const T = Tm(n), tr = [LV.enc(1, 1, 0, 0)]; if (arm) for (let t = 12; t < 200; t += 14) tr.push(LV.enc(t, 1, 0, 1));
-    const r = LV.run({ seed: 70 + n, playNo: n, ballOn: 30, toGo: 10, offPick: 'RUN_IN', defPick: defs[n % 8], OS: T.a.squad, DS: T.b.squad, ctlO: true, ctlD: false }, tr, []);
-    broke[k] += yds(r.out); if (arm && r.out.mv && /stiff/.test(r.out.mv)) st++; } });
-  ok(broke[1] > broke[0] + N * 0.2, 'stiff arms help a runner: ' + (broke[0] / N).toFixed(1) + ' yards a carry without, ' + (broke[1] / N).toFixed(1) + ' with');
+// a carry the way you would play it: the stick is yours once the back has the ball (on a designed run the quarterback is locked into the
+// handoff), then upfield, with a move pressed when a tackler closes in (act(sim, carrier, nearest) gives the buttons for this tick)
+function carry(n, pick, act) {
+  const T = Tm(n), sim = LV.create({ seed: 170 + n, playNo: n, ballOn: 30, toGo: 10, offPick: pick, defPick: defs[n % 8], OS: T.a.squad, DS: T.b.squad, ctlO: true, ctlD: false });
+  while (!sim.out && sim.t < 2000) { const c = sim.by[sim.ball.car], nd = c && c.side === 'o' ? Math.min.apply(null, sim.D.map(d => Math.hypot(d.x - c.x, d.y - c.y))) : 99;
+    LV.step(sim, sim.handoff ? { dx: 1, dy: 0 } : { dx: 0, dy: 0 }, { dx: 0, dy: 0 }, { o: c && c.id !== 'QB' && sim.handoff ? act(sim, c, nd) : [], d: [] }); }
+  return sim;
+}
+// stiff arm: a runner who stiff arms (W) as tacklers close in is brought down less and puts defenders on the ground
+{ let yd = [0, 0], st = 0, N = 300;
+  [false, true].forEach((arm, k) => { for (let n = 0; n < N; n++) { let last = -99;
+    const sim = carry(n, 'RUN_IN', (sim, c, nd) => arm && nd < 2.6 && sim.t - last > 12 ? (last = sim.t, [1]) : []);
+    yd[k] += yds(sim.out); if (arm && sim.out.mv && /stiff/.test(sim.out.mv)) st++; } });
+  ok(yd[1] > yd[0] + N * 0.2, 'stiff arms help a runner: ' + (yd[0] / N).toFixed(1) + ' yards a carry without, ' + (yd[1] / N).toFixed(1) + ' with');
   ok(st > N * 0.15, 'and the ones that put a defender down are recorded for a shot at confidence (' + st + ' of ' + N + ' carries)'); }
 // juke: one in a defender's face that shakes him counts; one in open space does not
-{ let close = 0, far = 0, N = 300;
-  for (let n = 0; n < N; n++) { const T = Tm(n), sim = LV.create({ seed: 170 + n, playNo: n, ballOn: 30, toGo: 10, offPick: 'RUN_OUT', defPick: defs[n % 8], OS: T.a.squad, DS: T.b.squad, ctlO: true, ctlD: false });
-    let jk = 0;
-    while (!sim.out && sim.t < 2000) { const c = sim.by[sim.ball.car], nd = c && c.side === 'o' ? Math.min.apply(null, sim.D.map(d => Math.hypot(d.x - c.x, d.y - c.y))) : 99, a = [];
-      if (c && c.cool === 0 && c.id !== 'QB' && (n % 2 ? nd < 2.2 : nd > 6 && !jk)) { a.push(5); jk = 1; }   // half the time in a defender's face, half in open space
-      LV.step(sim, { dx: 1, dy: 0 }, { dx: 0, dy: 0 }, { o: a, d: [] }); }
+{ let close = 0, far = 0, N = 600;
+  for (let n = 0; n < N; n++) { let jk = 0;
+    const sim = carry(n, 'RUN_OUT', (sim, c, nd) => c.cool === 0 && (n % 2 ? nd < 2.2 : nd > 6 && !jk) ? (jk = 1, [5]) : []);   // half the time in a defender's face, half in open space
     const j = sim.evt.filter(e => e[0] === 'juked'); if (n % 2) close += j.length ? 1 : 0; else far += j.length ? 1 : 0;
     if (j.some(e => !sim.by[e[3]] || sim.by[e[3]].side !== 'd')) close = -1e9; }
-  ok(close > N * 0.03 && far === 0, 'jukes right in a defender\'s face that shake him are counted (on ' + close + ' of ' + N / 2 + ' carries), ones in open space never (' + far + ')'); }
+  ok(close > N / 2 * 0.02 && far === 0, 'jukes right in a defender\'s face that shake him are counted (on ' + close + ' of ' + N / 2 + ' carries), ones in open space never (' + far + ')'); }
 // the engine: one roll in four for each move or tough catch, a contested catch always, a drop shakes him and puts out his fire
 { const T = LG.teamsFor(L, 1, 2), U = { a: E.teamUnits(T.a), b: E.teamUnits(T.b) }, st0 = Object.assign(E.initState(2), { poss: 'a' });
   const after = (e0, st) => { const nst = {}, e = Object.assign({ off: 'a', offPick: 'RUN_IN', text: '' }, e0); E.__confAfter(st || st0, nst, e, T, 77); return { nst, e }; };

@@ -147,11 +147,17 @@ function injCell(L, tid, p, edit) {
   if (edit && p.ir) { const ready = (p.irw || 0) >= LG.IR_MIN && !p.inj; h += '<button class="btn small ghost" data-h="fr-act" data-id="' + p.i + '"' + (ready ? '' : ' disabled title="' + (p.inj ? 'Still injured' : 'At least ' + LG.IR_MIN + ' weeks on IR') + '"') + '>Activate</button>'; }
   return h;
 }
+// the group's shares of the plays add up to the men it puts on the field (two receivers: 200%)
+function useTotal(L, tid, pos) {
+  if (!LG.USE_SPOTS || !LG.USE_SPOTS[pos]) return '';
+  const n = LG.USE_SPOTS[pos], t = LG.usageList(L, tid, pos).reduce((s, x) => s + x.u, 0);
+  return ' · <span class="usetot' + (t < n * 100 ? ' short' : '') + '" title="Each player\'s usage is the share of plays he is on the field for. Change one and the others adjust.">snaps ' + t + '% of ' + n * 100 + '%' + (n > 1 ? ' (' + n + ' on the field)' : '') + '</span>';
+}
 function useCell(L, tid, p, edit) {
   if (!LG.USE_DEFAULT[p.p]) return '';
   if (!LG.healthy(p)) return '<span class="use"><small>sits while hurt' + (p.use != null ? ' (usage ' + p.use + '% when back)' : '') + '</small></span> ';
   const x = LG.usageList(L, tid, p.p).find(y => y.p === p), u = x ? x.u : 0, sh = LG.snapShare(L, p);
-  return '<span class="use" title="Share of snaps at his spots; on passing downs receivers can also play the slot">' + (edit ? '<input type="number" min="0" max="100" step="5" data-hc="use" data-id="' + p.i + '" value="' + u + '" aria-label="Usage for ' + esc(p.n) + '">%' : 'use ' + u + '%') +
+  return '<span class="use" title="Share of plays he is on the field for (the others in his group adjust when you change it); on passing downs receivers can also play the slot">' + (edit ? '<input type="number" min="0" max="100" step="1" data-hc="use" data-id="' + p.i + '" value="' + u + '" aria-label="Usage for ' + esc(p.n) + '">%' : 'use ' + u + '%') +
     (sh != null ? ' <small>played ' + Math.round(sh * 100) + '%</small>' : '') + '</span> ';
 }
 FRV.roster = A => {
@@ -166,7 +172,7 @@ FRV.roster = A => {
   POSN.forEach(pos => {
     const list = ro.filter(p => p.p === pos).sort((a, b) => b.o - a.o);
     if ((pos === 'KR' || pos === 'PR') && !list.length) return;   // no returner position any more (older saves may still list some)
-    h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + '</small></h4>' +
+    h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + useTotal(L, tid, pos) + '</small></h4>' +
       tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => injCell(L, tid, p, mineT && A.canEditRoster()) + useCell(L, tid, p, mineT && A.canEditRoster()) + (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && blk.has(p.i) ? '<span class="blk" title="On the trading block">BLOCK</span> ' : '') +
         (mineT && A.canEditRoster() && LG.counts(L.teams[tid].sch)[p.p] ? (p.st ? '<button class="btn small" data-h="fr-st" data-id="' + p.i + '" data-on="" title="You named him a starter">Starter ✓</button>' : !start[p.i] && LG.healthy(p) ? '<button class="btn small ghost" data-h="fr-st" data-id="' + p.i + '" data-on="1">Start</button>' : '') : '') +
         (mineT && A.canEditRoster() ? (A.blockBids ? '<button class="btn small ghost" data-h="fr-blk" data-id="' + p.i + '" data-on="' + (blk.has(p.i) ? '' : '1') + '">' + (blk.has(p.i) ? 'Off block' : 'Shop') + '</button>' : '') + '<button class="btn small ghost" data-h="fr-rel" data-id="' + p.i + '">Release</button>' : '')));
