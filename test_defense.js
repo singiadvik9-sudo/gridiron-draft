@@ -93,3 +93,14 @@ ok(moved.win > 0.3 && moved.sack > plain.sack + 0.02, 'rush moves let the linema
   ok(jump.pbu > none.pbu + 0.08 && jump.comp < none.comp - 0.1, 'W (jump) as the ball comes down breaks up more passes (' + Math.round(100 * jump.pbu) + '% broken up, ' + Math.round(100 * jump.comp) + '% caught; without it ' + Math.round(100 * none.pbu) + '% and ' + Math.round(100 * none.comp) + '%)');
   { const sim = mk(1); while (!sim.out && !sim.ball.air) LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [] }); const me = sim.by[sim.ctlId.d]; me.cool = 0;
     LV.step(sim, null, { dx: 1, dy: 0 }, { o: [], d: [1] }); ok(me.jumpW > 0 && me.dive === 0, 'W jumps without diving'); } }
+// the CPU defense: a juke is a contest (no free yards from pressing it every time), and the play calls read what the offense has been doing
+{ const E = require('./lib/engine.js'), LV = E.LIVE, LG = require('./lib/league.js'), L = LG.newNFL({ seed: 3 }), Tm = n => LG.teamsFor(L, n % 32, (n * 11 + 5) % 32);
+  const ok = (c, m) => { console.log((c ? 'ok   ' : 'FAIL ') + m); if (!c) process.exitCode = 1; };
+  let y = 0, N = 300; for (let n = 0; n < N; n++) { const T = Tm(n), sim = LV.create({ seed: 900 + n, playNo: n, ballOn: 35, toGo: 10, offPick: ['RUN_IN', 'RUN_OUT', 'DIVE', 'POWER', 'SWEEP'][n % 5], defPick: Object.keys(E.DEF_CALLS)[n % 14], OS: T.a.squad, DS: T.b.squad, ctlO: true, ctlD: false });
+    while (!sim.out && sim.t < 2000) { const c = sim.by[sim.ball.car], a = []; let st = { dx: 0, dy: 0 }; if (c && c.side === 'o' && sim.handoff) { st = { dx: 1, dy: 0 }; if (c.cool === 0 && Math.min(...sim.D.map(d => Math.hypot(d.x - c.x, d.y - c.y))) < 2.2) a.push(5); } LV.step(sim, st, { dx: 0, dy: 0 }, { o: a, d: [] }); }
+    const o = sim.out; y += o.td ? 65 : o.k === 'run' ? Math.min(65, o.x) : 0; }
+  ok(y / N < 5, 'a runner who jukes every time a tackler comes near averages ' + (y / N).toFixed(1) + ' yards (it was 6.3)');
+  const seed = 4242, T = LG.teamsFor(L, 4, 9), U = { a: E.teamUnits(T.a), b: E.teamUnits(T.b) }; let mv = {}, s = E.initState(seed);
+  for (let k = 0; k < 400 && !s.over; k++) { const n = s.playNo, role = s.poss === 'a' ? 'off' : 'def'; let pick = E.cpuMove(s, U, 'a', seed, role); if (role === 'off' && !E.noDef(E.legalOff(s, pick)) && s.down < 3) pick = 'RUN_IN'; mv[n + '-a'] = { pick }; s = E.replay(seed, T, mv, ['b']).state; }
+  const early = E.replay(seed, T, mv, ['b']).log.filter(e => e.off === 'a' && e.before && !e.before.kick && e.before.down < 3 && e.defPick), h = early.length >> 1, sr = x => x.filter(e => E.DEF_CALLS[e.defPick].cat === 'STACK').length / x.length;
+  ok(sr(early.slice(h)) > sr(early.slice(0, h)) + 0.1, 'against a team that runs every early down the CPU stacks the box more as the game goes on (' + Math.round(100 * sr(early.slice(0, h))) + '% -> ' + Math.round(100 * sr(early.slice(h))) + '%)'); }
