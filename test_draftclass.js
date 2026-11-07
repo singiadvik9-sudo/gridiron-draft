@@ -10,7 +10,7 @@ const supers = per(p => p.pt >= 93), stars = per(p => p.pt >= 86 && p.pt < 93), 
 ok(supers >= 4 && supers <= 12 && stars >= 10, 'every class has future superstars (' + supers + ' with potential 93+ a class) and stars (' + stars + ' at 86-92)');
 ok(sleepers >= 5 && busts >= 4, 'and sleepers (' + sleepers + ' a class) and busts (' + busts + ')');
 const rk = cls.filter(p => p.p !== 'K' && p.p !== 'P');
-ok(Math.max.apply(null, rk.map(p => p.o)) <= 81 && rk.filter(p => p.o >= 75).length / 4 >= 3, 'rookies start as rookies: nobody above 81, a few ready to start at 75+ (' + rk.filter(p => p.o >= 75).length / 4 + ' a class)');
+ok(Math.max.apply(null, rk.map(p => p.o)) <= 86 && rk.filter(p => p.o >= 75).length / 4 >= 3, 'rookies rate like real ones (Madden has first-rounders up to 87): nobody above 86, a good number ready to start at 75+ (' + rk.filter(p => p.o >= 75).length / 4 + ' a class)');
 ok(cls.every(p => p.vp >= p.o && (Math.abs(p.vp - p.pt) <= 3 || p.vp > p.pt || p.pt - p.vp >= 8)), 'everyone else is scouted within a few points of the truth (busts look better than they are, sleepers worse)');
 const sl = cls.filter(p => p.pt - p.vp >= 8);
 ok(sl.every(p => p.o <= 64 && p.vp <= 70 && p.pt >= 84), 'a sleeper looks like a late-rounder (rated ' + Math.min.apply(null, sl.map(p => p.o)) + '-' + Math.max.apply(null, sl.map(p => p.o)) + ', scouted at most ' + Math.max.apply(null, sl.map(p => p.vp)) + ') but can be a star (potential ' + Math.min.apply(null, sl.map(p => p.pt)) + '+)');

@@ -2,6 +2,14 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-06', title: 'Campaign: run the whole franchise', items: [
+    'New Inbox tab: contract talks, players asking about playing time, PR events, scouting news. New Franchise tab: morale, team money, facility upgrades and coordinators.',
+    'Free agency is now a stage of the offseason, before the draft. Negotiate with your expiring players or let them walk, and go after other teams\' free agents. Contracts have years, base, signing bonus, guarantees and incentives, and players ask for more after big seasons.',
+    'Morale: stars, your team and your fans each have morale. Press conferences after games, playing time and results move it; it changes how players play, what they ask for and how much trouble they get into.',
+    'Very rarely a player gets ejected for fighting or suspended by the league.',
+    'Teams are win-now or rebuilding, and they trade like it, with each other too. Click any player to see his stats and try to trade for him: the team names its price and you can accept or counter.',
+    'The draft: classes are built from real draft history, so good quarterbacks show up and go early. It now runs pick by pick, you can trade up or down, and top picks are worth far more. Auto-draft fills holes.'
+  ] },
   { id: '2026-11-05', title: 'Trades that make sense, and shopping for picks', items: [
     'CPU teams now judge a trade by their own depth chart: a player who would start for them counts in full, a backup for much less, and a pile of small pieces no longer adds up to a star.',
     'Nobody gives away a franchise quarterback: a team keeps its starting QB unless a comparable starter is coming back, and it will not open a big hole in its lineup. Turned down? It tells you why.',
