@@ -598,3 +598,7 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .ctform label{display:grid;gap:2px;font-size:12px}
 .ctform input{width:92px}
 .press{border-color:#ffcf3f}
+
+.tmode{font-size:10px;padding:0 4px;border-radius:3px;margin-left:4px}
+.tmode.win{color:#3fdc6a;border:1px solid #3fdc6a}
+.tmode.rebuild{color:#ff8a6a;border:1px solid #ff8a6a}

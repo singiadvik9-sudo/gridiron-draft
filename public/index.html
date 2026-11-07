@@ -604,6 +604,10 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .ctform input{width:92px}
 .press{border-color:#ffcf3f}
 
+.tmode{font-size:10px;padding:0 4px;border-radius:3px;margin-left:4px}
+.tmode.win{color:#3fdc6a;border:1px solid #3fdc6a}
+.tmode.rebuild{color:#ff8a6a;border:1px solid #ff8a6a}
+
 </style>
 <div class="wrap">
   <header class="mast">
@@ -4371,17 +4375,33 @@ function release(L, tid, pid) {
    offseason, contracts negotiated by message, morale, press conferences, inbox events, suspensions, team money, facilities and coordinators. */
 const myId = L => L.user;
 function campInit(L) {
-  if (L.camp) return;
+  if (L.camp) { if (L.modeV !== 2) updateModes(L); return; }
   L.camp = 1; L.inbox = L.inbox || []; L.morale = L.morale || { team: 60, fans: 60 }; L.talks = L.talks || {}; L.dead = L.dead || {}; L.mailN = L.mailN || 0;
   L.fin = L.fin || { cash: 30, lv: { st: 1, pr: 1, me: 1 } };
   if (!L.staff) { const r = rng(L, 'staff'); L.staff = { oc: { n: randName(r), r: 70, sal: 3.3 }, dc: { n: randName(r), r: 70, sal: 3.3 }, mkt: [] }; newCoachMarket(L); }
   updateModes(L);
   inMail(L, { from: 'The owner', subj: 'Welcome aboard', body: 'The team is yours. Contracts, trades, the press and the budget all run through this inbox and the Franchise tab. Keep the locker room happy and the fans in their seats.' });
 }
-/* team modes: a team near the top is going for it now, a team near the bottom is rebuilding. It sets how the team trades (tradeEval). */
+/* team modes come from how good a team really is, with no chance involved. Its rating is measured against the league's spread, and its results
+   count once there are any: this season's after MODE.games games, else last season's.
+   Win-now: a real contender, rated well above the league and winning (or winning a lot, whatever the rating says).
+   Rebuilding: a really bad team, rated well below the league and losing (or losing badly). Everyone else is neither. */
+const MODE = { games: 5, winZ: 0.9, winPct: 0.55, hotPct: 0.75, hotZ: -1, badZ: -1, badPct: 0.4, awfulPct: 0.3, awfulZ: 0 };
+function modeOf(z, pct) {
+  const known = pct != null;
+  if ((z >= MODE.winZ && (!known || pct >= MODE.winPct)) || (known && pct >= MODE.hotPct && z >= MODE.hotZ)) return 'win';
+  if ((z <= MODE.badZ && (!known || pct <= MODE.badPct)) || (known && pct <= MODE.awfulPct && z <= MODE.awfulZ)) return 'rebuild';
+  return '';
+}
 function updateModes(L) {
-  const fr = strengthFrac(L);
-  L.teams.forEach(t => { if (t.owner) return; t.mode = fr[t.id] >= 0.62 ? 'win' : fr[t.id] <= 0.33 ? 'rebuild' : ''; });
+  const ovr = {}, R = records(L); L.teams.forEach(t => { ovr[t.id] = teamRating(L, t.id).ovr; });
+  const v = Object.values(ovr), mean = v.reduce((a, x) => a + x, 0) / v.length, sd = Math.sqrt(v.reduce((a, x) => a + (x - mean) * (x - mean), 0) / v.length) || 1;
+  L.modeV = 2;
+  L.teams.forEach(t => {
+    if (t.owner) return;
+    const r = R[t.id], gp = r.w + r.l + r.t;
+    t.mode = modeOf((ovr[t.id] - mean) / sd, gp >= MODE.games ? r.pct : t.lastPct != null ? t.lastPct : null);
+  });
 }
 const teamMode = (L, tid) => L.teams[tid].mode || '';
 // what a player plays at: his rating, moved by his morale and the team's, and the coordinator of his side of the ball (your team only)
@@ -4436,7 +4456,7 @@ function suspend(L, p, games, r) {
 function campWeek(L) {
   const r = rng(L, 'wk' + L.season + ':' + L.week);
   if (L.week % 4 === 1) updateModes(L);
-  if (canTrade(L)) cpuTradesRound(L, 0.035);
+  if (canTrade(L)) cpuTradesRound(L, 0.06);
   Object.values(L.players).forEach(p => {
     if (p.t < 0 || p.sus || p.ir) return;
     const mine = p.t === myId(L), f = mine && p.o >= 78 ? 1 + Math.max(0, (50 - moraleOf(L, p)) / 8) : 1;   // an unhappy star is likelier to do something wild
@@ -4502,7 +4522,8 @@ function pressAnswer(L, a) {
   return A;
 }
 function campOffseason(L, rep) {
-  const me = myId(L), R = records(L)[me], mine = ids => ids.map(id => L.players[id]).filter(p => p && p.t === me);
+  const me = myId(L), RR = records(L), R = RR[me], mine = ids => ids.map(id => L.players[id]).filter(p => p && p.t === me);
+  L.teams.forEach(t => { const x = RR[t.id]; if (x.w + x.l + x.t >= MODE.games) t.lastPct = x.pct; });   // next season starts from this one's results
   updateModes(L);
   mine(rep.stars).forEach(p => inMail(L, { from: 'Head of scouting', subj: 'Superstar: ' + p.n, body: p.n + ' (' + p.p + ') is now a ' + p.o + '. He is one of the best in the league at his position. Build around him.', kind: 'alert', pid: p.i }));
   mine(rep.sleepers).forEach(p => inMail(L, { from: 'Head of scouting', subj: (p.pt >= 90 ? 'Future superstar: ' : 'Sleeper: ') + p.n, body: 'We had ' + p.n + ' (' + p.p + ') wrong, in the good way. We rated his potential ' + p.was + '. After a season it looks like ' + p.pt + '. Get him on the field.', kind: 'alert', pid: p.i }));
@@ -4936,7 +4957,7 @@ const LG = {
   RET_POS, retRating, returnerCands, returnerOf, setReturner,
   USE_DEFAULT, usageList, setUsage, snapShare,
   progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, UNIT_ROUNDS, fillPrice, hasLegalPick, isUnitId, unitOf, unitRating, draftOvr, salOfId, draftLabel, unitNeeds, canDraftId, affordableId, autoPickFor, startSeason, trimRoster, fillDepth, finishDraft,
-  __suspend: suspend, campInit, teamMode, updateModes, cpuTradesRound, tradeAsk, tradeCounter, tradeTalkLeft, tradeTalkUse, draftAdvance, draftUpOffers, draftDownBids, draftPrem, rookieScore, draftSlot, faNext, faFinish, letWalk, demandOf, contractOpen, contractOffer, contractSummary, inMail, mailRead, mailAnswer, unread, moraleOf, setMorale, moraleBump, pressAnswer, upgradeCost, upgrade, hireCoach, coachMarket, FACILITY, deadMoney, COACH_ANSWERS, playerValue, tradeCheck, cpuTrade, tradeEval, teamNeeds, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
+  __suspend: suspend, modeOf, MODE, campInit, teamMode, updateModes, cpuTradesRound, tradeAsk, tradeCounter, tradeTalkLeft, tradeTalkUse, draftAdvance, draftUpOffers, draftDownBids, draftPrem, rookieScore, draftSlot, faNext, faFinish, letWalk, demandOf, contractOpen, contractOffer, contractSummary, inMail, mailRead, mailAnswer, unread, moraleOf, setMorale, moraleBump, pressAnswer, upgradeCost, upgrade, hireCoach, coachMarket, FACILITY, deadMoney, COACH_ANSWERS, playerValue, tradeCheck, cpuTrade, tradeEval, teamNeeds, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
   newCustom, addTeam, removeTeam, assignDivisions, startCustom, finalizeLeagueDraft, customSchedule, ownerRecord, leaders, leagueTables,
   computeAwards, makeBracket, reportSeries, setSeries, bracketOrder, nflMatchups, assignWeeks, rrSchedule, mkPlayer, rng, shuffle
 };
@@ -6952,6 +6973,9 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-06-2', title: 'Win-now and rebuilding mean what they say', items: [
+    'Only real contenders are win-now, and only really bad teams are rebuilding. It goes by how good a team is and how it is actually doing, and most teams are neither. Standings show who is which.'
+  ] },
   { id: '2026-11-06', title: 'Campaign: run the whole franchise', items: [
     'New Inbox tab: contract talks, players asking about playing time, PR events, scouting news. New Franchise tab: morale, team money, facility upgrades and coordinators.',
     'Free agency is now a stage of the offseason, before the draft. Negotiate with your expiring players or let them walk, and go after other teams\' free agents. Contracts have years, base, signing bonus, guarantees and incentives, and players ask for more after big seasons.',
@@ -7447,7 +7471,7 @@ FRV.stand = A => {
   const L = A.L, S = LG.standings(L);
   let h = '';
   S.divs.forEach(d => {
-    h += '<div class="panel"><h3>' + esc(d.name) + '</h3>' + tbl(['Team', 'W-L-T', 'PF', 'PA', 'Diff'], d.rows.map(r => { const t = L.teams[r.id]; return '<tr class="' + (r.id === A.tid ? 'me' : '') + '"><td class="nm">' + tmName(t) + (t.owner ? ' <small class="hum">' + esc(t.owner === 'You' ? '' : t.owner) + '</small>' : '') + (L.po && L.po.seeds && L.po.seeds[r.id] ? ' <small class="seed">#' + L.po.seeds[r.id] + '</small>' : '') + '</td><td>' + rec(r) + '</td><td>' + r.pf + '</td><td>' + r.pa + '</td><td>' + (r.pd > 0 ? '+' : '') + r.pd + '</td></tr>'; }).join('')) + '</div>';
+    h += '<div class="panel"><h3>' + esc(d.name) + '</h3>' + tbl(['Team', 'W-L-T', 'PF', 'PA', 'Diff'], d.rows.map(r => { const t = L.teams[r.id]; return '<tr class="' + (r.id === A.tid ? 'me' : '') + '"><td class="nm">' + tmName(t) + (t.owner ? ' <small class="hum">' + esc(t.owner === 'You' ? '' : t.owner) + '</small>' : '') + (L.po && L.po.seeds && L.po.seeds[r.id] ? ' <small class="seed">#' + L.po.seeds[r.id] + '</small>' : '') + (t.mode ? ' <small class="tmode ' + t.mode + '" title="' + (t.mode === 'win' ? 'A real contender: spends picks on good players' : 'A really bad team: sells veterans for picks') + '">' + (t.mode === 'win' ? 'Win-now' : 'Rebuilding') + '</small>' : '') + '</td><td>' + rec(r) + '</td><td>' + r.pf + '</td><td>' + r.pa + '</td><td>' + (r.pd > 0 ? '+' : '') + r.pd + '</td></tr>'; }).join('')) + '</div>';
   });
   return h;
 };
@@ -7500,7 +7524,7 @@ FRV.trades = A => {
   h += '<div class="panel"><div class="row between"><h3>Propose a trade</h3><select data-hc="trto" aria-label="Trade partner">' + others.map(t => '<option value="' + t.id + '"' + (t.id === FR.to ? ' selected' : '') + '>' + esc(t.name) + (t.owner ? ' (' + esc(t.owner) + ')' : '') + '</option>').join('') + '</select></div>' +
     '<div class="trcols"><div><h4>You send · value ' + valSum(FR.give) + '</h4>' + pkPick(L, tid, 'give') + '<div class="pklist">' + plPick(L, mine, 'give') + '</div></div><div><h4>' + esc(to.nick) + ' send · value ' + valSum(FR.get) + '</h4>' + pkPick(L, FR.to, 'get') + '<div class="pklist">' + plPick(L, theirs, 'get') + '</div></div></div>' +
     '<div class="row"><button class="btn primary" data-h="tr-prop">' + (to.owner ? 'Send offer to ' + esc(to.owner) : 'Propose to ' + esc(to.nick)) + '</button><button class="btn ghost" data-h="tr-clear">Clear</button></div>' +
-    (() => { const n = LG.teamNeeds(L, FR.to); return to.owner ? '' : '<p class="sub">' + esc(to.nick) + ' need: <b>' + (n.needs.slice(0, 4).join(', ') || 'nothing urgent') + '</b>' + (n.deep.length ? ' · deep at: ' + n.deep.slice(0, 4).join(', ') : '') + (to.mode ? ' · <b>' + (to.mode === 'win' ? 'win-now: they spend picks on good players' : 'rebuilding: they sell veterans for picks') + '</b>' : '') + '</p>'; })() + '<p class="hint">CPU teams judge a deal by their own depth chart: a player who would start for them counts in full, a backup for much less, and a pile of small pieces does not add up to a star. They keep their starting quarterback, will not open a big hole in the lineup, and want the deal to fill a need or add something for the future. Draft picks are worth more the earlier the round and the worse the original team is projected to finish: by its record and rating this season, by its overall rating for later drafts (hover a pick to see its expected overall slot). A pick keeps its value however far away its draft is. Dashed picks came from another team. Rosters must keep a full set of starters and stay at ' + LG.ROSTER_MAX + ' or fewer.</p></div>';
+    (() => { const n = LG.teamNeeds(L, FR.to); return to.owner ? '' : '<p class="sub">' + esc(to.nick) + ' need: <b>' + (n.needs.slice(0, 4).join(', ') || 'nothing urgent') + '</b>' + (n.deep.length ? ' · deep at: ' + n.deep.slice(0, 4).join(', ') : '') + (to.mode ? ' · <b>' + (to.mode === 'win' ? 'win-now contender: they spend picks on good players' : 'rebuilding: they sell veterans for picks') + '</b>' : '') + '</p>'; })() + '<p class="hint">CPU teams judge a deal by their own depth chart: a player who would start for them counts in full, a backup for much less, and a pile of small pieces does not add up to a star. They keep their starting quarterback, will not open a big hole in the lineup, and want the deal to fill a need or add something for the future. Draft picks are worth more the earlier the round and the worse the original team is projected to finish: by its record and rating this season, by its overall rating for later drafts (hover a pick to see its expected overall slot). A pick keeps its value however far away its draft is. Dashed picks came from another team. Rosters must keep a full set of starters and stay at ' + LG.ROSTER_MAX + ' or fewer.</p></div>';
   // trading block: your players up for trade and what CPU teams bid for them
   if (A.blockBids) {
     const blk = LG.blockOf(L, tid), bidsFor = id => (FR.bids || []).find(b => b.id === id);
