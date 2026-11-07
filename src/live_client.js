@@ -46,6 +46,7 @@ const LV = {
     if (w.kind === 'ret') {   // the receiving player runs the kick back: he starts it, the other screen watches once his move is in
       if (S.rv[w.n]) return;
       const recv = w.ro.recv;
+      if (S.squad && !S.canCall && S.me === recv) return;   // (a squad team's quarterback runs its returns)
       if (S.me === recv || (S.moves[(RVN + w.n) + '-' + recv] && S.moves[(RVN + w.n) + '-' + recv].ctl)) this.start(G);
       return;
     }
@@ -63,16 +64,28 @@ const LV = {
     const ctx = ret ? { seed: S.seed, playNo: n, ret: { kind: w.ro.kind }, ballOn: w.ro.at, toGo: 10, OS: T[off].squad, DS: T[def].squad, ctlO: true, ctlD: false }
       : { seed: S.seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick: E.legalOff(st, w.om.pick), defPick: E.DEF_CALLS[w.dm.pick] ? w.dm.pick : 'ZONE', OS: T[off].squad, DS: T[def].squad, ctlO: ctl[off], ctlD: ctl[def], dpos: ctl[def] && w.dm && w.dm.dp || null };
     this.lobArm = false;
+    // a squad game: everyone on the field has his own stream (team + position or defender); the sim knows which players are people
+    const sq = S.squad && !ret && !!(w.om.hm || (w.dm && w.dm.hm));
+    let slots = null, mySlot = null;
+    if (sq) {
+      const kO = (w.om.ctl && w.om.hm) || [], kD = (w.dm && w.dm.ctl && w.dm.hm) || [], mk = me ? sqMyKey(me === off ? 'off' : 'def') : null;
+      slots = kO.map(k => off + k).concat(kD.map(k => def + k)); mySlot = me && mk && slots.indexOf(me + mk) >= 0 ? me + mk : null;
+      Object.assign(ctx, { hum: kO.concat(kD), ctlO: false, ctlD: false, dpos: null });
+    }
     const m = this.on = {
       n, wn: ret ? RVN + n : n, ret: ret ? w.ro : null, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? (NET.ok() ? 1 : 3) : 0, dir: off === 'a' ? 1 : -1, st, T, keys: ret ? retKeys(T, off, def) : liveKeys(T, off, def),
       stream: { a: { ev: [], upto: ctl.a ? 0 : 99999, fin: !ctl.a }, b: { ev: [], upto: ctl.b ? 0 : 99999, fin: !ctl.b } },
-      myCtl: !!ctl[me], oppCtl: !!ctl[other(me)], opp: other(me), last: 0, acc: 0, target: 0, stallAt: 0, ended: 0, inflight: false, lastNet: 0, lastStick: '0,0', pan: '', panT: 0, handed: false, tried: 0, sentI: 0, p2pT: 0
+      myCtl: !!ctl[me], oppCtl: !!ctl[other(me)], opp: other(me), squad: sq, slots, mySlot, myKey: mySlot ? mySlot.slice(1) : null, last: 0, acc: 0, target: 0, stallAt: 0, ended: 0, inflight: false, lastNet: 0, lastStick: '0,0', pan: '', panT: 0, handed: false, tried: 0, sentI: 0, p2pT: 0
     };
+    if (sq) { m.stream = {}; slots.forEach(s => { m.stream[s] = { ev: [], upto: 0, fin: false }; }); m.myCtl = !!mySlot; m.oppCtl = slots.some(s => s !== mySlot); m.D = online && slots.length > 1 ? (NET.ok() ? 1 : 3) : 0; }
+    m.mine = sq ? mySlot : me; m.oth = sq ? slots.filter(s => s !== mySlot) : (m.oppCtl ? [m.opp] : []);
     const part = S.lvPart && S.lvPart[m.wn];   // coming back to a snap that was already under way
-    if (part && part[me] && m.myCtl) { m.stream[me].ev = part[me].ev.slice(); m.stream[me].upto = part[me].upto; }
+    if (sq) { const pr = part && part[me] && part[me][m.myKey]; if (pr && m.myCtl) { m.stream[mySlot].ev = pr.ev.slice(); m.stream[mySlot].upto = pr.upto; } }
+    else if (part && part[me] && m.myCtl) { m.stream[me].ev = part[me].ev.slice(); m.stream[me].upto = part[me].upto; }
     this.build(m);
-    const early = this.early[m.wn]; this.early = {};   // the other player's inputs that came over the direct link before this screen started the snap
-    if (early && m.oppCtl) this.merge(m, m.opp, early.ev, early.upto, early.fin);
+    // the others' inputs that came over the direct link before this screen started the snap
+    m.oth.forEach(s => { const e = this.early[m.wn + ':' + (sq ? s : '')]; if (e) this.merge(m, s, e.ev, e.upto, e.fin); });
+    this.early = {};
     const sc = { poss: off, ballOn: st.ballOn, down: st.down, toGo: st.toGo, teams: T };
     Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.flash = null; Field.scene = sc; Field.live = { items: [], ball: { wx: 0, sy: 0 }, los: Field.losX(sc), dir: m.dir };
     m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
@@ -94,7 +107,8 @@ const LV = {
   },
   build(m) {   // (re)create the simulation from tick zero
     m.sim = LIVE.create(m.ctx);
-    m.cc = { a: { ev: [], n: 0, i: 0, dx: 0, dy: 0 }, b: { ev: [], n: 0, i: 0, dx: 0, dy: 0 } };
+    if (m.squad) { m.cc = {}; m.ccKey = {}; m.slots.forEach(s => { m.cc[s] = m.ccKey[s.slice(1)] = { ev: [], n: 0, i: 0, dx: 0, dy: 0 }; }); }
+    else m.cc = { a: { ev: [], n: 0, i: 0, dx: 0, dy: 0 }, b: { ev: [], n: 0, i: 0, dx: 0, dy: 0 } };
     m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
   },
   // play the snap again from the start with what we know now, straight back to the tick we were on (before anything else can happen:
@@ -112,15 +126,15 @@ const LV = {
   /* ----- the clock ----- */
   blocked(m) {
     const need = m.sim.t + 1;
-    for (const s of ['a', 'b']) {
-      if (!m.ctl[s]) continue;
-      if (s === m.me && m.myCtl) continue;   // my own stream is always up to date
+    for (const s of (m.squad ? m.slots : ['a', 'b'])) {
+      if (!m.squad && !m.ctl[s]) continue;
+      if (s === m.mine && m.myCtl) continue;   // my own stream is always up to date
       const rs = m.stream[s]; if (rs.upto + (m.online ? PRED : 0) < need && !rs.fin) return true;
     }
     return false;
   },
   // the result counts only once the other player's inputs are in through the end (until then it may still change)
-  confirmed(m) { if (!m.online || !m.oppCtl) return true; const rs = m.stream[m.opp]; return rs.fin || rs.upto >= m.sim.t; },
+  confirmed(m) { if (!m.online || !m.oppCtl) return true; return m.oth.every(s => { const rs = m.stream[s]; return rs.fin || rs.upto >= m.sim.t; }); },
   /* the other player's stream, from the direct link or the server: anything new that falls on a tick already played (we had guessed he
      kept doing what he was doing) means playing the snap again from the start with the real inputs, straight back to where we were */
   merge(m, s, ev, upto, fin) {
@@ -161,9 +175,9 @@ const LV = {
     if (ts - m.panT > 120) { m.panT = ts; this.panel(false); }
   },
   tick(m) {
-    this.sync(m, 'a'); this.sync(m, 'b');
     m.sn0 = m.sn1;
-    LIVE.advance(m.sim, m.cc[m.off], m.cc[m.def]);
+    if (m.squad) { m.slots.forEach(s => this.sync(m, s)); LIVE.advanceM(m.sim, m.ccKey); }
+    else { this.sync(m, 'a'); this.sync(m, 'b'); LIVE.advance(m.sim, m.cc[m.off], m.cc[m.def]); }
     m.sn1 = this.snapshot(m);
   },
 
@@ -180,7 +194,7 @@ const LV = {
     if (!code && key === m.lastStick) return;
     m.lastStick = key;
     const stamp = Math.min(LIVE.MAXT + 9, Math.max(m.lastStamp || 0, m.sim.t + 1 + m.D)); m.lastStamp = stamp;   // (never earlier than the last one)
-    const ev = m.stream[m.me].ev, e = LIVE.enc(stamp, st[0], st[1], code || 0);
+    const ev = m.stream[m.mine].ev, e = LIVE.enc(stamp, st[0], st[1], code || 0);
     ev.push(e);
     if (ev.length > 3900) { ev.splice(1, 1); m.sentI = 0; }
     if (m.online) { if (NET.ok()) this.p2p(m); else this.netTick(); }
@@ -207,24 +221,26 @@ const LV = {
   // my new inputs (and how far my stream is complete) straight to the other screen
   p2p(m) {
     if (!m.myCtl) return;
-    const mine = m.stream[m.me], i = Math.min(m.sentI, mine.ev.length);
+    const mine = m.stream[m.mine], i = Math.min(m.sentI, mine.ev.length);
     const done = !!m.ended;   // (finished only once the result is confirmed: a guessed ending can still be played again)
     const up = done ? 99999 : m.sim.t + m.D;
-    if (NET.send({ t: 'lv', n: m.wn, i, ev: mine.ev.slice(i), upto: up, fin: done })) m.sentI = mine.ev.length;
+    if (NET.send({ t: 'lv', n: m.wn, s: m.squad ? m.mySlot : undefined, i, ev: mine.ev.slice(i), upto: up, fin: done })) m.sentI = mine.ev.length;
   },
   fromPeer(o) {
     if (!Number.isInteger(o.n) || !Number.isInteger(o.i) || !Array.isArray(o.ev) || !o.ev.every(Number.isInteger)) return;
     const m = this.on;
+    const ek = o.n + ':' + (o.s || '');
     if (!m || o.n !== m.wn) {   // a snap this screen has not started yet: keep it for when it does
-      const e = this.early[o.n] || { ev: [], upto: 0, fin: false };
-      if (o.i <= e.ev.length) { e.ev = e.ev.slice(0, o.i).concat(o.ev); e.upto = Math.max(e.upto, o.upto || 0); e.fin = e.fin || !!o.fin; this.early[o.n] = e; }
-      else NET.send({ t: 'lvre', n: o.n });   // (a gap: ask for all of it)
+      const e = this.early[ek] || { ev: [], upto: 0, fin: false };
+      if (o.i <= e.ev.length) { e.ev = e.ev.slice(0, o.i).concat(o.ev); e.upto = Math.max(e.upto, o.upto || 0); e.fin = e.fin || !!o.fin; this.early[ek] = e; }
+      else NET.send({ t: 'lvre', n: o.n, s: o.s });   // (a gap: ask for all of it)
       return;
     }
-    if (!m.oppCtl) return;
-    const rs = m.stream[m.opp];
-    if (o.i > rs.ev.length) { NET.send({ t: 'lvre', n: o.n }); return; }   // something went missing: ask for the whole stream again
-    this.merge(m, m.opp, rs.ev.slice(0, o.i).concat(o.ev), o.upto || 0, !!o.fin);
+    const sl = m.squad ? o.s : m.opp;
+    if (!m.oppCtl || !sl || sl === m.mine || !m.stream[sl]) return;
+    const rs = m.stream[sl];
+    if (o.i > rs.ev.length) { NET.send({ t: 'lvre', n: o.n, s: o.s }); return; }   // something went missing: ask for the whole stream again
+    this.merge(m, sl, rs.ev.slice(0, o.i).concat(o.ev), o.upto || 0, !!o.fin);
   },
   async netTick() {
     const m = this.on;
@@ -232,11 +248,12 @@ const LV = {
     if (NET.ok() && performance.now() - m.lastNet < 450) return;   // the direct link carries the play: the server only needs the record
     m.lastNet = performance.now();
     m.inflight = true;
-    const mine = m.stream[m.me], gone = this.on !== m;
+    const mine = m.stream[m.mine], gone = this.on !== m;
     try {
-      const body = { code: S.code, seat: m.me, pid: PID, n: m.wn };
+      const body = { code: S.code, seat: m.mine || m.me, pid: PID, n: m.wn };
       if (m.myCtl) { body.op = 'live'; body.ev = mine.ev; body.upto = m.ended ? 99999 : (m.sim.t + m.D); body.fin = !!m.ended; }
       else { body.op = 'live'; body.poll = 1; }
+      if (m.squad) body.want = m.oth;
       const r = await api(body);
       if (this.on === m) this.take(m, r);
       m.tried = 0;
@@ -245,11 +262,17 @@ const LV = {
   },
   take(m, r) {
     if (r.forced) { const f = r.forced, mine = m.stream[m.me]; if (f.ev.length !== mine.ev.length || f.ev.some((e, i) => e !== mine.ev[i])) { mine.ev = f.ev.slice(); this.rebuild(m); } mine.upto = 99999; mine.fin = true; m.handed = true; }
+    if (m.squad) { Object.keys(r.others || {}).forEach(s => { const o = r.others[s]; if (o && m.stream[s] && s !== m.mine) this.merge(m, s, o.ev, o.upto, o.fin); }); return; }
     const o = r.o; if (!o || !m.oppCtl) return;
     this.merge(m, m.opp, o.ev, o.upto, o.fin);
   },
   async force() {
     const m = this.on; if (!m || !m.online || !m.oppCtl) return;
+    if (m.squad) {   // everyone who has gone quiet: the computer takes over his player
+      const need = m.sim.t + 1, quiet = m.oth.filter(s => { const rs = m.stream[s]; return !rs.fin && rs.upto < need + PRED; });
+      let busy = 0; for (const s of quiet) { try { const r = await api({ op: 'force', code: S.code, pid: PID, n: m.wn, slot: s }); if (r.o) this.merge(m, s, r.o.ev, r.o.upto, r.o.fin); } catch (e) { if (e.code === 'alive') busy++; } }
+      if (busy) toast('Still connected. Give them a moment.'); m.stallAt = 0; return;
+    }
     try { const r = await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.wn, force: 1 }); this.take(m, r); m.stallAt = 0; }
     catch (e) { toast(e && e.code === 'alive' ? 'They are still connected. Give it a moment.' : 'Could not reach the server.'); }
   },
@@ -258,7 +281,7 @@ const LV = {
     if (!m.online || !m.myCtl) return;
     this.p2p(m);
     const send = async k => {
-      try { await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.wn, ev: m.stream[m.me].ev, upto: 99999, fin: true }); }
+      try { await api({ op: 'live', code: S.code, seat: m.mine, pid: PID, n: m.wn, ev: m.stream[m.mine].ev, upto: 99999, fin: true }); }
       catch (e) { if (k < 12 && S.mode === 'online' && S.code === m.code0) setTimeout(() => send(k + 1), 600 * (k + 1)); }
     };
     send(0);
@@ -302,11 +325,13 @@ const LV = {
   },
   finish(m) {
     const end = m.sim.t, upto = ev => ev.filter(e => Math.floor(e / 100) <= end);   // (inputs pressed after the snap ended on the other screen do not belong to it)
-    const n = m.n, lv = { a: upto(m.stream.a.ev), b: upto(m.stream.b.ev) };
-    if (!m.ctl.a) lv.a = []; if (!m.ctl.b) lv.b = [];
+    let lv;
+    if (m.squad) { lv = { a: {}, b: {} }; m.slots.forEach(s => { lv[s[0]][s.slice(1)] = upto(m.stream[s].ev); }); }
+    else { lv = { a: upto(m.stream.a.ev), b: upto(m.stream.b.ev) }; if (!m.ctl.a) lv.a = []; if (!m.ctl.b) lv.b = []; }
+    const n = m.n;
     if (m.ret) { S.rv[n] = { s: m.off, ev: lv[m.off] }; S.rvSeen[n] = true; }
     else { S.lv[n] = lv; S.lvSeen[n] = true; }
-    (this.ends = this.ends || []).push([m.wn, end, m.D, this.redos || 0]); if (m.myCtl) { this.done = this.done || {}; this.done[m.wn] = m.stream[m.me].ev.slice(); }   // (kept to send again if the other screen missed some)   // (for the tests)
+    (this.ends = this.ends || []).push([m.wn, end, m.D, this.redos || 0]); if (m.myCtl) { this.done = this.done || {}; this.done[m.wn + ':' + (m.squad ? m.mySlot : '')] = m.stream[m.mine].ev.slice(); }   // (kept to send again if the other screen missed some)   // (for the tests)
     this.stop();
     S.callSig = null;
     if (S.mode === 'online' || S.mode === 'local') render();
@@ -321,10 +346,14 @@ const LV = {
     const items = [];
     const hot = []; if (m.ctl[m.off] && sim.human.o) hot.push([m.off, sim.ctlId.o]); if (m.ctl[m.def] && sim.human.d) hot.push([m.def, sim.ctlId.d]);
     const passer = sim.passer || 'QB';   // (the back on a halfback pass)
-    const tags = (m.me === m.off && m.myCtl && sim.human.o && sim.ball.car === passer && !sim.thrown && sim.kind === 'pass') ? Object.assign({ WR1: 'A', WR2: 'S', TE: 'D', HB: 'F' }, { [passer]: undefined }) : null;
+    // a squad game: you, the people on your team (their names), the people on the other team; who you are, and whether you throw
+    const myP = m.squad && m.mySlot ? sim.by[sim.idOf[m.myKey]] : null, iThrow = m.squad ? !!(myP && myP.id === passer && myP.side === 'o') : (m.me === m.off && m.myCtl && sim.human.o);
+    const people = {}; if (m.squad) m.slots.forEach(sl => { const id = sim.idOf[sl.slice(1)]; if (id && sim.by[id] && sim.by[id].side === (sl[0] === m.off ? 'o' : 'd')) people[id] = { team: sl[0], who: sqWho(sl[0], sl.slice(1)) }; });
+    if (myP) hot.push([m.me, myP.id]);
+    const tags = (iThrow && sim.ball.car === passer && !sim.thrown && sim.kind === 'pass') ? Object.assign({ WR1: 'A', WR2: 'S', TE: 'D', HB: 'F' }, { [passer]: undefined }) : null;
     const catchOf = {}; sim.evt.forEach(e => { if (e[0] === 'catch' && sim.t - e[1] < 18) catchOf[e[2]] = e; });
     // your defender's job until the ball is out: the man he covers, the zone he holds, or RUSH; and a moment of "YOU" after a switch
-    const myD = m.me === m.def && m.myCtl && sim.human.d ? sim.by[sim.ctlId.d] : null, early = !sim.thrown && !sim.handoff && sim.kind === 'pass';
+    const myD = m.squad ? (myP && myP.side === 'd' ? myP : null) : m.me === m.def && m.myCtl && sim.human.d ? sim.by[sim.ctlId.d] : null, early = !sim.thrown && !sim.handoff && sim.kind === 'pass';
     const job = myD && early ? (myD.mode === 'man' ? 'man' : myD.mode === 'zone' ? 'zone' : myD.mode === 'rush' ? 'rush' : '') : '';
     L.zone = job === 'zone' && myD.zone ? { wx: los + dir * myD.zone.x, sy: mid + myD.zone.y * dir * RL, rx: myD.zone.r, ry: myD.zone.r * RL } : null;
     const lastSw = sim.evt.filter(e => e[0] === 'switch').pop(), lastTimed = sim.evt.filter(e => e[0] === 'timed').pop();
@@ -339,6 +368,8 @@ const LV = {
       it.mine = mineHot;
       if (mineHot) { it.ring = '#ffcf3f'; it.tag = lastName(p.name); if (p.side === 'd' && p.eng) it.lev = p.pairL || 0; }
       else if (anyHot) it.ring = TEAM_COL[other(m.me)];   // the player your opponent runs
+      else if (people[p.id]) { it.ring = TEAM_COL[people[p.id].team]; it.mate = people[p.id].who; }   // someone else in the game runs him
+      if (m.squad && it.carrier) { it.hasBall = lastName(p.name); }   // who has the ball, for everyone to see
       if (job === 'man' && myD.man === p.id) it.yourMan = true;
       if (myD === p) {
         if (job === 'rush' || job === 'zone') it.tag += job === 'rush' ? ' · RUSH' : ' · ZONE';
@@ -363,12 +394,25 @@ const LV = {
       bx = qx + (bx - qx) * e; by = qy + (by - qy) * e; }
     const carried = sim.ball.car != null, car = carried ? sim.by[sim.ball.car] : null;
     L.items = items; L.los = los; L.dir = dir;
+    // routes: yours in a squad game (until the ball is out), and every receiver's for the quarterback
+    L.routes = null;
+    if (m.squad && myP && myP.side === 'o' && !sim.thrown && !(sim.kind === 'run' && sim.handoff)) {
+      const lineOf = r => { if (!r || !r.route || r.mode !== 'route') return null; const pts = [[r.x, r.y]].concat(r.route.slice(r.ri || 0)); return pts.map(q => [los + dir * q[0], mid + q[1] * dir * RL]); };
+      const mineL = myP.id === passer ? null : lineOf(myP);
+      L.routes = (iThrow ? ['WR1', 'WR2', 'TE', 'HB'].map(id => ({ pts: lineOf(sim.by[id]), mine: false })) : []).concat(mineL ? [{ pts: mineL, mine: true }] : []).filter(r => r.pts && r.pts.length > 1);
+      if (myP.id === 'HB' && sim.kind === 'run' && !sim.handoff) { const ty = sim.offPick === 'RUN_OUT' ? (sim.runSide || (sim.by.TE.y > 0 ? 1 : -1)) * sim.wideY : 0; L.routes.push({ pts: [[los + dir * myP.x, mid + myP.y * dir * RL], [los + dir * 3, mid + ty * dir * RL]], mine: true, lane: true }); }
+    }
     const fl = cu.f >= 0 ? (pv.f >= 0 ? lerp(pv.f, cu.f) : cu.f) : -1;
     L.ball = { wx: los + dir * bx, sy: mid + by * dir * RL, wz: by * dir, h: bz, carried, lift: carried ? 11 : bz * 9, f: fl };
     const fly = sim.ball.air; L.land = fly && !fly.away ? { wx: los + dir * fly.ex, sy: mid + fly.ey * dir * RL } : null;   // where the throw comes down
     L.mine = items.some(i => i.mine); L.meOff = m.me === m.off;
     L.hud = null;
-    if (m.myCtl && !m.handed && !sim.out && performance.now() >= m.readyAt) {
+    if (m.squad && m.myCtl && !m.handed && !sim.out && performance.now() >= m.readyAt) {
+      const mv = ['ARROWS', 'MOVE'], has = myP && sim.ball.car === myP.id;
+      L.hud = myP.side === 'd' ? (myP.eng ? [mv, ['SPACE', 'SWIM'], ['Q', 'BULL RUSH']] : sim.ball.air && !sim.ball.air.away ? [mv, ['W', 'JUMP AS IT COMES DOWN']] : [mv, ['W', 'JUMP'], ['SPACE', 'DIVE'], ['Q', 'BIG HIT']])
+        : has && iThrow && !sim.thrown && sim.kind === 'pass' && myP.x <= 0 ? [mv, ['A S D F', 'THROW'], ['SHIFT+', 'LOB'], ['SPACE', 'THROW AWAY']]
+        : has ? [mv, ['SPACE', 'JUKE'], ['Q', 'SPIN'], ['W', 'STIFF ARM']] : [mv];
+    } else if (m.myCtl && !m.handed && !sim.out && performance.now() >= m.readyAt) {
       const off = m.me === m.off, qbHas = off && sim.ball.car === passer && !sim.thrown && sim.kind === 'pass' && sim.by[passer].x <= 0, latOn = off && sim.pm.trick === 'lat' && sim.ball.car === sim.pm.tgt && !sim.latT;
       const mv = ['ARROWS', 'MOVE'];
       L.hud = m.ret ? [mv, ['SPACE', 'JUKE']].concat(m.ret.kind === 'pr' ? [['E', 'FAIR CATCH']] : [])
@@ -379,7 +423,7 @@ const LV = {
         : sim.ball.air && !sim.ball.air.away ? [mv, ['W', 'JUMP AS IT COMES DOWN'], ['E', 'SWITCH']]
         : [mv, ['W', 'JUMP'], ['SPACE', 'DIVE'], ['Q', 'BIG HIT'], ['E', 'SWITCH']];
     }
-    L.msg = performance.now() < m.readyAt ? (m.myCtl ? 'READY · YOU ARE ' + lastName((sim.by[m.me === m.off ? sim.ctlId.o : sim.ctlId.d] || {}).name).toUpperCase() : 'READY…') : m.stallAt && !sim.out && (performance.now() - m.stallAt > 700) ? 'Waiting for ' + esc((S.seats[m.opp] || {}).name || 'your opponent') + '…' : '';
+    L.msg = performance.now() < m.readyAt ? (m.myCtl ? 'READY · YOU ARE ' + lastName(((m.squad ? myP : sim.by[m.me === m.off ? sim.ctlId.o : sim.ctlId.d]) || {}).name).toUpperCase() : 'READY…') : m.stallAt && !sim.out && (performance.now() - m.stallAt > 700) ? (m.squad ? 'Waiting for the other players…' : 'Waiting for ' + esc((S.seats[m.opp] || {}).name || 'your opponent') + '…') : '';
     // the camera: on a return it looks ahead at the coverage; while the quarterback holds the ball it leans downfield so the routes stay in
     // view (the quarterback near the back edge); with the ball in the air it frames the throw and the catch point
     const qbHold = !m.ret && sim.ball.car === 'QB' && !sim.thrown && sim.kind === 'pass' && sim.by.QB.x <= 0, air = sim.ball.air;
@@ -408,8 +452,15 @@ const LV = {
     }
     // what can I do right now?
     let info = '', acts = '';
-    const ctlId = role === 'off' ? sim.ctlId.o : sim.ctlId.d, cp = sim.by[ctlId];
-    if (m.myCtl && !m.handed && !sim.out) {
+    const ctlId = m.squad ? (m.myKey ? sim.idOf[m.myKey] : null) : role === 'off' ? sim.ctlId.o : sim.ctlId.d, cp = sim.by[ctlId];
+    const sqRole = m.squad && cp ? (cp.side === 'o' ? 'off' : 'def') : null;
+    if (m.squad && m.myCtl && !m.handed && !sim.out && cp && sqRole === 'off' && sim.ball.car !== cp.id && !(cp.id === (sim.passer || 'QB'))) {
+      info = 'You are <b>' + esc(lastName(cp.name)) + '</b> (' + esc(m.myKey) + '). ' + (sim.kind === 'run' && !sim.handoff && cp.id === 'HB' ? 'The ball is coming to you: follow the lane. ' : sim.thrown ? 'The ball is in the air: get to the ring. ' : 'Run your route (the yellow line) or break off it: your quarterback\'s pass goes to where you are heading. ') + K('←↑↓→') + ' move. Let go of the keys and you run the play as called.';
+      acts = '';
+    } else if (m.squad && m.myCtl && !m.handed && !sim.out && cp && sqRole === 'def') {
+      info = 'You are <b>' + esc(lastName(cp.name)) + '</b> (' + esc(m.myKey) + '). ' + K('←↑↓→') + ' move · ' + K('Space') + ' dive · ' + K('Q') + ' big hit · ' + K('W') + ' jump for the ball as it comes down. Your zone or your man shows on the field. Let go of the keys and he plays the call.';
+      acts = '<button class="ab wide" data-lvk="1">Jump</button><button class="ab wide" data-lvk="5">Dive / Swim</button><button class="ab wide" data-lvk="7">Hit / Bull rush</button>';
+    } else if (m.myCtl && !m.handed && !sim.out) {
       if (m.ret) {
         const pr = m.ret.kind === 'pr';
         info = 'You are <b>' + esc(lastName(cp ? cp.name : '')) + '</b>, the ' + (pr ? 'punt' : 'kick') + ' returner. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke' + (pr ? ' · ' + K('E') + ' fair catch' : '') + '. Follow your blockers.';
@@ -429,6 +480,7 @@ const LV = {
         acts = '<button class="ab wide" data-lvk="1">Jump</button><button class="ab wide" data-lvk="5">Dive / Swim</button><button class="ab wide" data-lvk="7">Hit / Bull rush</button><button class="ab wide" data-lvk="6">Switch</button>';
       }
     } else if (m.myCtl && m.handed) info = 'The computer has your players.';
+    else if (m.squad && !m.myCtl) info = 'You are not on the field for this snap. Watch your team.';
     else if (m.oppCtl) info = 'Your opponent is playing this snap on the field. Your players move on their own.';
     else info = 'Watching the snap.';
     const key = info + '|' + acts;
@@ -439,11 +491,11 @@ const LV = {
     const f = $('#lvforce');
     if (f) {
       const since = m.stallAt || m.waitAt, want = m.online && m.oppCtl && since && performance.now() - since > 5000 && !m.ended;   // (stuck guessing ahead, or at a result the other player has not confirmed)
-      const html = want ? '<button class="btn small" data-act="live-force">Opponent not responding · let the computer take over their player</button>' : '';
+      const html = want ? '<button class="btn small" data-act="live-force">' + (m.squad ? 'Someone is not responding · let the computer take over their player' : 'Opponent not responding · let the computer take over their player') + '</button>' : '';
       if (f.dataset.h !== html) { f.innerHTML = html; f.dataset.h = html; }
     }
   }
 };
 NET.listen('lv', o => LV.fromPeer(o));
-NET.listen('lvre', o => { const m = LV.on; if (m && o.n === m.wn) { m.sentI = 0; LV.p2p(m); } else if (LV.done && LV.done[o.n]) NET.send({ t: 'lv', n: o.n, i: 0, ev: LV.done[o.n], upto: 99999, fin: true }); });
+NET.listen('lvre', o => { const m = LV.on, k = o.n + ':' + (o.s || ''); if (m && o.n === m.wn && (!m.squad || o.s === m.mySlot)) { m.sentI = 0; LV.p2p(m); } else if (LV.done && LV.done[k]) NET.send({ t: 'lv', n: o.n, s: o.s, i: 0, ev: LV.done[k], upto: 99999, fin: true }); });
 window.GD_LV = LV;

@@ -209,8 +209,8 @@ function teamOf(seat) {
   const name = String(d.name || 'Team ' + seat.toUpperCase()).slice(0, 18);
   return d.squad ? { name, squad: d.squad } : { name, roster: d.roster, squad: E.squadFromRoster(d.roster) };
 }
-const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}, v.w ? { two: 1 } : {}, v.s ? { cs: v.s } : {}, v.u ? { dp: v.u } : {}, v.k != null ? { kt: v.k } : {}) : { pick: v };
-const myMove = n => Object.assign({ pick: S.mine[n] }, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {}, S.csN[n] ? { cs: S.csN[n] } : {}, S.dpN[n] ? { dp: S.dpN[n] } : {}, S.ktN[n] != null ? { kt: S.ktN[n] } : {});
+const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}, v.w ? { two: 1 } : {}, v.s ? { cs: v.s } : {}, v.u ? { dp: v.u } : {}, v.k != null ? { kt: v.k } : {}, Array.isArray(v.h) ? { hm: v.h } : {}) : { pick: v };
+const myMove = n => Object.assign({ pick: S.mine[n] }, S.hmN && S.hmN[n] ? { hm: S.hmN[n] } : {}, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {}, S.csN[n] ? { cs: S.csN[n] } : {}, S.dpN[n] ? { dp: S.dpN[n] } : {}, S.ktN[n] != null ? { kt: S.ktN[n] } : {});
 function allMoves() {
   const mv = Object.assign({}, S.moves);
   if (S.me) for (const n in S.mine) mv[n + '-' + S.me] = myMove(n);
@@ -317,6 +317,12 @@ const Field = {
       const z = live.zone, zx = Math.round(sx(z.wx)); x.globalAlpha = 0.16; x.fillStyle = '#ffcf3f'; x.beginPath(); x.ellipse(zx, z.sy + 9, z.rx * YPP, z.ry, 0, 0, Math.PI * 2); x.fill();
       x.globalAlpha = 0.6; x.strokeStyle = '#ffcf3f'; x.lineWidth = 2; x.setLineDash([6, 5]); x.stroke(); x.setLineDash([]); x.globalAlpha = 1;
     }
+    if (live && live.routes) live.routes.forEach(r => {   // a squad game: your route (bright), and every route for the quarterback (faint)
+      x.strokeStyle = r.mine ? '#ffcf3f' : '#efe9d6'; x.globalAlpha = r.mine ? 0.9 : 0.35; x.lineWidth = r.mine ? 3 : 2; x.setLineDash(r.lane ? [10, 6] : [6, 5]);
+      x.beginPath(); r.pts.forEach((q, i) => { const qx = Math.round(sx(q[0])), qy = q[1] + 9; if (i) x.lineTo(qx, qy); else x.moveTo(qx, qy); }); x.stroke(); x.setLineDash([]);
+      const a = r.pts[r.pts.length - 1], b = r.pts[r.pts.length - 2], ax = sx(a[0]), bx = sx(b[0]), ang = Math.atan2(a[1] - b[1], ax - bx);
+      x.beginPath(); x.moveTo(ax, a[1] + 9); x.lineTo(ax - 9 * Math.cos(ang - 0.5), a[1] + 9 - 9 * Math.sin(ang - 0.5)); x.lineTo(ax - 9 * Math.cos(ang + 0.5), a[1] + 9 - 9 * Math.sin(ang + 0.5)); x.closePath(); x.fillStyle = x.strokeStyle; x.fill(); x.globalAlpha = 1;
+    });
     if (live && live.land) {   // where the throw is coming down
       const lx = Math.round(sx(live.land.wx)), pul = 0.5 + 0.5 * Math.sin(performance.now() / 120);
       x.strokeStyle = '#ffcf3f'; x.globalAlpha = 0.5 + 0.4 * pul; x.lineWidth = 2; x.beginPath(); x.ellipse(lx, live.land.sy + 9, 9 + pul * 3, 4 + pul * 1.5, 0, 0, Math.PI * 2); x.stroke(); x.globalAlpha = 1;
@@ -354,6 +360,12 @@ const Field = {
         x.font = '11px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020';
         const lab = 'YOU · ' + p.tag.toUpperCase(); x.strokeText(lab, px, spx - 19 + bob); x.fillStyle = p.ring; x.fillText(lab, px, spx - 19 + bob);
       }
+      if (p.hasBall) {   // a squad game: whoever has the ball, plain for everyone (a white ring and his name)
+        const pul = 0.5 + 0.5 * Math.sin(performance.now() / 110);
+        x.strokeStyle = '#ffffff'; x.lineWidth = 3; x.globalAlpha = 0.65 + 0.35 * pul; x.beginPath(); x.ellipse(px, p.sy + 9, 19 + pul * 3, 8 + pul, 0, 0, Math.PI * 2); x.stroke(); x.globalAlpha = 1;
+        if (!p.tag) { x.font = '11px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020'; const lab = 'BALL · ' + p.hasBall.toUpperCase(); x.strokeText(lab, px, spx - 8); x.fillStyle = '#ffffff'; x.fillText(lab, px, spx - 8); }
+      }
+      if (p.mate && !p.tag) { x.font = '10px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 3; x.strokeStyle = '#0b1020'; x.strokeText(p.mate.toUpperCase(), px, spx + (p.hasBall ? -20 : -6)); x.fillStyle = p.ring || '#efe9d6'; x.fillText(p.mate.toUpperCase(), px, spx + (p.hasBall ? -20 : -6)); }
       if (p.yourMan) {   // the receiver your defender covers
         x.strokeStyle = '#ff5a4a'; x.lineWidth = 2; x.setLineDash([4, 3]); x.beginPath(); x.ellipse(px, p.sy + 9, 15, 6.5, 0, 0, Math.PI * 2); x.stroke(); x.setLineDash([]);
         x.font = '10px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 3; x.strokeStyle = '#0b1020'; x.strokeText('YOUR MAN', px, spx - 6); x.fillStyle = '#ff7a6a'; x.fillText('YOUR MAN', px, spx - 6);
@@ -536,6 +548,7 @@ function screenName() {
   if (S.mode === 'lobby') return 'lobby';
   if (S.mode === 'sdraft') return 'draft';
   if (S.ctx) return bothReady() ? 'game' : 'wait';
+  if (S.squad && !(S.lob && S.lob.started && bothReady())) return 'squad';
   if (S.sd && !DR.isDone(S.sd.d)) return 'draft';
   if (S.mode === 'local' && S.me && !validSeat(S.seats[S.me])) return 'draft';
   if (!bothReady()) return 'wait';
@@ -556,7 +569,7 @@ function buildLobby() {
     '<input id="team" type="text" maxlength="18" autocomplete="off" placeholder="Your team name" value="' + esc(S.myName) + '">' +
     '<label class="fld" for="cap">Salary cap</label>' +
     '<select id="cap">' + CAP_OPTS.map(o => '<option value="' + o[0] + '"' + (o[0] === lsGet('gd_cap') ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
-    '<div class="row"><button class="btn primary" data-act="create" id="b-create" disabled>Create room</button></div>' +
+    '<div class="row"><button class="btn primary" data-act="create" id="b-create" disabled>Create room</button><button class="btn" data-act="create-squad" id="b-squad" disabled title="Up to ten players, five a side">Squad game (2-10 players)</button></div>' +
     '<div class="row joinrow"><input id="code" type="text" maxlength="5" autocomplete="off" spellcheck="false" placeholder="ROOM CODE" aria-label="Room code"><button class="btn" data-act="join" id="b-join" disabled>Join room</button></div>' +
     '<div class="or"><span>or</span></div>' +
     '<button class="btn" data-act="cpu" id="b-cpu">Practice vs CPU</button>' +
@@ -576,7 +589,7 @@ function buildLobby() {
 function updateLobbyHints() {
   const create = $('#b-create'), join = $('#b-join'), hint = $('#access');
   if (!create) return;
-  create.disabled = !S.api; join.disabled = !S.api;
+  create.disabled = !S.api; join.disabled = !S.api; const sq = $('#b-squad'); if (sq) sq.disabled = !S.api;
   hint.textContent = !S.ready ? 'Connecting…' : S.api ? 'Create a room and send the code to a friend.' : 'Online rooms are unavailable right now. Practice vs CPU still works.';
 }
 const CAP_OPTS = [['0', 'No cap'], ['tight', 'Tight · $330M'], ['standard', 'Standard · $360M'], ['loose', 'Loose · $400M']];
@@ -608,7 +621,7 @@ async function api(body, ep) {
 
 /* ---------- starting modes ---------- */
 function resetForMode() {
-  stopPoll(); socUnmount();
+  stopPoll(); socUnmount(); S.squad = false; S.lob = null; S.canCall = false; S.hmN = {};
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
   S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.scene = null;
   S.ctlN = {}; S.toN = {}; S.dpN = {}; S.ktN = {}; S.km = null; S.csN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
@@ -622,7 +635,7 @@ function startLocal() {
   render(); sdStep();
 }
 function setBusy(b) {
-  ['b-create', 'b-join', 'b-cpu'].forEach(id => { const el = $('#' + id); if (el) el.disabled = b || (id !== 'b-cpu' && !S.api); });
+  ['b-create', 'b-squad', 'b-join', 'b-cpu'].forEach(id => { const el = $('#' + id); if (el) el.disabled = b || (id !== 'b-cpu' && !S.api); });
 }
 async function createRoom() {
   if (S.busy) return;
@@ -641,6 +654,7 @@ async function joinRoom(code, quiet) {
   S.busy = true; setBusy(true);
   try {
     const r = await api({ op: 'join', code, pid: PID, name });
+    if (r.squad) { if (r.lob && !r.lob.ps.some(p => p.me)) toast('That game has started. You are watching.'); enterRoom(code, r.seed, null, r.lob); return; }
     if (!r.seat) toast('That room is full. You are watching.');
     enterRoom(code, r.seed, r.seat);
   } catch (e) {
@@ -653,9 +667,10 @@ async function rematch() {
   try { const next = SOC.next || (await api({ op: 'rematch', code: S.code, seat: S.me, pid: PID })).next; NET.stop(); socUnmount(); await joinRoom(next, true); }
   catch (e) { handleErr(e); }
 }
-function enterRoom(code, seed, seat) {
+function enterRoom(code, seed, seat, lob) {
   resetForMode();
   S.mode = 'online'; S.code = code; S.seed = seed; S.me = seat; S.lvLoaded = false;
+  if (lob) { S.squad = true; sqTake(lob); }   // a squad game: its lobby first
   ssSet('gd_room', code);
   startPoll();
   render();
@@ -666,7 +681,8 @@ function startPoll() {
   const tick = async () => {
     if (S.mode !== 'online') return;
     if (!LV.on) try {
-      const r = await api({ op: 'state', code: S.code, lvall: S.lvLoaded && !(S.G && S.G.wait && !S.me) ? 0 : 1, seat: S.me || undefined, pid: S.me ? PID : undefined, dev: PID });
+      const r = await api({ op: 'state', code: S.code, lvall: S.lvLoaded && !(S.G && S.G.wait && !S.me) ? 0 : 1, seat: S.me || undefined, pid: PID, dev: PID });
+      if (r.lob) sqTake(r.lob);
       socTake(r);
       const sig = JSON.stringify(Object.assign({}, r, { seen: 0, emo: 0, chatN: 0, dup: 0, next: 0 }));
       if (!LV.on && sig !== lastPoll) {
@@ -676,7 +692,8 @@ function startPoll() {
         ['a', 'b'].forEach(s => { const m = (r.moves && r.moves[s]) || {}; for (const n in m) o[n + '-' + s] = moveOf(m[n]); });
         S.moves = o; if (r.lv) takeLv(r.lv); S.lvLoaded = true; sdOnline(r); render();
       }
-      if (S.me && S.seats.a && S.seats.b) NET.start(S.code, S.me, other(S.me));
+      if (!S.squad && S.me && S.seats.a && S.seats.b) NET.start(S.code, S.me, other(S.me));
+      if (S.squad) NET.squad(S.code, S.lob);
     } catch (e) { /* transient: keep polling */ }
     if (S.mode === 'online') { clearTimeout(S.poll); S.poll = setTimeout(tick, S.screen === 'game' ? 700 : 1200); }
   };
@@ -696,6 +713,12 @@ function takeLv(lv) {
       continue;
     }
     if (S.lv[n]) continue;
+    if (S.squad) {   // a squad snap: one stream per person on the field (each side's move says whose)
+      const want = ['a', 'b'].map(s => { const m = mv[n + '-' + s]; return m && m.ctl && m.hm ? m.hm.map(k => [s, k]) : []; }).reduce((x, y) => x.concat(y), []);
+      if (want.length && want.every(([s, k]) => r[s] && r[s][k] && r[s][k].fin)) { const o = { a: {}, b: {} }; want.forEach(([s, k]) => { o[s][k] = r[s][k].ev || []; }); S.lv[n] = o; }
+      else S.lvPart[n] = r;
+      continue;
+    }
     const ca = mv[n + '-a'] && mv[n + '-a'].ctl, cb = mv[n + '-b'] && mv[n + '-b'].ctl;
     if ((!ca || (r.a && r.a.fin)) && (!cb || (r.b && r.b.fin))) S.lv[n] = { a: (r.a && r.a.ev) || [], b: (r.b && r.b.ev) || [] };
     else S.lvPart[n] = r;
@@ -713,11 +736,11 @@ function socMount() {
   SOC.box = CHAT.mount(chatDock(), { me: myName(), poll: 0,
     fetch: since => api({ op: 'chatget', code: S.code, since }),
     post: async text => { const r = await api({ op: 'chat', code: S.code, seat: S.me, pid: PID, text }); NET.send({ t: 'chat', msg: r.msg }); return r; },
-    emote: S.me ? k => sendEmote(k) : null });
+    emote: S.me || S.squad ? k => sendEmote(k) : null });
 }
 function socUnmount() { if (SOC.box) SOC.box.destroy(); SOC.box = null; SOC.code = null; }
 function chatDock() { let d = $('#chatdock'); if (!d) { d = document.createElement('div'); d.id = 'chatdock'; document.body.appendChild(d); } return d; }
-const myName = () => S.me && S.seats && S.seats[S.me] ? S.seats[S.me].name : '';
+const myName = () => S.squad ? ((S.lob && S.lob.ps.find(p => p.me)) || {}).name || '' : S.me && S.seats && S.seats[S.me] ? S.seats[S.me].name : '';
 async function sendEmote(k) {
   try { const r = await api({ op: 'emo', code: S.code, seat: S.me, pid: PID, k }); showEmote(S.me, r.emo); NET.send({ t: 'emo', s: S.me, e: r.emo }); }
   catch (e) { toast(e.code === 'slow' ? 'One emote every few seconds.' : 'Could not send that.'); }
@@ -744,7 +767,7 @@ function socTake(r) {
 // the other player's dot: a direct link, playing through the server, or not heard from for a while (reconnecting)
 function paintOpp() {
   const el = $('#oppst'); if (!el) return;
-  const o = S.me && S.seats && S.seats[other(S.me)]; if (!o) { el.hidden = true; return; }
+  const o = !S.squad && S.me && S.seats && S.seats[other(S.me)]; if (!o) { el.hidden = true; return; }
   const away = SOC.seen == null || SOC.seen > 15000, d = NET.ok() && !away;
   el.hidden = false; el.className = 'netst ' + (d ? 'direct' : away ? 'away' : 'server');
   el.textContent = o.name + (away ? ' · reconnecting…' : '');
@@ -1170,6 +1193,7 @@ function renderCall0(G) {
     if (S.callSig === 'spec') return; S.callSig = 'spec';
     p.innerHTML = '<p class="sub">You are watching this game.</p>'; return;
   }
+  if (S.squad && !S.canCall) { sqMatePanel(G, p); return; }
   const n = st.playNo, role = S.me === st.poss ? 'off' : 'def';
   if (st.kick && role === 'def') {   // the other team is choosing its kick
     const sg = 'kw' + n; if (S.callSig === sg) return; S.callSig = sg;
@@ -1243,6 +1267,7 @@ function toRowHTML(st) {
 // the play, and E still switches. B cycles through them.
 const DSPOTS = [['', 'Auto'], ['LDE', 'L End'], ['RDE', 'R End'], ['LDT', 'L Tackle'], ['RDT', 'R Tackle'], ['MLB', 'Mike LB'], ['WLB', 'Will LB'], ['SLB', 'Sam LB'], ['LCB', 'L Corner'], ['RCB', 'R Corner'], ['FS', 'Free S'], ['SS', 'Strong S']];
 function spotRowHTML(role) {
+  if (S.squad) return '';
   if (role !== 'def' || !S.ctlOn) return '';
   return '<div class="ctlrow spots">' + DSPOTS.map(([id, lab]) => '<button class="btn small ctl' + (S.dpos === id ? ' on' : '') + '" data-act="dspot" data-id="' + id + '" aria-pressed="' + (S.dpos === id) + '">' + lab + '</button>').join('') + '<span class="hint">You start the snap as this defender (B to cycle). You stay him until the play moves away from him; E switches.</span></div>';
 }
@@ -1281,6 +1306,7 @@ function kickMeterPanel(G, p) {
     '<div class="row"><button class="btn small primary" data-act="km-stop">Kick (Space)</button>' + (st.kick ? '' : '<button class="btn small" data-act="km-back">Back to the calls</button>') + '</div></div>';
 }
 function ctlRowHTML(role) {
+  if (S.squad) return '<div class="ctlrow"><button class="btn small" data-sq="setup">Teams</button><span class="hint">Everyone on your team runs his own player; the computer plays the open spots.</span></div>';
   const on = S.ctlOn;
   return '<div class="ctlrow"><button class="btn small ctl' + (on ? ' on' : '') + '" data-act="ctl-toggle" aria-pressed="' + on + '">Control your players: ' + (on ? 'ON' : 'OFF') + '</button>' +
     '<span class="hint">' + (on ? (role === 'off' ? 'You play the quarterback, then whoever has the ball.' : 'You play one defender and can switch.') + ' Everyone else moves on their own. You also run back kickoffs and punts.' : 'You only call the plays. The computer runs everyone.') + ' Press C to switch.</span></div>';
@@ -1330,19 +1356,21 @@ function submitCall(pick, opt) {
   S.mine[n] = pick; S.callSig = null;
   if (!st.kick && !st.pat) S.lastCall = Object.assign({}, S.lastCall, { [role]: pick });   // for hurry-up (R)
   if (!st.kick && !st.pat) { const c = (role === 'off' ? E.OFF[pick] : E.DEF_CALLS[pick]).cat; if (c !== 'SPEC') lsSet('gd_cat_' + role, c); }
-  const ctl = S.ctlOn && !(role === 'off' && E.noDef(pick)) ? 1 : 0;
+  const ctl = (S.squad || S.ctlOn) && !(role === 'off' && E.noDef(pick)) ? 1 : 0;
+  const hm = S.squad && ctl ? sqKeys(S.me, role) : null; if (hm) S.hmN[n] = hm; else if (S.hmN) delete S.hmN[n];
   const to = toSel(n) && st.ro > 0 && st.to[S.me] > 0 ? 1 : 0;
   if (to) S.toN[n] = 1; else delete S.toN[n];
   if (ctl) S.ctlN[n] = 1; else delete S.ctlN[n];
   const dp = role === 'def' && ctl && S.dpos ? S.dpos : ''; if (dp) S.dpN[n] = dp; else delete S.dpN[n];   // the defender you start as
   const cs = S.pc && S.pc.n === n ? Math.round(S.pc.run) : 0; if (cs) S.csN[n] = cs; else delete S.csN[n];   // how long the call took (clock run-off)
   if (S.mode === 'online') {
-    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to, cs, dp: dp || undefined, kt: kt != null ? kt : undefined }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; delete S.ktN[n]; delete S.dpN[n]; S.callSig = null; handleErr(e); updateGame(); });
+    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to, cs, dp: dp || undefined, kt: kt != null ? kt : undefined, hm: hm || undefined }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; delete S.ktN[n]; delete S.dpN[n]; S.callSig = null; handleErr(e); updateGame(); });
   }
   updateGame();
 }
 
 
+/*SQUAD*/
 /*LIVE_CLIENT*/
 
 /* ---------- hub-driven games (campaign, leagues, tournaments) ---------- */
@@ -1382,6 +1410,7 @@ function render() {
   if (sc === 'lobby') { if (changed) { if (window.HUB) window.HUB.show(); else buildLobby(); } }
   else if (sc === 'draft') { if (changed) { S.sd && (S.sd.built = false); sdUpdate(); } else sdUpdate(); }
   else if (sc === 'wait') drawWait();
+  else if (sc === 'squad') sqScreen();
   else { if (changed) buildGame(); updateGame(); }
 }
 
@@ -1390,6 +1419,7 @@ document.addEventListener('click', ev => {
   const t = ev.target.closest('[data-act]'); if (!t) return;
   const a = t.dataset.act;
   if (a === 'create') createRoom();
+  else if (a === 'create-squad') createSquad();
   else if (a === 'join') joinRoom($('#code').value);
   else if (a === 'cpu') startLocal();
   else if (a === 'fullscreen') toggleFull();

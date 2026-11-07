@@ -1,6 +1,7 @@
 // Quick-game rooms (guests or accounts) and the live rooms used by league games and tournament matches.
 const { cmd, getJ, setJ, parse, readBody, send, fail, clean, randCode, userFrom, withLock } = require('./_lib');
 const CHAT = require('./_chat');
+const SQ = require('./_squad');
 const EMOTES = ['gg', 'nice', 'wow', 'oops', 'lol', 'fire', 'clap', 'mad'];
 const { createRoom, readRoom, liveAll, rkey, TTL } = require('./_rooms');
 const E = require('../lib/engine.js');
@@ -69,6 +70,11 @@ module.exports = async function handler(req, res) {
       if (!pid) return fail(res, 400, 'bad_request');
       const seed = Math.floor(Math.random() * 2147483647);
       const cap = CAPVALS.includes(+b.cap) ? +b.cap : 0;
+      if (b.squad) {   // a squad game: a lobby first, the host sets the teams
+        const code = await createRoom(seed, null, {}, { cap, squad: 1 }); if (!code) return fail(res, 503, 'busy');
+        const lob = await SQ.create(code, pid, name);
+        return send(res, 200, { code, seed, seat: null, squad: 1, lob: SQ.pub(lob, pid) });
+      }
       const code = await createRoom(seed, null, { a: { pid, name, status: 'drafting' } }, { cap });
       return code ? send(res, 200, { code, seed, seat: 'a' }) : fail(res, 503, 'busy');
     }
@@ -76,6 +82,7 @@ module.exports = async function handler(req, res) {
     if (!/^[A-Z0-9]{5}$/.test(code)) return fail(res, 400, 'bad_request');
     const room = await getJ(rkey(code, 'room'));
     if (!room) return fail(res, 404, 'no_room');
+    if (room.squad && await SQ.op(res, b, code, room, pid, name)) return;
     if (op === 'join') {
       const [sa, sb] = (await cmd(['MGET', rkey(code, 'a'), rkey(code, 'b')])).map(parse);
       let seat = null;
@@ -100,8 +107,21 @@ module.exports = async function handler(req, res) {
       }
       out.emo = { a: v[7] || undefined, b: v[8] || undefined }; out.chatN = v[9] ? v[9].n : 0;
       if (room.next) out.next = room.next;
-      if (b.lvall) out.lv = await liveAll(code, out.moves);
+      if (room.squad) { const lob = await getJ(rkey(code, 'lob')); if (lob) out.lob = SQ.pub(lob, pid); if (b.lvall) out.lv = await SQ.liveAll(code, out.moves); }
+      else if (b.lvall) out.lv = await liveAll(code, out.moves);
       return send(res, 200, out);
+    }
+    if (room.squad) {   // squad rooms: everything a person does on the field, in the chat and on the link goes by his place in the lobby
+      if (op === 'live' && (b.want || (typeof b.seat === 'string' && b.seat.length > 1))) return await SQ.live(res, b, code, pid);
+      if (op === 'force' && b.slot) return await SQ.force(res, b, code, pid);
+      if (op === 'chat' || op === 'emo' || op === 'sig') {
+        const lob = await getJ(rkey(code, 'lob')), m = SQ.memberOf(lob, pid); if (!m) return fail(res, 403, 'forbidden');
+        if (op === 'sig') return await sigOp(res, b, code, m.id);
+        if (op === 'chat') { try { return send(res, 200, { msg: await CHAT.post(rkey(code, 'chat'), m.name, b.text, TTL, { s: m.team || '' }) }); } catch (e) { if (e.code === 'slow' || e.code === 'empty') return fail(res, e.status, e.code); throw e; } }
+        const k = EMOTES.indexOf(b.k) >= 0 ? b.k : null, t = m.team; if (!k || !t) return fail(res, 400, 'bad_request');
+        if ((await cmd(['SET', rkey(code, 'emr:' + m.id), '1', 'NX', 'PX', 2500])) === null) return fail(res, 429, 'slow');
+        const e = { k, at: Date.now(), i: Math.floor(Math.random() * 1e9), by: m.name }; await setJ(rkey(code, 'emo:' + t), e, 120); return send(res, 200, { emo: e });
+      }
     }
     const seat = b.seat === 'a' || b.seat === 'b' ? b.seat : null;
     if (!seat || !pid) return fail(res, 400, 'bad_request');
@@ -138,7 +158,8 @@ module.exports = async function handler(req, res) {
       const cs = Number.isInteger(b.cs) && b.cs > 0 ? Math.min(600, b.cs) : 0;
       // u: the defender he starts the snap as (LDE, RCB ...), k: how close to the middle of the meter he stopped his kick (0 is perfect, 100 the edge)
       const dp = typeof b.dp === 'string' && /^[A-Z]{1,6}$/.test(b.dp) ? b.dp : '', kt = Number.isInteger(b.kt) && b.kt >= 0 && b.kt <= 100 ? b.kt : null;
-      if (moves[n] === undefined) moves[n] = b.ctl || b.to || b.two || cs || dp || kt != null ? Object.assign({ p: pick }, b.ctl ? { c: 1 } : {}, b.to ? { t: 1 } : {}, b.two ? { w: 1 } : {}, cs ? { s: cs } : {}, dp ? { u: dp } : {}, kt != null ? { k: kt } : {}) : pick;
+      const hm = room.squad && Array.isArray(b.hm) ? b.hm.filter(k => SQ.POS.indexOf(k) >= 0 || SQ.SPOTS.indexOf(k) >= 0).slice(0, 5) : null;
+      if (moves[n] === undefined) moves[n] = b.ctl || b.to || b.two || cs || dp || kt != null || (hm && hm.length) ? Object.assign({ p: pick }, b.ctl ? { c: 1 } : {}, b.to ? { t: 1 } : {}, b.two ? { w: 1 } : {}, cs ? { s: cs } : {}, dp ? { u: dp } : {}, kt != null ? { k: kt } : {}, hm && hm.length && b.ctl ? { h: hm } : {}) : pick;
       await setJ(mk, moves, TTL);
       return send(res, 200, { ok: true });
     }
