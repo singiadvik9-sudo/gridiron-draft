@@ -1,5 +1,6 @@
 // Tournaments (accounts only): single-elimination brackets with custom seeding, best-of series, CPU entrants.
 const { putZ, getZ, cmd, getJ, setJ, parse, withLock, readBody, send, fail, clean, randCode, userFrom, addToUser, pushHist, uKey } = require('./_lib');
+const CHAT = require('./_chat');
 const { createRoom, readRoom, rkey } = require('./_rooms');
 const E = require('../lib/engine.js');
 const LG = require('../lib/league.js');
@@ -145,6 +146,13 @@ module.exports = async function (req, res) {
     }
     const code = String(b.code || '').toUpperCase();
     if (!/^[A-Z0-9]{5}$/.test(code)) return fail(res, 400, 'bad_request');
+    if (op === 'chat' || op === 'chatget') {   // members only; kept 30 days
+      const doc = await getZ(key(code)); if (!doc) return fail(res, 404, 'no_tournament');
+      if (!(doc.mgr === me || (doc.ent || []).some(e => e.owner === me))) return fail(res, 403, 'forbidden');
+      if (op === 'chatget') return send(res, 200, await CHAT.list('gd:tnc:' + code, b.since));
+      try { return send(res, 200, { msg: await CHAT.post('gd:tnc:' + code, me, b.text, 30 * 86400) }); }
+      catch (e) { if (e.code === 'slow' || e.code === 'empty') return fail(res, e.status, e.code); throw e; }
+    }
     if (op === 'get') {
       const s = parse(await cmd(['GET', skey(code)])); if (!s) return fail(res, 404, 'no_tournament');
       if (b.ver && +b.ver === s.ver) return send(res, 200, { same: true, ver: s.ver });

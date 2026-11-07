@@ -9,24 +9,38 @@ const SAVE = {
     return out;
   },
   async get(slot) {
-    if (H.user) return (await call('save', { op: 'get', slot })).L;
+    if (H.user) { const r = await call('save', { op: 'get', slot }); C.rev = r.rev || 0; return r.L; }
     return JSON.parse(lsGet('gd_c' + slot));
   },
-  async put(slot, L) {
-    if (H.user) { await call('save', { op: 'put', slot, L }); return; }
+  async put(slot, L, force) {
+    // (base: the version this device loaded; the server refuses if another device has saved since)
+    if (H.user) { const r = await call('save', { op: 'put', slot, L, base: C.rev, force: force ? 1 : undefined }); C.rev = r.meta ? r.meta.updated : C.rev; return; }
     if (!lsSet('gd_c' + slot, JSON.stringify(L)) || !lsSet('gd_cm' + slot, JSON.stringify(SAVE.meta(L)))) throw new Error('This device ran out of storage. Sign in to save online.');
   },
   async del(slot) { if (H.user) await call('save', { op: 'delete', slot }); else { lsSet('gd_c' + slot, null); lsSet('gd_cm' + slot, null); } }
 };
-const C = { L: null, slot: 0, timer: 0, state: 'saved', base: null };
+const C = { L: null, slot: 0, timer: 0, state: 'saved', base: null, rev: null };
 
 async function campSave() {
   clearTimeout(C.timer); C.timer = 0;
   if (!C.L) return;
   C.state = 'saving';
-  try { await SAVE.put(C.slot, C.L); C.state = 'saved'; } catch (e) { C.state = 'error'; toast(e.message && /\s/.test(e.message) ? e.message : 'Could not save. Check your connection.'); }
+  try { await SAVE.put(C.slot, C.L); C.state = 'saved'; }
+  catch (e) {
+    C.state = 'error';
+    if (e.code === 'stale') staleSave(e.body && e.body.meta);
+    else toast(e.message && /\s/.test(e.message) ? e.message : 'Could not save. Check your connection.');
+  }
   const el = $('.chip.savechip'); if (el) el.textContent = savedText();
 }
+// this campaign was saved on another device after this one loaded it: load that version, or keep this one (overwriting the other)
+function staleSave(meta) {
+  const w = meta ? esc((meta.team || '') + ' · ' + meta.season + (meta.phase === 'season' || meta.phase === 'reg' ? ' week ' + meta.week : '') + ' · saved ' + new Date(meta.updated).toLocaleTimeString()) : 'a newer save';
+  G.openModal('<h3>Saved on another device</h3><p>This campaign was saved on another device after you opened it here (' + w + '). Saving now would wipe out that progress.</p>' +
+    '<div class="row"><button class="btn primary" data-h="stale-load">Load the other device\'s version</button><button class="btn" data-h="stale-keep">Keep this one (overwrite it)</button></div>');
+}
+ACT['stale-load'] = async () => { G.closeModal(); const L = await run(() => SAVE.get(C.slot)); if (!L) return; C.L = L; C.state = 'saved'; FR.offers = null; go('camphub'); toast('Loaded the newer save.'); };
+ACT['stale-keep'] = async () => { G.closeModal(); C.state = 'saving'; try { await SAVE.put(C.slot, C.L, true); C.state = 'saved'; toast('Saved over the other version.'); } catch (e) { C.state = 'error'; toast('Could not save. Check your connection.'); } const el = $('.chip.savechip'); if (el) el.textContent = savedText(); };
 const savedText = () => C.state === 'saved' ? 'Saved' : C.state === 'saving' ? 'Saving…' : C.state === 'error' ? 'Not saved!' : 'Unsaved changes';
 function campDirty(now) {
   C.state = 'dirty'; clearTimeout(C.timer);
@@ -62,7 +76,7 @@ ACT['camp-pick'] = async t => {
   const L = LG.newNFL({ user: tid, seed: Math.floor(Math.random() * 2147483647) });
   L.teams[tid].owner = 'You'; L.user = tid;
   LG.runUntilHuman(L, 60);
-  C.L = L; C.slot = slot; FR.tab = 'home'; FR.give = []; FR.get = []; FR.offers = null; FR.rtid = null;
+  C.L = L; C.slot = slot; C.rev = null; FR.tab = 'home'; FR.give = []; FR.get = []; FR.offers = null; FR.rtid = null;   // (a new campaign replaces whatever was in the slot)
   await campSave(); go('camphub');
 };
 ACT['camp-exit'] = async () => { await campSave(); go('camp'); };

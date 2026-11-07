@@ -68,6 +68,7 @@ function lgRender() {
   if (H.view !== 'league' || G.state.mode !== 'lobby') return;
   const L = LGS.L;
   if (!LGS.member) { setMain('<section class="panel narrow"><h2>' + esc(L.cfg.name) + '</h2><p class="sub">You have not joined this league.</p><div class="row"><button class="btn primary" data-h="lg-join">Join league</button></div></section>'); return; }
+  hubChat('league', LGS.code);
   if (L.phase === 'setup') lgLobby(); else frShow(lgAdapter());
 }
 ACT['lg-join'] = async () => { if (await run(() => call('league', { op: 'join', code: LGS.code }))) lgReload(); };

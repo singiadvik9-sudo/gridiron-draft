@@ -68,6 +68,7 @@ function tnRender() {
   else h += tnBracket(T, me, mgr, mine);
   h += '<section class="panel"><div class="row"><button class="btn" data-h="tourneys">All tournaments</button>' + (mgr ? '<button class="btn ghost" data-h="tn-del">Delete tournament</button>' : (T.phase === 'setup' && mine ? '<button class="btn ghost" data-h="tn-leave">Leave</button>' : '')) + '</div></section>';
   setMain(h);
+  if (mine || mgr) hubChat('tourney', T.code);
 }
 function tnSetup(T, me, mgr, mine) {
   const c = T.cfg;

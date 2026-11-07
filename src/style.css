@@ -610,3 +610,29 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .netst.server::before { background: #e0a030; }
 .netst.conn::before { background: #888; animation: netblink 1s infinite; }
 @keyframes netblink { 50% { opacity: .3; } }
+/* chat: a dock in the corner during online games; the same box inside league and tournament pages */
+#chatdock { position: fixed; right: 12px; bottom: 12px; z-index: 40; max-width: calc(100vw - 24px); }
+.chatbox { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; font-size: 13px; }
+.chatbox .chat-tab { background: var(--panel, #1c2230); color: inherit; border: 1px solid var(--line, #333c4e); border-radius: 18px; padding: 6px 14px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; font: inherit; }
+.chatbox.open .chat-tab { border-color: var(--flag, #e0a030); }
+.chat-badge { background: #e2463c; color: #fff; border-radius: 9px; padding: 0 6px; font-size: 11px; }
+.chat-body { width: 320px; max-width: calc(100vw - 24px); background: var(--panel, #1c2230); border: 1px solid var(--line, #333c4e); border-radius: 10px; padding: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+.chat-log { list-style: none; margin: 0 0 6px; padding: 0; max-height: 220px; overflow-y: auto; }
+.chat-log li { padding: 3px 2px; line-height: 1.35; word-wrap: break-word; }
+.chat-log li.sys { opacity: .65; font-style: italic; }
+.chat-log li.mine .chat-who { color: var(--flag, #e0a030); }
+.chat-who { background: none; border: 0; padding: 0; color: #7fb4ff; font-weight: 700; cursor: pointer; font: inherit; font-weight: 700; }
+.chat-emotes { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.emo-b { background: none; border: 1px solid var(--line, #333c4e); border-radius: 8px; font-size: 18px; padding: 2px 6px; cursor: pointer; }
+.chat-quick { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.chat-quick .btn { font-size: 11px; padding: 3px 7px; }
+.chat-form { display: flex; gap: 6px; }
+.chat-form input { flex: 1; min-width: 0; }
+.chatbox.inline { align-items: stretch; }
+.chatbox.inline .chat-body { width: auto; box-shadow: none; }
+/* an emote by a team's name on the scoreboard */
+.sb-team { position: relative; }
+.emo-bubble { position: absolute; left: 50%; top: -6px; transform: translate(-50%, 0) scale(.6); opacity: 0; background: #fff; color: #111; border-radius: 14px; padding: 4px 10px; font-weight: 700; font-size: 14px; white-space: nowrap; pointer-events: none; transition: transform .25s, opacity .25s; z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+.emo-bubble.go { transform: translate(-50%, -100%) scale(1); opacity: 1; }
+.netst.away::before { background: #e2463c; }
+@media (max-width: 640px) { #chatdock { right: 8px; bottom: 8px; } .chat-log { max-height: 160px; } }

@@ -1,5 +1,7 @@
 // Quick-game rooms (guests or accounts) and the live rooms used by league games and tournament matches.
 const { cmd, getJ, setJ, parse, readBody, send, fail, clean, randCode, userFrom, withLock } = require('./_lib');
+const CHAT = require('./_chat');
+const EMOTES = ['gg', 'nice', 'wow', 'oops', 'lol', 'fire', 'clap', 'mad'];
 const { createRoom, readRoom, liveAll, rkey, TTL } = require('./_rooms');
 const E = require('../lib/engine.js');
 const DR = require('../lib/draft.js');
@@ -85,9 +87,19 @@ module.exports = async function handler(req, res) {
       if (seat && !room.ctx) await cmd(['SET', rkey(code, 'dr'), JSON.stringify(DR.newDraft(2, room.cap || 0, room.seed % 2)), 'EX', TTL, 'NX']);
       return send(res, 200, { seed: room.seed, seat, ctx: room.ctx || null });
     }
+    if (op === 'chatget') { const r = await CHAT.list(rkey(code, 'chat'), b.since); return send(res, 200, r); }
     if (op === 'state') {
-      const v = (await cmd(['MGET', rkey(code, 'a'), rkey(code, 'b'), rkey(code, 'ma'), rkey(code, 'mb'), rkey(code, 'dr')])).map(parse);
+      const v = (await cmd(['MGET', rkey(code, 'a'), rkey(code, 'b'), rkey(code, 'ma'), rkey(code, 'mb'), rkey(code, 'dr'), rkey(code, 'pr:a'), rkey(code, 'pr:b'), rkey(code, 'emo:a'), rkey(code, 'emo:b'), rkey(code, 'chat')])).map(parse);
       const out = { seats: { a: v[0] || undefined, b: v[1] || undefined }, moves: { a: v[2] || {}, b: v[3] || {} }, dr: v[4] || undefined };
+      // presence: how long since each seat was last heard from (its connection dot), and whether your seat is open on another device too
+      const now = Date.now(), me = b.seat === 'a' || b.seat === 'b' ? b.seat : null, dev = clean(b.dev, 40);
+      out.seen = { a: v[5] ? now - v[5].at : null, b: v[6] ? now - v[6].at : null };
+      if (me && dev && v[me === 'a' ? 0 : 1] && v[me === 'a' ? 0 : 1].pid === pid) {
+        const pr = v[me === 'a' ? 5 : 6]; if (pr && pr.d !== dev && now - pr.at < 6000) out.dup = true;
+        await setJ(rkey(code, 'pr:' + me), { at: now, d: dev }, TTL); out.seen[me] = 0;
+      }
+      out.emo = { a: v[7] || undefined, b: v[8] || undefined }; out.chatN = v[9] ? v[9].n : 0;
+      if (room.next) out.next = room.next;
       if (b.lvall) out.lv = await liveAll(code, out.moves);
       return send(res, 200, out);
     }
@@ -131,6 +143,26 @@ module.exports = async function handler(req, res) {
       return send(res, 200, { ok: true });
     }
     if (op === 'live') return await liveOp(res, b, code, seat);
+    if (op === 'chat') {
+      try { const msg = await CHAT.post(rkey(code, 'chat'), cur.name || seat, b.text, TTL, { s: seat }); return send(res, 200, { msg }); }
+      catch (e) { if (e.code === 'slow' || e.code === 'empty') return fail(res, e.status, e.code); throw e; }
+    }
+    if (op === 'emo') {   // an emote: one every 2.5 seconds
+      const k = EMOTES.indexOf(b.k) >= 0 ? b.k : null; if (!k) return fail(res, 400, 'bad_request');
+      if ((await cmd(['SET', rkey(code, 'emr:' + seat), '1', 'NX', 'PX', 2500])) === null) return fail(res, 429, 'slow');
+      const e = { k, at: Date.now(), i: Math.floor(Math.random() * 1e9) }; await setJ(rkey(code, 'emo:' + seat), e, 120);
+      return send(res, 200, { emo: e });
+    }
+    if (op === 'rematch') {   // a fresh quick game for the same two: the first to ask makes the room, the other is pointed to it
+      if (room.ctx) return fail(res, 400, 'bad_request');
+      const next = await withLock('rm:' + code, async () => {
+        const r0 = await getJ(rkey(code, 'room')); if (r0 && r0.next) return r0.next;
+        const nc = await createRoom(Math.floor(Math.random() * 2147483647), null, { a: { pid, name: cur.name || name, status: 'drafting' } }, { cap: room.cap || 0 });
+        if (nc) await setJ(rkey(code, 'room'), Object.assign({}, r0 || room, { next: nc }), TTL);
+        return nc;
+      });
+      return next ? send(res, 200, { next }) : fail(res, 503, 'busy');
+    }
     if (op === 'sig') return await sigOp(res, b, code, seat);
     return fail(res, 400, 'bad_request');
   } catch (e) { return fail(res, 500, 'server'); }
