@@ -4674,7 +4674,15 @@ const PR_EVENTS = [
   { from: 'Ticket office', subj: 'Ticket prices', body: 'We could raise ticket prices for the next few games and bring in about $3M.', opts: [{ t: 'Raise them', cash: 3, fans: -4, reply: 'Prices are up. Season-ticket holders are grumbling.' }, { t: 'Freeze them', fans: 2, reply: 'Prices stay put, and the fans appreciated the announcement.' }] },
   { from: 'Team captains', subj: 'Team dinner', body: 'The captains want a team dinner to bring everyone together. It runs about $0.5M with the travel and the venue.', opts: [{ t: 'Pay for it', cost: 0.5, team: 4, star: 2, reply: 'Good night. The locker room feels closer.' }, { t: 'Not now', team: -1, reply: 'Understood, coach.' }] }
 ];
-const CRIMES = ['arrested after a bar brawl', 'cited for street racing on the interstate', 'caught smuggling fireworks across state lines', 'charged with driving under the influence', 'arrested for disorderly conduct at a casino', 'caught running an illegal betting ring', 'arrested after a fight at a nightclub'];
+// (made-up players only: real players get the league's conduct-policy line)
+const CRIMES = ['arrested after a bar brawl', 'cited for street racing on the interstate', 'caught smuggling fireworks across state lines', 'charged with driving under the influence', 'arrested for disorderly conduct at a casino', 'caught running an illegal betting ring', 'arrested after a fight at a nightclub',
+  'arrested with a duffel bag of weed in his trunk', 'caught with an unregistered handgun at the airport', 'charged with felony possession of cocaine', 'arrested for punching a bouncer who would not let him into the VIP section',
+  'busted running a backyard dogfighting ring', 'arrested for threatening a referee in the parking lot', 'caught driving 140 mph with an open bottle of tequila', 'charged with assault after a brawl at a steakhouse',
+  'arrested for trashing a hotel suite and throwing a TV off the balcony', 'charged with vandalism after keying an ex-teammate\'s Lamborghini', 'caught selling counterfeit team jerseys out of his garage', 'charged with insurance fraud on a Ferrari he crashed on purpose',
+  'arrested after a strip club fight that ended in the parking lot', 'arrested for public intoxication after passing out in a hotel fountain', 'arrested for shooting out a neighbor\'s security camera', 'charged with resisting arrest after fleeing police on a dirt bike',
+  'caught growing marijuana in his basement under heat lamps', 'arrested for breaking into the team facility at 3 a.m. to steal his own game film', 'charged with bribing a high school coach for his cousin\'s scholarship', 'arrested for illegally hunting deer from a helicopter',
+  'busted with a fake ID claiming he was 21 at age 26', 'charged with running an underground poker game out of his mansion', 'arrested for pulling a gun during a road-rage incident', 'caught on video brawling with fans at a hockey game',
+  'charged with tax evasion on $4 million in appearance fees', 'arrested for driving a stolen golf cart through a Waffle House', 'charged with failing a league drug test for the third time in a year'];
 function suspend(L, p, games, r) {
   p.sus = (p.sus || 0) + games; const t = L.teams[p.t], mine = p.t === myId(L);
   const why = p.gen ? p.n + ' was ' + pickOf(r, CRIMES) + '. The NFL suspends him ' + games + ' game' + (games > 1 ? 's' : '') + '.' : p.n + ' is suspended ' + games + ' game' + (games > 1 ? 's' : '') + ' for violating the league\'s conduct policy.';
@@ -7730,6 +7738,9 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-8', title: 'More trouble off the field', items: [
+    'Made-up players can now get suspended for over 30 different offenses, from bar fights and drug busts to driving a stolen golf cart through a Waffle House. Real players still only get the league\'s conduct-policy line.'
+  ] },
   { id: '2026-11-07-7', title: 'CPU teams keep their stars', items: [
     'CPU teams now re-sign their great players unless they cannot fit them under the cap, or do not want to pay them: a rebuilding team with a veteran of 30+, or an aging player of 34+ when the team is not going for it now. Elite players (88+) get a short deal whatever their age. When a big name does hit free agency, the news says why.'
   ] },
