@@ -99,3 +99,14 @@ ok(L.dead && !Object.keys(L.dead).length, 'dead money clears');
 { const C = mk(21), ids = LG.starterIds(C, 0), wr = LG.rosterOf(C, 0).filter(p => ids[p.i] && p.p === 'WR').sort((a, b) => b.o - a.o)[0], was = wr.o; wr.o = 78; ok(LG.isStar(C, wr), 'a starter rated 78 is a star'); wr.o = 77; ok(!LG.isStar(C, wr) || !LG.starterIds(C, 0)[wr.i], 'a starter rated 77 is not'); wr.o = was; }
 // leagues are untouched
 { const X = LG.newNFL({ seed: 7 }); ok(!X.camp && LG.teamsFor(X, 0, 1).a.squad.ff === 0, 'games outside a campaign have none of this'); }
+// CPU teams re-sign their great players unless they cannot fit them under the cap or do not want to pay them (age, a rebuild)
+{ const C = mk(31); let g = 0; while (C.phase !== 'offseason' && g++ < 60) { LG.runUntilHuman(C, 60); const x = LG.weekGames(C)[0]; if (x) LG.simGame(C, x); }
+  const exp = Object.values(C.players).filter(p => p.t > 0 && p.cx != null && p.cx <= C.season), was = new Map(exp.map(p => [p.i, p.t])), mode = {}; C.teams.forEach(t => { mode[t.id] = t.mode; });
+  const pay0 = {}; C.teams.forEach(t => { pay0[t.id] = LG.payroll(C, t.id); });
+  LG.faStart(C, 7);
+  const great = exp.filter(p => p.o >= 80), left = great.filter(p => p.t === -1), news = C.news.filter(n => /hits free agency/.test(n.t));
+  const reason = p => { const t = C.teams[was.get(p.i)], m = mode[t.id]; return p.o < 88 && ((m === 'rebuild' && p.a >= 30) || (p.a >= 34 && m !== 'win')) ? 'age' : LG.payroll(C, t.id) + p.sal > LG.payrollCap(C) - 4 ? 'cap' : null; };
+  ok(left.every(p => reason(p)), 'every great player who walks had a reason: ' + left.length + ' of ' + great.length + ' (' + left.filter(p => reason(p) === 'cap').length + ' the cap, ' + left.filter(p => reason(p) === 'age').length + ' age or a rebuild)');
+  ok(left.filter(p => p.o >= 88).every(p => reason(p) === 'cap'), 'an elite player (88+) only walks when his team cannot fit him under the cap');
+  ok(C.teams.filter(t => !t.owner).every(t => LG.payroll(C, t.id) <= Math.max(pay0[t.id], LG.payrollCap(C))), 'no CPU team goes over the cap re-signing its own');
+  ok(left.filter(p => p.o >= 85).every(p => news.some(n => n.t.indexOf(p.n) === 0)), 'and the big names leaving make the news, with why: "' + (news[0] ? news[0].t : '') + '"'); }

@@ -4917,18 +4917,39 @@ function draftDownBids(L, tid) {
 
 /* free agency, a stage of the offseason: your expiring contracts are yours to talk about (or let walk); other teams' players whose deals ran out
    and they did not re-sign are on the market. Each day CPU teams sign who they need. Then the draft. */
+/* a CPU team's expiring contracts, best first: a great player (80+, or a starter 76+) is kept unless the team cannot fit him under the cap
+   or does not want to pay him (a rebuilding team and a player of 30+; anyone 34+, unless it is going for it now); a solid starter (70+) is
+   kept if he fits, unless he is 33+ on a team that is not; an elite one (88+) is wanted whatever his age (a short deal); the rest is a
+   judgment call. Every new deal has to fit under the cap with a
+   little room left for the rookies. */
+const RESIGN_ROOM = 4;
+function cpuResign(L, tid, ps, r) {
+  const t = L.teams[tid], ids = new Set(ps.map(p => p.i)), ln = lineup(L, tid), win = t.mode === 'win', reb = t.mode === 'rebuild';
+  let used = rosterOf(L, tid).filter(p => !ids.has(p.i)).reduce((s, p) => s + salOf(p), 0) + ((L.dead && L.dead[tid]) || 0);
+  const room = payrollCap(L) - RESIGN_ROOM;
+  ps.slice().sort((a, b) => playerValue(b) - playerValue(a) || (a.i < b.i ? -1 : 1)).forEach(p => {
+    const sal = DRx().salaryOfPos(p.p, p.o), starter = (ln[p.p] || []).indexOf(p) >= 0, great = p.o >= 80 || (starter && p.o >= 76);
+    let want, why = '';
+    if (great) { want = p.o >= 88 || (!(reb && p.a >= 30) && !(p.a >= 34 && !win)); if (!want) why = reb ? 'the rebuilding ' + t.nick + ' did not want to pay a veteran' : 'the ' + t.nick + ' did not want to pay him at his age'; }
+    else if (starter && p.o >= 70) want = !(p.a >= 33 && !win);
+    else want = r() < 0.4 + (p.o - 65) * 0.012 + (win ? 0.08 : 0) - (reb && p.a >= 29 ? 0.3 : 0);
+    if (want && used + sal > room) { want = false; why = 'the ' + t.nick + ' could not fit him under the cap'; }
+    if (want) { used += sal; p.sal = sal; p.cx = L.season + (p.a >= 32 ? ri(r, 1, 2) : great ? ri(r, 3, 5) : ri(r, 1, 4)); return; }
+    p.was = p.t; p.t = -1; p.sal = sal; p.cx = null; delete p.st; delete p.ctr;
+    if (p.o >= 85) L.news.unshift({ s: L.season, t: p.n + ' (' + p.p + ' ' + p.o + ') hits free agency: ' + (why || 'the ' + t.nick + ' let him go') + '.' });
+  });
+}
 function faStart(L, rounds) {
-  const r = rng(L, 'fa' + L.season + ':start'), exp = [];
+  const r = rng(L, 'fa' + L.season + ':start'), exp = [], cpuExp = {};
   Object.values(L.players).forEach(p => {
     if (p.t < 0) return;
     if (p.cx == null) { p.cx = L.season + ri(r, 1, 3); if (p.sal == null) p.sal = salOf(p); return; }
     if (p.cx > L.season) return;
     const t = L.teams[p.t];
     if (t.owner) { exp.push(p.i); return; }
-    const keep = 0.55 + (p.o - 70) * 0.01 + (t.mode === 'win' ? 0.1 : 0) - (t.mode === 'rebuild' && p.a >= 29 ? 0.3 : 0);
-    if (r() < keep) { p.sal = DRx().salaryOfPos(p.p, p.o); p.cx = L.season + ri(r, 1, 4); }
-    else { p.was = p.t; p.t = -1; p.sal = DRx().salaryOfPos(p.p, p.o); p.cx = null; delete p.st; delete p.ctr; }
+    (cpuExp[p.t] = cpuExp[p.t] || []).push(p);
   });
+  Object.keys(cpuExp).forEach(tid => cpuResign(L, +tid, cpuExp[tid], r));
   L.fa = { day: 1, days: 4, rounds, exp };
   L.phase = 'fa';
   exp.map(id => L.players[id]).filter(p => p.o >= 80).sort((a, b) => b.o - a.o).forEach(p => { contractOpen(L, p.i); });
@@ -5221,7 +5242,7 @@ const LG = {
   RET_POS, retRating, returnerCands, returnerOf, setReturner,
   runUntilHumanAsync, USE_DEFAULT, USE_SPOTS, usageList, setUsage, snapShare, ptCalm, PT_CALM, __ptMail: L => ptMail(L, myId(L), false, true),
   progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, UNIT_ROUNDS, fillPrice, hasLegalPick, isUnitId, unitOf, unitRating, draftOvr, salOfId, draftLabel, unitNeeds, canDraftId, affordableId, autoPickFor, startSeason, trimRoster, fillDepth, finishDraft,
-  __suspend: suspend, isStar, starterIds, modeOf, MODE, campInit, teamMode, updateModes, cpuTradesRound, tradeAsk, tradeCounter, tradeTalkLeft, tradeTalkUse, draftAdvance, draftUpOffers, draftDownBids, draftPrem, rookieScore, draftSlot, faNext, faFinish, letWalk, demandOf, contractOpen, contractOffer, contractSummary, inMail, mailRead, mailAnswer, unread, moraleOf, setMorale, moraleBump, pressAnswer, pressOptions, PRESS_ANSWERS, upgradeCost, upgrade, hireCoach, coachMarket, FACILITY, deadMoney, COACH_ANSWERS, playerValue, tradeCheck, cpuTrade, tradeEval, teamNeeds, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
+  __suspend: suspend, isStar, starterIds, modeOf, MODE, campInit, teamMode, updateModes, cpuTradesRound, tradeAsk, tradeCounter, tradeTalkLeft, tradeTalkUse, draftAdvance, draftUpOffers, draftDownBids, draftPrem, rookieScore, draftSlot, faNext, faFinish, faStart, cpuResign, letWalk, demandOf, contractOpen, contractOffer, contractSummary, inMail, mailRead, mailAnswer, unread, moraleOf, setMorale, moraleBump, pressAnswer, pressOptions, PRESS_ANSWERS, upgradeCost, upgrade, hireCoach, coachMarket, FACILITY, deadMoney, COACH_ANSWERS, playerValue, tradeCheck, cpuTrade, tradeEval, teamNeeds, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
   newCustom, addTeam, removeTeam, assignDivisions, startCustom, finalizeLeagueDraft, customSchedule, ownerRecord, leaders, leagueTables,
   computeAwards, makeBracket, reportSeries, setSeries, bracketOrder, nflMatchups, assignWeeks, rrSchedule, mkPlayer, rng, shuffle
 };
@@ -7709,6 +7730,9 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-7', title: 'CPU teams keep their stars', items: [
+    'CPU teams now re-sign their great players unless they cannot fit them under the cap, or do not want to pay them: a rebuilding team with a veteran of 30+, or an aging player of 34+ when the team is not going for it now. Elite players (88+) get a short deal whatever their age. When a big name does hit free agency, the news says why.'
+  ] },
   { id: '2026-11-07-6', title: 'Press conferences make sense', items: [
     'Each press question now has its own answers that fit it. After a win you can credit the players or the game plan, after a loss take the blame or credit the other team, and questions about your star, the fans or the locker room have their own choices.',
     'Fixed: simulating could get stuck behind the "Simulating" note if you switched browser tabs at that moment.'
