@@ -650,3 +650,6 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .sqbench, .sqmine { margin: 10px 0; }
 .row.wrap { flex-wrap: wrap; }
 @media (max-width: 640px) { .sqlobby { grid-template-columns: 1fr; } }
+/* simulating the league: a note in the middle, and the page cannot be clicked until it is done */
+#simov { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(8, 11, 22, .35); color: #fff; font-weight: 700; letter-spacing: .04em; }
+#simov[hidden] { display: none; }

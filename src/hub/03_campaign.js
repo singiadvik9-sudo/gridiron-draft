@@ -1,4 +1,13 @@
 /* ---------- campaign (single player, saved to the account or to this device) ---------- */
+// gzip a string to base64 in the browser (null where it cannot: the save then goes up as it is)
+async function gz(str) {
+  if (typeof CompressionStream === 'undefined') return null;
+  try {
+    const buf = await new Response(new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer(), u = new Uint8Array(buf);
+    let bin = ''; for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+    return btoa(bin);
+  } catch (e) { return null; }
+}
 const SAVE = {
   n: () => H.user ? 5 : 3,
   meta: L => { const t = L.teams[L.user]; return { team: t ? t.name : '', season: L.season, week: L.week, phase: L.phase, updated: Date.now() }; },
@@ -14,7 +23,7 @@ const SAVE = {
   },
   async put(slot, L, force) {
     // (base: the version this device loaded; the server refuses if another device has saved since)
-    if (H.user) { const r = await call('save', { op: 'put', slot, L, base: C.rev, force: force ? 1 : undefined }); C.rev = r.meta ? r.meta.updated : C.rev; return; }
+    if (H.user) { const z = await gz(JSON.stringify(L)); const r = await call('save', Object.assign({ op: 'put', slot, base: C.rev, force: force ? 1 : undefined }, z ? { Lz: z } : { L })); C.rev = r.meta ? r.meta.updated : C.rev; return; }
     if (!lsSet('gd_c' + slot, JSON.stringify(L)) || !lsSet('gd_cm' + slot, JSON.stringify(SAVE.meta(L)))) throw new Error('This device ran out of storage. Sign in to save online.');
   },
   async del(slot) { if (H.user) await call('save', { op: 'delete', slot }); else { lsSet('gd_c' + slot, null); lsSet('gd_cm' + slot, null); } }
@@ -41,6 +50,15 @@ function staleSave(meta) {
 }
 ACT['stale-load'] = async () => { G.closeModal(); const L = await run(() => SAVE.get(C.slot)); if (!L) return; C.L = L; C.state = 'saved'; FR.offers = null; go('camphub'); toast('Loaded the newer save.'); };
 ACT['stale-keep'] = async () => { G.closeModal(); C.state = 'saving'; try { await SAVE.put(C.slot, C.L, true); C.state = 'saved'; toast('Saved over the other version.'); } catch (e) { C.state = 'error'; toast('Could not save. Check your connection.'); } const el = $('.chip.savechip'); if (el) el.textContent = savedText(); };
+// the rest of the league's games until your next one, a game at a time behind a "Simulating" note (the page keeps moving, and nothing can
+// be clicked until it is done, so the league cannot change under it)
+async function simAway(L, first) {
+  let ov = document.getElementById('simov'); if (!ov) { ov = document.createElement('div'); ov.id = 'simov'; ov.setAttribute('role', 'status'); document.body.appendChild(ov); }
+  const say = () => { ov.textContent = 'Simulating ' + (L.phase === 'playoffs' ? 'the playoffs' : L.phase === 'regular' ? 'week ' + L.week : 'the season') + '…'; };
+  say(); ov.hidden = false; await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));   // (the note shows before the work starts)
+  try { if (first) first(); await LG.runUntilHumanAsync(L, 60, async () => { say(); await new Promise(r => setTimeout(r, 0)); }, 40); }
+  finally { ov.hidden = true; }
+}
 const savedText = () => C.state === 'saved' ? 'Saved' : C.state === 'saving' ? 'Saving…' : C.state === 'error' ? 'Not saved!' : 'Unsaved changes';
 function campDirty(now) {
   C.state = 'dirty'; clearTimeout(C.timer);
@@ -174,7 +192,7 @@ function campAdapter() {
       else if (op === 'trim') LG.trimRoster(L, tid);
       after(true);
     },
-    async sim(gid) { const g = L.sched.find(x => x.id === gid); if (!g || g.done) return; LG.simGame(L, g); LG.runUntilHuman(L, 60); LG.checkFinal(L); after(true); },
+    async sim(gid) { const g = L.sched.find(x => x.id === gid); if (!g || g.done) return; await simAway(L, () => LG.simGame(L, g)); LG.checkFinal(L); after(true); },
     async play(gid) {
       const g = L.sched.find(x => x.id === gid); if (!g || g.done) return;
       g.T = LG.teamsFor(L, g.h, g.a);
@@ -182,7 +200,7 @@ function campAdapter() {
       G.startCtxCpu({ seed: LG.gameSeed(L, g), T: g.T, side, cpuSide }, {
         label: g.pl === 'po' ? 'Playoffs' : 'Week ' + g.w,
         report: async moves => { if (!LG.playVerified(L, g, moves, [cpuSide])) throw new Error('The game did not finish.'); },
-        onDone: () => { LG.runUntilHuman(L, 60); LG.checkFinal(L); campDirty(true); FR.tab = 'home'; go('camphub'); }
+        onDone: async () => { go('camphub'); await simAway(L); LG.checkFinal(L); campDirty(true); FR.tab = 'home'; go('camphub'); }
       });
     }
   };

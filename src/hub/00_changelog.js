@@ -2,6 +2,11 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-5', title: 'A snappier campaign', items: [
+    'Simulating your game and the rest of the week no longer freezes the page. A "Simulating week N" note shows while the league plays out.',
+    'The Trades tab opens about twice as fast.',
+    'Campaign saves on your account upload about a fifth of the data, so saving is quicker on slow connections.'
+  ] },
   { id: '2026-11-07-4', title: 'Squad games: up to ten players', items: [
     'Quick games now have a Squad game option for 2 to 10 people, five a side. Share the room code. The host puts each person on a team and a position (quarterback, running back, two receivers, tight end) and can move people around between plays. Open spots, and a team with nobody on it, are played by the computer.',
     'Each team\'s quarterback calls the plays, on offense and on defense. In the snap everyone runs his own player: receivers see their route in yellow, the quarterback sees every route, and on defense you pick the defender you play and see your zone or your man.',
