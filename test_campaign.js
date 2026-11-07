@@ -6,10 +6,17 @@ const L = mk(21), me = 0;
 // needs and depth never overlap; modes
 ok(L.teams.every(t => { const n = LG.teamNeeds(L, t.id); return !n.deep.some(q => n.needs.indexOf(q) >= 0); }), 'no team both needs a position and has depth there');
 ok(L.teams.some(t => t.mode === 'win') && L.teams.some(t => t.mode === 'rebuild') && !L.teams[me].mode, 'teams are win-now or rebuilding (yours is your call)');
+// modes are earned: no chance in them, most teams neither, contenders on top, rebuilders at the bottom
+{ const modes = M => M.teams.map(t => t.mode || '').join(), M2 = mk(777), M3 = mk(31337); ok(modes(M2) === modes(M3), 'the same rosters get the same modes, whatever the seed');
+  const rat = id => LG.teamRating(L, id).ovr, W = L.teams.filter(t => t.mode === 'win'), B = L.teams.filter(t => t.mode === 'rebuild'), Nn = L.teams.filter(t => !t.mode);
+  ok(W.length >= 3 && W.length <= 9 && B.length >= 2 && B.length <= 7 && Nn.length >= 16, 'most teams are neither: ' + W.length + ' win-now (' + W.map(t => t.abbr).join(' ') + '), ' + B.length + ' rebuilding (' + B.map(t => t.abbr).join(' ') + ')');
+  ok(Math.min(...W.map(t => rat(t.id))) > Math.max(...B.map(t => rat(t.id))) + 3, 'every contender is rated well above every rebuilder');
+  ok(LG.modeOf(1.5, 0.75) === 'win' && LG.modeOf(1.5, 0.4) === '' && LG.modeOf(0.3, 0.53) === '' && LG.modeOf(-0.5, 0.8) === 'win', 'a contender has to be winning: a good team at 9-8 is not one, and a 14-3 team is');
+  ok(LG.modeOf(-1.5, 0.3) === 'rebuild' && LG.modeOf(-1.5, 0.6) === '' && LG.modeOf(-0.5, 0.2) === 'rebuild' && LG.modeOf(0.5, 0.2) === '' && LG.modeOf(-0.2, 0.47) === '', 'a rebuilder has to be really bad: low-rated and losing, or losing badly'); }
 // how modes trade: the same deal, valued by each kind of team
-{ const vet = Object.values(L.players).find(p => p.a >= 30 && p.o >= 82 && p.p !== 'QB' && L.teams[p.t].mode === 'rebuild');
+{ const vet = Object.values(L.players).find(p => p.a >= 30 && p.o >= 82 && p.p !== 'QB' && p.t > 0 && !L.teams[p.t].mode);
   const buyer = L.teams.find(t => t.mode === 'win'), keepT = L.teams[vet.t]; const pk = LG.pickId(LG.picksOf(L, buyer.id).find(k => k.r === 1 && LG.pickOpen(L, k)));
-  const asReb = LG.tradeEval(L, vet.t, [pk], [vet.i]), m = keepT.mode; keepT.mode = ''; const asNeu = LG.tradeEval(L, vet.t, [pk], [vet.i]); keepT.mode = m;
+  keepT.mode = 'rebuild'; const asReb = LG.tradeEval(L, vet.t, [pk], [vet.i]); keepT.mode = ''; const asNeu = LG.tradeEval(L, vet.t, [pk], [vet.i]);
   ok(asReb.worth > asNeu.worth + 5, 'a rebuilding team sells a veteran for a first much more readily'); }
 // asking for a player, countering
 { const t = L.teams.find(x => x.id !== me && x.mode === 'rebuild'), p = LG.rosterOf(L, t.id).filter(x => x.p !== 'QB' && x.p !== 'K' && x.p !== 'P').sort((a, b) => b.o - a.o)[0];
@@ -33,6 +40,7 @@ const star = Object.values(L.players).filter(p => p.t >= 0 && p.t !== me && L.st
 { const p = LG.rosterOf(L, me).filter(x => x.o >= 80 && x.p === 'WR')[0] || LG.rosterOf(L, me).filter(x => x.o >= 78)[0], was = p.mor, tm = L.morale.team; L.morale.team = 60; p.mor = 65; const sq = () => { const s = LG.teamsFor(L, me, 1).a.squad; return s.wr.concat([s.qb, s.hb, s.te]).concat((s.rot.WR || [])).find(x => x.i === p.i); }; const a = sq(); p.mor = 20; const b = sq(); if (a && b) ok(b.o < a.o, 'an unhappy star plays below his rating (' + a.o + ' -> ' + b.o + ')'); p.mor = was; L.morale.team = tm; }
 // free agency and contracts
 const rep = LG.offseasonBegin(L, 7);
+{ const Rr = LG.records(L), rec = id => Rr[id].w + '-' + Rr[id].l; const bad = L.teams.filter(t => !t.owner && ((t.mode === 'win' && Rr[t.id].pct < 0.55) || (t.mode === 'rebuild' && Rr[t.id].pct > 0.4))); ok(bad.length === 0, 'after a season no team is in a mode its record says it should not be: win-now ' + L.teams.filter(t => t.mode === 'win').map(t => t.abbr + ' ' + rec(t.id)).join(', ') + '; rebuilding ' + L.teams.filter(t => t.mode === 'rebuild').map(t => t.abbr + ' ' + rec(t.id)).join(', ')); }
 ok(Object.values(L.players).filter(p => p.t >= 0 && p.t !== me && p.ss && p.ss.length).length > 300, 'and seasons stay in the history of players on other teams');
 ok(L.phase === 'fa' && L.fa.exp.length > 0 && Object.values(L.players).some(p => p.t === -1 && p.was != null && p.o >= 75), 'free agency opens before the draft, with your expiring deals and other teams\' free agents');
 const e = L.fa.exp.map(i => L.players[i]).sort((a, b) => b.o - a.o)[0], th = LG.contractOpen(L, e.i);
