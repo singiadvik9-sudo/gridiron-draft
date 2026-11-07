@@ -608,6 +608,13 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .tmode{font-size:10px;padding:0 4px;border-radius:3px;margin-left:4px}
 .tmode.win{color:#3fdc6a;border:1px solid #3fdc6a}
 .tmode.rebuild{color:#ff8a6a;border:1px solid #ff8a6a}
+/* the link to the other player: a dot and the ping next to the room code */
+.netst { font-size: 12px; display: inline-flex; align-items: center; gap: 5px; margin-right: 8px; opacity: .9; white-space: nowrap; }
+.netst::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #888; }
+.netst.direct::before { background: #3fbf6a; }
+.netst.server::before { background: #e0a030; }
+.netst.conn::before { background: #888; animation: netblink 1s infinite; }
+@keyframes netblink { 50% { opacity: .3; } }
 
 </style>
 <div class="wrap">
@@ -1039,6 +1046,9 @@ function clockInfo(st) {
   return { q: st.ot ? 'OT' : 'Q' + st.q, clock: c, text: t, running: st.ro > 0 };
 }
 
+// a live run or catch: the yards it is spotted for. A gain reaches the line to gain only when the ball got there (9.6 yards on 3rd and 10 is
+// short, and is spotted at 9); the screen's result banner uses this too, so it never says first down when it is not one
+function liveGain(x, ballOn, toGo) { const y = clamp(Math.round(x), -ballOn, 100 - ballOn); return x >= toGo ? Math.max(y, toGo) : Math.min(y, toGo - 1); }
 function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
   const R = mulberry32(hashStr(seed + ':' + st.playNo));
   const gauss = () => (R() + R() + R() + R() - 2) * 1.7320508;
@@ -1267,7 +1277,7 @@ function stepGame(st, teams, U, seed, offPickRaw, defPickRaw, live, flags, rv) {
       entry.text = safety(nm(o, lv.who || 'QB') + ' is tackled in the end zone.');
     } else { // 'run' or 'pass': the ball carrier was brought down (or scored)
       // spotted where the ball is: a gain only reaches the line to gain when the ball got there (9.6 yards on 3rd and 10 is short)
-      const y = lv.td ? 100 - st.ballOn : lv.x >= st.toGo ? Math.max(clampY(lv.x), st.toGo) : Math.min(clampY(lv.x), st.toGo - 1), who = nm(o, lv.who || 'HB');
+      const y = lv.td ? 100 - st.ballOn : liveGain(lv.x, st.ballOn, st.toGo), who = nm(o, lv.who || 'HB');
       const passed = lv.k === 'pass';
       entry.travel = y;
       let desc;
@@ -1915,7 +1925,7 @@ const E = {
   DATA: D, QLEN, CAP, CALL_PER, CALL_MAX, noDef, TEAMS, PLAYERS, OLU, DFU, SLOTS, GROUPS, OFF, OFF_CATS, DEF_CALLS, DEF_CATS, MATCH, matchup, defOptions,
   KICK, KRS, PRS, STU, stSquad, stFrom, personnel, snapTeams, energy, FAT_DROP, onFire, FIRE_BOOST, FIRE_SNAPS, CONF_BOOST, CONF_SNAPS, RET_FROM, normRoster, returnerCands, bestReturner, withReturner, mulberry32, hashStr, clamp, fit, fitU, grade, buildSlots, entity, ovrOf, validRoster, unitName, teamLabel, teamUnits, nameOf, idOf, squadFromRoster, mkTeam, packRatings, cpuMove, skillOf,
   drawOptions, autoDraft, fgDist, legalOff, offOptions, initState, clockInfo,
-  __confAfter: confAfter, __fireAfter: fireAfter, KICKS, PATS, XP_DIST, kickWin, kickRange, subsOf, subPos, SUBS, SUB_NAME, cpuKick, boxScore, stepGame, replay, lastCtl, retInfo, cpuOffense, cpuDefense, cpuGo2, suggest, COACH, cleanMoves, cleanTrace, cpuTO
+  __confAfter: confAfter, __fireAfter: fireAfter, KICKS, PATS, XP_DIST, kickWin, kickRange, subsOf, subPos, SUBS, liveGain, SUB_NAME, cpuKick, boxScore, stepGame, replay, lastCtl, retInfo, cpuOffense, cpuDefense, cpuGo2, suggest, COACH, cleanMoves, cleanTrace, cpuTO
 };
 if (typeof module !== 'undefined' && module.exports) { module.exports = E; require('./live.js'); }
 else root.E = E;
@@ -5245,6 +5255,95 @@ const $ = (s, r) => (r || document).querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 const TEAM_COL = { a: '#ff6b4a', b: '#4aa8ff' };
 const other = t => t === 'a' ? 'b' : 'a';
+/* ---------- the direct link between players' devices ----------
+   In an online game the two screens open a WebRTC data channel to each other (set up through the room server's mailbox, op 'sig'), and
+   the controller inputs for live plays, play-call nudges and pings go straight across it: about the time it takes to ping the other
+   person, instead of a round trip through the server and its database. The server is still sent everything as the record (results,
+   coming back to a game, watching), and when no direct link can be made (some school and work networks) play carries on through it.
+   NET.state: 'off' | 'connecting' | 'open' | 'failed'. NET.rtt: the last round trip in ms, NET.via(): 'direct' or 'server'. */
+const NET = {
+  state: 'off', code: null, me: null, peer: null, pc: null, ch: null, gen: 0, rtt: null, srvRtt: null, on: {}, sigT: 0, pingT: 0, t0: 0, tries: 0,
+  ICE: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }],
+  ok() { return this.state === 'open' && this.ch && this.ch.readyState === 'open'; },
+  via() { return this.ok() ? 'direct' : 'server'; },
+  // open the link to the other seat (the lower seat makes the offer); does nothing if it is already up or on its way
+  start(code, me, peer) {
+    if (typeof RTCPeerConnection === 'undefined' || !code || !me || !peer) return;
+    if (this.code === code && this.me === me && this.peer === peer && this.state !== 'off') return;
+    this.stop(); this.code = code; this.me = me; this.peer = peer; this.tries = 0;
+    this.connect();
+  },
+  connect() {
+    const g = ++this.gen; this.state = 'connecting'; this.t0 = Date.now(); this.closePc();
+    if (this.me < this.peer) this.offer(g);
+    clearInterval(this.sigT); this.sigT = setInterval(() => this.sigPoll(g), 900); this.sigPoll(g);
+    this.paint();
+  },
+  stop() {
+    if (this.state !== 'off' && this.code && this.peer) this.sig({ type: 'bye' }).catch(() => {});
+    this.gen++; clearInterval(this.sigT); clearInterval(this.pingT); this.sigT = this.pingT = 0; this.closePc();
+    this.state = 'off'; this.code = this.me = this.peer = null; this.rtt = null; this.paint();
+  },
+  closePc() { try { if (this.ch) this.ch.close(); } catch (e) {} try { if (this.pc) this.pc.close(); } catch (e) {} this.ch = this.pc = null; },
+  sig(msg) { return api({ op: 'sig', code: this.code, seat: this.me, pid: PID, to: msg ? this.peer : undefined, msg }); },
+  async sigPoll(g) {
+    if (g !== this.gen) return;
+    if (this.state === 'open') { clearInterval(this.sigT); this.sigT = 0; return; }
+    if (this.state === 'connecting' && Date.now() - this.t0 > 20000) { this.state = 'failed'; this.paint(); }   // no direct link: the server carries the game
+    if (this.state === 'failed' && Date.now() - this.t0 > 60000) { this.tries++; if (this.tries < 4) { this.connect(); return; } clearInterval(this.sigT); this.sigT = 0; return; }
+    try { const r = await this.sig(); if (g === this.gen) for (const m of r.msgs || []) await this.onSig(m, g); } catch (e) {}
+  },
+  mk(g) {
+    const pc = this.pc = new RTCPeerConnection({ iceServers: this.ICE });
+    pc.onconnectionstatechange = () => { if (g === this.gen && (pc.connectionState === 'failed' || pc.connectionState === 'closed') && this.state === 'open') this.lost(g); };
+    return pc;
+  },
+  gathered(pc) { return new Promise(res => { if (pc.iceGatheringState === 'complete') return res(); const t = setTimeout(res, 2500); pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }; }); },
+  async offer(g) {
+    try {
+      const pc = this.mk(g); this.wire(pc.createDataChannel('gd', { ordered: true }), g);
+      await pc.setLocalDescription(await pc.createOffer()); await this.gathered(pc);
+      if (g === this.gen) await this.sig({ type: 'offer', sdp: pc.localDescription.sdp, g });
+    } catch (e) { if (g === this.gen) { this.state = 'failed'; this.paint(); } }
+  },
+  async onSig(m, g) {
+    if (m.type === 'bye') { if (this.state === 'open' || this.state === 'connecting') { this.closePc(); if (this.me < this.peer) setTimeout(() => { if (g === this.gen) this.connect(); }, 1500); } return; }
+    if (m.type === 'offer' && this.me > this.peer) {   // (a fresh offer replaces whatever we had)
+      try {
+        this.closePc(); const pc = this.mk(g); pc.ondatachannel = e => this.wire(e.channel, g);
+        await pc.setRemoteDescription({ type: 'offer', sdp: m.sdp }); await pc.setLocalDescription(await pc.createAnswer()); await this.gathered(pc);
+        if (g === this.gen) await this.sig({ type: 'answer', sdp: pc.localDescription.sdp });
+      } catch (e) {}
+      return;
+    }
+    if (m.type === 'answer' && this.me < this.peer && this.pc && this.pc.signalingState === 'have-local-offer') { try { await this.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }); } catch (e) {} }
+  },
+  wire(ch, g) {
+    this.ch = ch;
+    ch.onopen = () => { if (g !== this.gen) return; this.state = 'open'; this.paint(); clearInterval(this.pingT); this.lastPo = performance.now(); this.pingT = setInterval(() => { if (performance.now() - this.lastPo > 3500) { this.lost(g); return; } this.send({ t: 'pi', ts: performance.now() }); }, 1000); this.send({ t: 'pi', ts: performance.now() }); this.emit('open', {}); };   // (no answer for 3.5 s: the link is gone, the server carries on)
+    ch.onclose = () => { if (g === this.gen && this.state === 'open') this.lost(g); };
+    ch.onmessage = e => { let o = null; try { o = JSON.parse(e.data); } catch (x) { return; } if (!o || typeof o.t !== 'string') return;
+      if (o.t === 'pi') { this.send({ t: 'po', ts: o.ts }); return; }
+      if (o.t === 'po') { this.lastPo = performance.now(); const r = performance.now() - o.ts; this.rtt = this.rtt == null ? r : this.rtt * 0.7 + r * 0.3; this.paint(); return; }
+      this.emit(o.t, o); };
+  },
+  lost(g) { clearInterval(this.pingT); this.pingT = 0; this.rtt = null; this.closePc(); this.state = 'connecting'; this.paint(); if (this.me < this.peer) setTimeout(() => { if (g === this.gen) this.connect(); }, 800); else { this.t0 = Date.now(); clearInterval(this.sigT); this.sigT = setInterval(() => this.sigPoll(this.gen), 900); } },
+  send(o) { if (!this.ok()) return false; try { this.ch.send(JSON.stringify(o)); return true; } catch (e) { return false; } },
+  emit(t, o) { (this.on[t] || []).forEach(f => { try { f(o); } catch (e) {} }); },
+  listen(t, f) { (this.on[t] = this.on[t] || []).push(f); },
+  // the server round trip, measured on the way (for the ping shown when there is no direct link)
+  srv(ms) { this.srvRtt = this.srvRtt == null ? ms : this.srvRtt * 0.8 + ms * 0.2; },
+  // the connection dot and ping next to the room code
+  paint() {
+    const el = document.getElementById('netst'); if (!el) return;
+    const d = this.ok(), ms = d ? this.rtt : this.srvRtt;
+    el.className = 'netst ' + (d ? 'direct' : this.state === 'connecting' ? 'conn' : 'server');
+    el.title = d ? 'Direct link to the other player' : this.state === 'connecting' ? 'Linking up with the other player' : 'Playing through the server (no direct link on this network)';
+    el.textContent = (ms != null ? Math.round(ms) + ' ms' : '') + (d ? ' · direct' : this.state === 'connecting' ? ' · linking' : ms != null ? ' · server' : '');
+  }
+};
+window.GD_NET = NET;   // (for the tests and the console)
+
 const ord = n => ['', '1st', '2nd', '3rd', '4th'][n] || n + 'th';
 
 /* ---------- tiny storage helpers (all optional) ---------- */
@@ -5764,7 +5863,8 @@ function renderHeader() {
   const el = $('#hdr-right'); if (!el) return;
   if (S.mode === 'lobby') { if (window.HUB) window.HUB.renderHeader(); else el.innerHTML = ''; return; }
   const label = S.ctx ? S.ctx.label : S.mode === 'local' ? 'Practice' : S.mode === 'sdraft' ? ((S.sd && S.sd.label) || 'Draft') : 'Room ' + S.code;
-  el.innerHTML = '<span class="chip room">' + esc(label) + '</span><button class="btn small" data-act="leave">Leave</button>';
+  el.innerHTML = '<span class="chip room">' + esc(label) + '</span>' + (S.mode === 'online' && S.me ? '<span id="netst" class="netst"></span>' : '') + '<button class="btn small" data-act="leave">Leave</button>';
+  if (S.mode === 'online') NET.paint();
 }
 
 
@@ -5831,9 +5931,15 @@ function readName() {
 async function api(body, ep) {
   const h = { 'content-type': 'application/json' };
   const tk = window.HUB && window.HUB.token; if (tk) h['x-token'] = tk;
-  const r = await fetch('/api/' + (ep || 'room'), { method: 'POST', headers: h, body: JSON.stringify(body) });
+  // (an answer that never comes must not leave a request hanging forever: give up after 8 seconds and let the caller try again)
+  const ac = typeof AbortController !== 'undefined' ? new AbortController() : null, to = ac ? setTimeout(() => ac.abort(), 8000) : 0;
+  let r; const t0 = performance.now();
+  try { r = await fetch('/api/' + (ep || 'room'), { method: 'POST', headers: h, body: JSON.stringify(body), signal: ac ? ac.signal : undefined }); }
+  finally { clearTimeout(to); }
+  if (!ep && (body.op === 'live' || body.op === 'state') && r.ok) NET.srv(performance.now() - t0);
   let j = null; try { j = await r.json(); } catch (e) {}
   if (!r.ok) { const err = new Error((j && j.error) || 'http ' + r.status); err.code = (j && j.error) || 'http'; err.status = r.status; throw err; }
+  if (!ep && (body.op === 'move' || body.op === 'pick') && S.mode === 'online') NET.send({ t: 'nudge' });   // the other screen looks right away instead of at its next poll
   return j;
 }
 
@@ -5902,9 +6008,11 @@ function startPoll() {
         ['a', 'b'].forEach(s => { const m = (r.moves && r.moves[s]) || {}; for (const n in m) o[n + '-' + s] = moveOf(m[n]); });
         S.moves = o; if (r.lv) takeLv(r.lv); S.lvLoaded = true; sdOnline(r); render();
       }
+      if (S.me && S.seats.a && S.seats.b) NET.start(S.code, S.me, other(S.me));
     } catch (e) { /* transient: keep polling */ }
-    if (S.mode === 'online') S.poll = setTimeout(tick, S.screen === 'game' ? 700 : 1200);
+    if (S.mode === 'online') { clearTimeout(S.poll); S.poll = setTimeout(tick, S.screen === 'game' ? 700 : 1200); }
   };
+  S.pollNow = () => { if (S.mode === 'online') { clearTimeout(S.poll); tick(); } };
   tick();
 }
 // finished live snaps fetched from the room (coming back to a game, or watching one)
@@ -5927,8 +6035,9 @@ function takeLv(lv) {
 }
 const RVN = 1000;   // return moves are numbered 1000 + the play they belong to
 function stopPoll() { if (S.poll) { clearTimeout(S.poll); S.poll = null; } }
+NET.listen('nudge', () => { if (S.pollNow) S.pollNow(); });
 function leave() {
-  stopPoll(); ssSet('gd_room', null);
+  stopPoll(); NET.stop(); ssSet('gd_room', null);
   S.mode = 'lobby'; S.code = null; S.me = null; resetForMode();
   render();
 }
@@ -6525,7 +6634,8 @@ function submitCall(pick, opt) {
    moves on to the next tick once it knows everything either controller did up to it (lockstep). */
 const LIVE = E.LIVE;
 const RL = 21;   // pixels per sideways unit on the live field
-const HAND_TICKS = 3;   // a handoff on screen: the ball travels from the quarterback to the back over this many ticks
+const HAND_TICKS = 3;
+const PRED = 12;   // online, the snap runs on up to this many ticks past the other player's confirmed inputs, guessing he holds his stick (corrected when they arrive)   // a handoff on screen: the ball travels from the quarterback to the back over this many ticks
 const RUNACTS = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button><button class="ab wide" data-lvk="1">Stiff arm</button>';
 const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r' };   // the right hand moves; every action is on the left side of the keyboard
 const lastName = n => { const w = String(n || '').trim().split(/\s+/); while (w.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(w[w.length - 1])) w.pop(); return w[w.length - 1] || ''; };   // (not "II" for a Jr. or a II)
@@ -6556,7 +6666,7 @@ function retKeys(teams, recv, kick) {
 }
 
 const LV = {
-  on: null, D: 10, held: {}, speed: 1, raf: 0, netT: 0, pend: [],
+  on: null, D: 10, early: {}, held: {}, speed: 1, raf: 0, netT: 0, pend: [],
   speedNow() { return window.__lvSpeed || this.speed; },
 
   /* ----- starting and stopping ----- */
@@ -6584,13 +6694,15 @@ const LV = {
       : { seed: S.seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick: E.legalOff(st, w.om.pick), defPick: E.DEF_CALLS[w.dm.pick] ? w.dm.pick : 'ZONE', OS: T[off].squad, DS: T[def].squad, ctlO: ctl[off], ctlD: ctl[def], dpos: ctl[def] && w.dm && w.dm.dp || null };
     this.lobArm = false;
     const m = this.on = {
-      n, wn: ret ? RVN + n : n, ret: ret ? w.ro : null, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? this.D : 0, dir: off === 'a' ? 1 : -1, st, T, keys: ret ? retKeys(T, off, def) : liveKeys(T, off, def),
+      n, wn: ret ? RVN + n : n, ret: ret ? w.ro : null, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? (NET.ok() ? 1 : 3) : 0, dir: off === 'a' ? 1 : -1, st, T, keys: ret ? retKeys(T, off, def) : liveKeys(T, off, def),
       stream: { a: { ev: [], upto: ctl.a ? 0 : 99999, fin: !ctl.a }, b: { ev: [], upto: ctl.b ? 0 : 99999, fin: !ctl.b } },
-      myCtl: !!ctl[me], oppCtl: !!ctl[other(me)], opp: other(me), last: 0, acc: 0, target: 0, stallAt: 0, ended: 0, inflight: false, lastNet: 0, lastStick: '0,0', pan: '', panT: 0, handed: false, tried: 0
+      myCtl: !!ctl[me], oppCtl: !!ctl[other(me)], opp: other(me), last: 0, acc: 0, target: 0, stallAt: 0, ended: 0, inflight: false, lastNet: 0, lastStick: '0,0', pan: '', panT: 0, handed: false, tried: 0, sentI: 0, p2pT: 0
     };
     const part = S.lvPart && S.lvPart[m.wn];   // coming back to a snap that was already under way
     if (part && part[me] && m.myCtl) { m.stream[me].ev = part[me].ev.slice(); m.stream[me].upto = part[me].upto; }
     this.build(m);
+    const early = this.early[m.wn]; this.early = {};   // the other player's inputs that came over the direct link before this screen started the snap
+    if (early && m.oppCtl) this.merge(m, m.opp, early.ev, early.upto, early.fin);
     const sc = { poss: off, ballOn: st.ballOn, down: st.down, toGo: st.toGo, teams: T };
     Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.flash = null; Field.scene = sc; Field.live = { items: [], ball: { wx: 0, sy: 0 }, los: Field.losX(sc), dir: m.dir };
     m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
@@ -6615,7 +6727,9 @@ const LV = {
     m.cc = { a: { ev: [], n: 0, i: 0, dx: 0, dy: 0 }, b: { ev: [], n: 0, i: 0, dx: 0, dy: 0 } };
     m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
   },
-  rebuild(m) { m.target = Math.max(m.target, m.sim.t); this.build(m); m.acc = 0; },
+  // play the snap again from the start with what we know now, straight back to the tick we were on (before anything else can happen:
+  // an input pressed in between must not be stamped on an early tick)
+  rebuild(m) { const to = Math.max(m.target, m.sim.t); this.build(m); let g = 0; while (!m.sim.out && m.sim.t < to && g++ < 3000) this.tick(m); m.target = to; this.redos = (this.redos || 0) + 1; },   // (redos: how many corrections, for the tests)
   snapshot(m) { const B = m.sim.ball; return { p: m.sim.P.map(p => [p.x, p.y]), b: [B.x, B.y, B.z], f: B.st === 'air' && B.air ? B.air.k / B.air.n : -1 }; },   // f: how far through its flight a thrown ball is
   stop() {
     cancelAnimationFrame(this.raf); this.raf = 0; clearInterval(this.netT); this.netT = 0;
@@ -6631,9 +6745,22 @@ const LV = {
     for (const s of ['a', 'b']) {
       if (!m.ctl[s]) continue;
       if (s === m.me && m.myCtl) continue;   // my own stream is always up to date
-      const rs = m.stream[s]; if (rs.upto < need && !rs.fin) return true;
+      const rs = m.stream[s]; if (rs.upto + (m.online ? PRED : 0) < need && !rs.fin) return true;
     }
     return false;
+  },
+  // the result counts only once the other player's inputs are in through the end (until then it may still change)
+  confirmed(m) { if (!m.online || !m.oppCtl) return true; const rs = m.stream[m.opp]; return rs.fin || rs.upto >= m.sim.t; },
+  /* the other player's stream, from the direct link or the server: anything new that falls on a tick already played (we had guessed he
+     kept doing what he was doing) means playing the snap again from the start with the real inputs, straight back to where we were */
+  merge(m, s, ev, upto, fin) {
+    const rs = m.stream[s], n = Math.min(ev.length, rs.ev.length); let k = 0, redo = false;
+    while (k < n && ev[k] === rs.ev[k]) k++;
+    if (k < rs.ev.length) { if (k < ev.length) { rs.ev = ev.slice(); redo = true; } }   // (a shorter copy that agrees is just older news)
+    else if (ev.length > rs.ev.length) { const add = ev.slice(rs.ev.length); rs.ev = rs.ev.concat(add); if (add.some(e => Math.floor(e / 100) <= m.sim.t)) redo = true; }
+    if (upto > rs.upto) rs.upto = upto;
+    if (fin) rs.fin = true;
+    if (redo) this.rebuild(m);
   },
   sync(m, s) {
     const c = m.cc[s], ev = m.stream[s].ev;
@@ -6650,14 +6777,16 @@ const LV = {
       const catching = m.sim.t < m.target;
       if (!catching && m.acc < 50) break;
       if (this.blocked(m)) { if (!m.stallAt) m.stallAt = ts; break; }
-      if (m.stallAt && ts - m.stallAt > 150 && m.D > 0 && m.D < 18) m.D += 2;   // the connection is slower than the delay: type further ahead
+      if (m.stallAt && ts - m.stallAt > 150 && m.D > 0 && m.D < 8 && !NET.ok()) m.D += 1;   // the connection is slower than the delay: type further ahead
       m.stallAt = 0;
       if (!catching) m.acc -= 50;
       this.tick(m);
     }
     this.callouts(m, ts);
-    if (m.sim.out && !m.ended) { m.ended = ts; this.flashResult(m); this.flush(m); }
-    if (m.sim.out && ts - m.ended > 1250 / Math.max(1, this.speedNow() > 2 ? 4 : 1)) { this.finish(m); return; }
+    if (m.online && m.myCtl && NET.ok() && ts - m.p2pT > 45) { m.p2pT = ts; this.p2p(m); }
+    if (m.sim.out && !m.ended && !this.confirmed(m)) { if (!m.waitAt) m.waitAt = ts; } else m.waitAt = 0;
+    if (m.sim.out && !m.ended && this.confirmed(m)) { m.ended = ts; this.flashResult(m); this.flush(m); }
+    if (m.sim.out && m.ended && ts - m.ended > 1250 / Math.max(1, this.speedNow() > 2 ? 4 : 1)) { this.finish(m); return; }
     this.draw(m);
     if (ts - m.panT > 120) { m.panT = ts; this.panel(false); }
   },
@@ -6680,11 +6809,11 @@ const LV = {
     const st = this.stick(), key = st[0] + ',' + st[1];
     if (!code && key === m.lastStick) return;
     m.lastStick = key;
-    const stamp = Math.min(LIVE.MAXT + 9, m.sim.t + 1 + m.D);
+    const stamp = Math.min(LIVE.MAXT + 9, Math.max(m.lastStamp || 0, m.sim.t + 1 + m.D)); m.lastStamp = stamp;   // (never earlier than the last one)
     const ev = m.stream[m.me].ev, e = LIVE.enc(stamp, st[0], st[1], code || 0);
     ev.push(e);
-    if (ev.length > 3900) ev.splice(1, 1);
-    if (m.online) this.netTick();
+    if (ev.length > 3900) { ev.splice(1, 1); m.sentI = 0; }
+    if (m.online) { if (NET.ok()) this.p2p(m); else this.netTick(); }
   },
   hand() { const m = this.on; if (!m || !m.myCtl || m.handed) return; this.push(9); m.handed = true; this.panel(true); },
   key(ev, down) {
@@ -6705,14 +6834,38 @@ const LV = {
   hold(dir, down) { this.held[dir] = down; this.push(0); },
 
   /* ----- network ----- */
+  // my new inputs (and how far my stream is complete) straight to the other screen
+  p2p(m) {
+    if (!m.myCtl) return;
+    const mine = m.stream[m.me], i = Math.min(m.sentI, mine.ev.length);
+    const done = !!m.ended;   // (finished only once the result is confirmed: a guessed ending can still be played again)
+    const up = done ? 99999 : m.sim.t + m.D;
+    if (NET.send({ t: 'lv', n: m.wn, i, ev: mine.ev.slice(i), upto: up, fin: done })) m.sentI = mine.ev.length;
+  },
+  fromPeer(o) {
+    if (!Number.isInteger(o.n) || !Number.isInteger(o.i) || !Array.isArray(o.ev) || !o.ev.every(Number.isInteger)) return;
+    const m = this.on;
+    if (!m || o.n !== m.wn) {   // a snap this screen has not started yet: keep it for when it does
+      const e = this.early[o.n] || { ev: [], upto: 0, fin: false };
+      if (o.i <= e.ev.length) { e.ev = e.ev.slice(0, o.i).concat(o.ev); e.upto = Math.max(e.upto, o.upto || 0); e.fin = e.fin || !!o.fin; this.early[o.n] = e; }
+      else NET.send({ t: 'lvre', n: o.n });   // (a gap: ask for all of it)
+      return;
+    }
+    if (!m.oppCtl) return;
+    const rs = m.stream[m.opp];
+    if (o.i > rs.ev.length) { NET.send({ t: 'lvre', n: o.n }); return; }   // something went missing: ask for the whole stream again
+    this.merge(m, m.opp, rs.ev.slice(0, o.i).concat(o.ev), o.upto || 0, !!o.fin);
+  },
   async netTick() {
     const m = this.on;
     if (!m || !m.online || m.inflight || (!m.myCtl && !m.oppCtl)) return;
+    if (NET.ok() && performance.now() - m.lastNet < 450) return;   // the direct link carries the play: the server only needs the record
+    m.lastNet = performance.now();
     m.inflight = true;
     const mine = m.stream[m.me], gone = this.on !== m;
     try {
       const body = { code: S.code, seat: m.me, pid: PID, n: m.wn };
-      if (m.myCtl) { body.op = 'live'; body.ev = mine.ev; body.upto = m.sim.out ? 99999 : (m.sim.t + m.D); body.fin = !!m.sim.out; }
+      if (m.myCtl) { body.op = 'live'; body.ev = mine.ev; body.upto = m.ended ? 99999 : (m.sim.t + m.D); body.fin = !!m.ended; }
       else { body.op = 'live'; body.poll = 1; }
       const r = await api(body);
       if (this.on === m) this.take(m, r);
@@ -6723,11 +6876,7 @@ const LV = {
   take(m, r) {
     if (r.forced) { const f = r.forced, mine = m.stream[m.me]; if (f.ev.length !== mine.ev.length || f.ev.some((e, i) => e !== mine.ev[i])) { mine.ev = f.ev.slice(); this.rebuild(m); } mine.upto = 99999; mine.fin = true; m.handed = true; }
     const o = r.o; if (!o || !m.oppCtl) return;
-    const rs = m.stream[m.opp];
-    let same = o.ev.length >= rs.ev.length; for (let i = 0; same && i < rs.ev.length; i++) if (rs.ev[i] !== o.ev[i]) same = false;
-    if (!same) { rs.ev = o.ev.slice(); this.rebuild(m); } else if (o.ev.length > rs.ev.length) rs.ev = o.ev.slice();
-    if (o.upto > rs.upto) rs.upto = o.upto;
-    if (o.fin) rs.fin = true;
+    this.merge(m, m.opp, o.ev, o.upto, o.fin);
   },
   async force() {
     const m = this.on; if (!m || !m.online || !m.oppCtl) return;
@@ -6737,6 +6886,7 @@ const LV = {
   // send the finished stream even after the screen has moved on
   flush(m) {
     if (!m.online || !m.myCtl) return;
+    this.p2p(m);
     const send = async k => {
       try { await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.wn, ev: m.stream[m.me].ev, upto: 99999, fin: true }); }
       catch (e) { if (k < 12 && S.mode === 'online' && S.code === m.code0) setTimeout(() => send(k + 1), 600 * (k + 1)); }
@@ -6774,17 +6924,19 @@ const LV = {
     else if (o.k === 'safety') { text = 'SAFETY'; col = own(m.def); }
     else if (o.k === 'inc' && o.drop) { text = 'DROPPED'; col = '#ff8a6a'; const r = m.sim.by[o.tgt]; sub = r ? lastName(r.name).toUpperCase() + ' IS SHAKEN · BOOSTS GONE' : ''; }
     else if (o.k === 'inc') text = o.away ? 'THROWN AWAY' : 'INCOMPLETE';
-    else { const y = Math.round(o.x); text = y > 0 ? '+' + y + ' YARDS' : y === 0 ? 'NO GAIN' : y + ' YARDS'; if (y >= m.st.toGo) { text += ' · 1ST DOWN'; col = own(m.off); } }
+    else { const y = E.liveGain(o.x, m.st.ballOn, m.st.toGo); text = y > 0 ? '+' + y + ' YARDS' : y === 0 ? 'NO GAIN' : y + ' YARDS'; if (y >= m.st.toGo) { text += ' · 1ST DOWN'; col = own(m.off); } }   // (spotted the way the engine spots it: a first down only when the ball got to the line)
     if (o.fum && !turn && o.k !== 'ret') sub = 'FUMBLE! ' + ((m.T[m.off] || {}).name || 'THE OFFENSE').toUpperCase() + ' FALL ON IT';   // loose, but kept
     if (o.slide && !sub) sub = 'OUT OF TIME: HE GOES DOWN';
     Field.flash = { text, color: col }; if (turn) Field.flash.turn = (m.T[m.def] || {}).name || ''; if (sub) Field.flash.sub = sub;
     Field.celebrate(text, col);
   },
   finish(m) {
-    const n = m.n, lv = { a: m.stream.a.ev.slice(), b: m.stream.b.ev.slice() };
+    const end = m.sim.t, upto = ev => ev.filter(e => Math.floor(e / 100) <= end);   // (inputs pressed after the snap ended on the other screen do not belong to it)
+    const n = m.n, lv = { a: upto(m.stream.a.ev), b: upto(m.stream.b.ev) };
     if (!m.ctl.a) lv.a = []; if (!m.ctl.b) lv.b = [];
     if (m.ret) { S.rv[n] = { s: m.off, ev: lv[m.off] }; S.rvSeen[n] = true; }
     else { S.lv[n] = lv; S.lvSeen[n] = true; }
+    (this.ends = this.ends || []).push([m.wn, end, m.D, this.redos || 0]); if (m.myCtl) { this.done = this.done || {}; this.done[m.wn] = m.stream[m.me].ev.slice(); }   // (kept to send again if the other screen missed some)   // (for the tests)
     this.stop();
     S.callSig = null;
     if (S.mode === 'online' || S.mode === 'local') render();
@@ -6916,12 +7068,15 @@ const LV = {
     }
     const f = $('#lvforce');
     if (f) {
-      const want = m.online && m.oppCtl && m.stallAt && performance.now() - m.stallAt > 5000 && !sim.out;
+      const since = m.stallAt || m.waitAt, want = m.online && m.oppCtl && since && performance.now() - since > 5000 && !m.ended;   // (stuck guessing ahead, or at a result the other player has not confirmed)
       const html = want ? '<button class="btn small" data-act="live-force">Opponent not responding · let the computer take over their player</button>' : '';
       if (f.dataset.h !== html) { f.innerHTML = html; f.dataset.h = html; }
     }
   }
 };
+NET.listen('lv', o => LV.fromPeer(o));
+NET.listen('lvre', o => { const m = LV.on; if (m && o.n === m.wn) { m.sentI = 0; LV.p2p(m); } else if (LV.done && LV.done[o.n]) NET.send({ t: 'lv', n: o.n, i: 0, ev: LV.done[o.n], upto: 99999, fin: true }); });
+window.GD_LV = LV;
 
 
 /* ---------- hub-driven games (campaign, leagues, tournaments) ---------- */
@@ -7056,6 +7211,11 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-2', title: 'Faster online games', items: [
+    'Online games now connect your device straight to the other player\'s whenever the network allows it. Your controls respond instantly, the other player\'s moves arrive in about the time of a ping, and play calls show up on the other screen right away. Next to the room code you can see whether you have a direct link and your ping.',
+    'On networks that block direct links, the game runs through the server as before, now with less delay.',
+    'The result banner on a live play only says 1ST DOWN when it really is one. A run that comes up a few inches short is shown as short.'
+  ] },
   { id: '2026-11-07', title: 'Handoffs, usage and playing time', items: [
     'On designed runs the quarterback hands the ball off. He is locked into the handoff until the back has it, and you can see the ball go from his hands to the back\'s instead of jumping across the field.',
     'Usage now adds up. Each player\'s number is the share of plays he is on the field for. Change one and the rest of his group adjust automatically. Each position shows its total: 100% for backs and tight ends, and 200% for receivers because two play at once.',

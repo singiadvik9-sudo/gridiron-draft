@@ -5,6 +5,7 @@ const $ = (s, r) => (r || document).querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 const TEAM_COL = { a: '#ff6b4a', b: '#4aa8ff' };
 const other = t => t === 'a' ? 'b' : 'a';
+/*NET*/
 const ord = n => ['', '1st', '2nd', '3rd', '4th'][n] || n + 'th';
 
 /* ---------- tiny storage helpers (all optional) ---------- */
@@ -524,7 +525,8 @@ function renderHeader() {
   const el = $('#hdr-right'); if (!el) return;
   if (S.mode === 'lobby') { if (window.HUB) window.HUB.renderHeader(); else el.innerHTML = ''; return; }
   const label = S.ctx ? S.ctx.label : S.mode === 'local' ? 'Practice' : S.mode === 'sdraft' ? ((S.sd && S.sd.label) || 'Draft') : 'Room ' + S.code;
-  el.innerHTML = '<span class="chip room">' + esc(label) + '</span><button class="btn small" data-act="leave">Leave</button>';
+  el.innerHTML = '<span class="chip room">' + esc(label) + '</span>' + (S.mode === 'online' && S.me ? '<span id="netst" class="netst"></span>' : '') + '<button class="btn small" data-act="leave">Leave</button>';
+  if (S.mode === 'online') NET.paint();
 }
 
 
@@ -591,9 +593,15 @@ function readName() {
 async function api(body, ep) {
   const h = { 'content-type': 'application/json' };
   const tk = window.HUB && window.HUB.token; if (tk) h['x-token'] = tk;
-  const r = await fetch('/api/' + (ep || 'room'), { method: 'POST', headers: h, body: JSON.stringify(body) });
+  // (an answer that never comes must not leave a request hanging forever: give up after 8 seconds and let the caller try again)
+  const ac = typeof AbortController !== 'undefined' ? new AbortController() : null, to = ac ? setTimeout(() => ac.abort(), 8000) : 0;
+  let r; const t0 = performance.now();
+  try { r = await fetch('/api/' + (ep || 'room'), { method: 'POST', headers: h, body: JSON.stringify(body), signal: ac ? ac.signal : undefined }); }
+  finally { clearTimeout(to); }
+  if (!ep && (body.op === 'live' || body.op === 'state') && r.ok) NET.srv(performance.now() - t0);
   let j = null; try { j = await r.json(); } catch (e) {}
   if (!r.ok) { const err = new Error((j && j.error) || 'http ' + r.status); err.code = (j && j.error) || 'http'; err.status = r.status; throw err; }
+  if (!ep && (body.op === 'move' || body.op === 'pick') && S.mode === 'online') NET.send({ t: 'nudge' });   // the other screen looks right away instead of at its next poll
   return j;
 }
 
@@ -662,9 +670,11 @@ function startPoll() {
         ['a', 'b'].forEach(s => { const m = (r.moves && r.moves[s]) || {}; for (const n in m) o[n + '-' + s] = moveOf(m[n]); });
         S.moves = o; if (r.lv) takeLv(r.lv); S.lvLoaded = true; sdOnline(r); render();
       }
+      if (S.me && S.seats.a && S.seats.b) NET.start(S.code, S.me, other(S.me));
     } catch (e) { /* transient: keep polling */ }
-    if (S.mode === 'online') S.poll = setTimeout(tick, S.screen === 'game' ? 700 : 1200);
+    if (S.mode === 'online') { clearTimeout(S.poll); S.poll = setTimeout(tick, S.screen === 'game' ? 700 : 1200); }
   };
+  S.pollNow = () => { if (S.mode === 'online') { clearTimeout(S.poll); tick(); } };
   tick();
 }
 // finished live snaps fetched from the room (coming back to a game, or watching one)
@@ -687,8 +697,9 @@ function takeLv(lv) {
 }
 const RVN = 1000;   // return moves are numbered 1000 + the play they belong to
 function stopPoll() { if (S.poll) { clearTimeout(S.poll); S.poll = null; } }
+NET.listen('nudge', () => { if (S.pollNow) S.pollNow(); });
 function leave() {
-  stopPoll(); ssSet('gd_room', null);
+  stopPoll(); NET.stop(); ssSet('gd_room', null);
   S.mode = 'lobby'; S.code = null; S.me = null; resetForMode();
   render();
 }

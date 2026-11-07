@@ -3,15 +3,28 @@ Checks that both screens end every snap with the same result, the same recorded 
 import random, json, sys
 from playwright.sync_api import sync_playwright
 errs = []
-URL = 'http://localhost:5055/'
+import os
+URL = os.environ.get('URL', 'http://localhost:5055/')
 SPEED = 3
+ALL = []
 def log(*a): print(*a); sys.stdout.flush()
 
 def role(pg):
     t = pg.inner_text('#callpanel .role') if pg.query_selector('#callpanel .role') else ''
     return t
 def wait_call(pg, timeout=20000):
-    pg.wait_for_selector('#callpanel .call:not([disabled]), .final', timeout=timeout)
+    """wait until this page (and the other one) can call a play: kicks on either page get their meter stopped on the way"""
+    import time
+    end = time.time() + timeout / 1000
+    while time.time() < end:
+        for q in [pg] + [x for x in ALL if x is not pg]:
+            try:
+                k = q.query_selector('#callpanel button[data-act=km-stop]')
+                if k and not q.query_selector('#callpanel .call:not([disabled])'): k.click(); q.wait_for_timeout(700)
+            except Exception: pass
+        if pg.query_selector('#callpanel .call:not([disabled]), .final'): return
+        pg.wait_for_timeout(200)
+    log('STUCK panel:', pg.evaluate("(document.querySelector('#callpanel')||{}).innerText || ''")[:300]); raise Exception('stuck waiting for a call')
 
 def set_ctl(pg, on):
     cur = pg.evaluate("document.querySelector('[data-act=ctl-toggle]') && document.querySelector('[data-act=ctl-toggle]').classList.contains('on')")
@@ -42,10 +55,12 @@ def drive(pg, is_off, steps):
         pg.wait_for_timeout(ms); pg.keyboard.press(key)
 
 with sync_playwright() as p:
-    b = p.chromium.launch()
+    import os
+    b = p.chromium.connect_over_cdp(os.environ['CDP']) if os.environ.get('CDP') else p.chromium.launch()   # (CDP=http://localhost:9333 to use a Chrome you started yourself)
     pages = []
+    shared = b.new_context(viewport={'width': 1100, 'height': 1000})   # (one context: the stand-in link between the pages is a BroadcastChannel)
     for tag in 'AB':
-        ctx = b.new_context(viewport={'width': 1100, 'height': 1000})
+        ctx = shared
         ctx.add_init_script('window.__lvSpeed=%d' % SPEED)
         pg = ctx.new_page()
         pg.on('pageerror', lambda e, t=tag: errs.append(t + ' PAGEERROR ' + str(e)))
@@ -53,13 +68,30 @@ with sync_playwright() as p:
         pg.goto(URL); pg.wait_for_timeout(400); pg.click('[data-h=quick]'); pg.wait_for_timeout(150)
         pages.append(pg)
     A, B = pages
+    ALL[:] = [A, B]
     A.fill('#team', 'Alpha'); A.click('#b-create'); A.wait_for_selector('.chip.room')
     code = A.inner_text('.chip.room').split()[-1]; log('room', code)
     B.fill('#team', 'Bravo'); B.fill('#code', code); B.click('#b-join'); B.wait_for_selector('.chip.room')
     A.wait_for_selector('.sd'); B.wait_for_selector('.sd')
     for pg in (A, B): pg.click('[data-act=sd-auto]')
-    A.wait_for_selector('.game', timeout=30000); B.wait_for_selector('.game', timeout=30000)
+    try: A.wait_for_selector('.game', timeout=30000); B.wait_for_selector('.game', timeout=30000)
+    except Exception:
+        for t, pg in (('A', A), ('B', B)): log('DRAFT', t, pg.evaluate("(document.querySelector('.sd-top')||document.body).innerText.slice(0,300)"), '| auto', pg.evaluate("!!document.querySelector('[data-act=sd-auto].on, .sd-auto.on')"))
+        raise
     log('both in the game')
+    # This machine blocks WebRTC traffic, so the direct link is stood in for by a BroadcastChannel between the two pages with 40 ms of delay
+    # each way: everything above the link (inputs streamed across, guessing ahead, corrections, confirmed results) runs for real.
+    FAKE = '''() => { const N = GD_NET; N.stop(); N.code = GAME.S.code; N.me = GAME.S.me; N.peer = GAME.S.me === 'a' ? 'b' : 'a'; const g = ++N.gen;
+      const bc = new BroadcastChannel('gd-link'), ch = { readyState: 'open', close() {}, send: d => setTimeout(() => bc.postMessage({ to: N.peer, d }), 40) };
+      bc.onmessage = e => { if (e.data.to === N.me && N.ch === ch) setTimeout(() => ch.onmessage({ data: e.data.d }), 0); };
+      N.wire(ch, g); N.state = 'open'; ch.onopen(); }'''
+    import os
+    if not os.environ.get('NOLINK'):
+        for pg in (A, B): pg.evaluate(FAKE)
+        A.wait_for_function('GD_NET.rtt != null', timeout=10000); B.wait_for_function('GD_NET.rtt != null', timeout=10000)
+    else: log('no direct link: everything goes through the server')
+    log('link:', A.evaluate('GD_NET.state'), B.evaluate('GD_NET.state'), '| chip:', A.inner_text('#netst'), '/', B.inner_text('#netst'))
+    if A.evaluate('GD_NET.state') != 'open' and not os.environ.get('NOLINK'): errs.append('no direct link')
 
     combos = [(1, 1), (1, 0), (0, 1), (1, 1), (1, 1), (0, 0), (1, 1), (1, 1), (1, 1), (1, 1)]
     done_live = 0
@@ -92,7 +124,10 @@ with sync_playwright() as p:
                     if key == 'DIGIT': key = random.choice('1234')
                     if ms: hold(pg, key, ms)
                     else: pg.keyboard.press(key)
-            A.wait_for_function('!window.GD_LIVE', timeout=40000); B.wait_for_function('!window.GD_LIVE', timeout=40000)
+            try: A.wait_for_function('!window.GD_LIVE', timeout=40000); B.wait_for_function('!window.GD_LIVE', timeout=40000)
+            except Exception:
+                st = "(() => { const m = window.GD_LIVE && window.GD_LIVE.on; if (!m) return 'done'; return JSON.stringify({ me: m.me, t: m.sim.t, out: !!m.sim.out, ended: m.ended, D: m.D, target: m.target, stall: m.stallAt, a: { n: m.stream.a.ev.length, upto: m.stream.a.upto, fin: m.stream.a.fin }, b: { n: m.stream.b.ev.length, upto: m.stream.b.upto, fin: m.stream.b.fin }, net: GD_NET.state, dbg: (m.dbg || []).slice(-25) }); })()"
+                log('HANG A', A.evaluate(st)); log('HANG B', B.evaluate(st)); raise
             done_live += 1
         # both logs have the new play
         A.wait_for_function('document.querySelectorAll("#log li").length>=%d' % (n + 1), timeout=15000)
@@ -103,9 +138,9 @@ with sync_playwright() as p:
         lva = A.evaluate('JSON.stringify(window.GAME.state.lv)'); lvb = B.evaluate('JSON.stringify(window.GAME.state.lv)')
         log('   result:', A.inner_text('#banner .bn-text'), '| same log', la == lb, '| same score', sa == sb, sa, '| same traces', lva == lvb)
         if la != lb or sa != sb or lva != lvb:
-            log('MISMATCH'); log(la); log(lb); log(lva); log(lvb); errs.append('mismatch at play %d' % n)
+            log('MISMATCH', 'ends A', A.evaluate('JSON.stringify(GD_LV.ends)'), 'ends B', B.evaluate('JSON.stringify(GD_LV.ends)')); log(la); log(lb); log(lva); log(lvb); errs.append('mismatch at play %d' % n)
             break
-    log('live snaps played:', done_live)
+    log('live snaps played:', done_live, '| corrections A/B:', A.evaluate('GD_LV.redos||0'), B.evaluate('GD_LV.redos||0'), '| ping', A.inner_text('#netst'))
     # --- reload one browser in the middle of a snap: it rebuilds the play from the room and carries on
     for pg in (A, B): pg.evaluate('window.__lvSpeed=1')
     wait_call(A); wait_call(B)
@@ -118,7 +153,10 @@ with sync_playwright() as p:
     A.reload()
     log('reloaded A mid-snap')
     A.wait_for_function('!!window.GD_LIVE', timeout=20000)
-    B.wait_for_function('!window.GD_LIVE', timeout=40000); A.wait_for_function('!window.GD_LIVE', timeout=40000)
+    try: B.wait_for_function('!window.GD_LIVE', timeout=40000); A.wait_for_function('!window.GD_LIVE', timeout=40000)
+    except Exception:
+        st = "(() => { const m = window.GD_LIVE && window.GD_LIVE.on; if (!m) return 'done'; return JSON.stringify({ me: m.me, t: m.sim.t, out: !!m.sim.out, ended: m.ended, D: m.D, stall: m.stallAt, a: { n: m.stream.a.ev.length, upto: m.stream.a.upto, fin: m.stream.a.fin }, b: { n: m.stream.b.ev.length, upto: m.stream.b.upto, fin: m.stream.b.fin }, net: GD_NET.state, inflight: m.inflight, tried: m.tried, sinceNet: Math.round(performance.now() - m.lastNet), myCtl: m.myCtl, oppCtl: m.oppCtl, ctl: m.ctl, dbg: (m.dbg || []).slice(-4) }); })()"
+        log('HANG A', A.evaluate(st)); log('HANG B', B.evaluate(st)); raise
     A.wait_for_function('document.querySelectorAll("#log li").length>=%d' % (nlog + 1), timeout=15000)
     B.wait_for_timeout(500)
     la, lb = A.inner_text('#log'), B.inner_text('#log')
@@ -136,8 +174,8 @@ with sync_playwright() as p:
     ra = role(A); offp, defp = (A, B) if 'ball' in ra.lower() else (B, A)
     pick(offp, 'HITCH', None); pick(defp, None, 'MAN2')
     A.wait_for_function('!!window.GD_LIVE', timeout=15000); B.wait_for_function('window.GD_LIVE && window.GD_LIVE.on && window.GD_LIVE.on.sim.t>3', timeout=15000)
-    B.context.close()
-    A.wait_for_function('window.GD_LIVE && window.GD_LIVE.on && window.GD_LIVE.on.stallAt>0', timeout=20000)
+    B.close()   # (the other player closes the tab)
+    A.wait_for_function('window.GD_LIVE && window.GD_LIVE.on && (window.GD_LIVE.on.stallAt>0 || window.GD_LIVE.on.waitAt>0)', timeout=20000)
     log('A is waiting for B')
     A.wait_for_selector('[data-act=live-force]', timeout=20000)
     A.screenshot(path='shots/live_stalled.png')

@@ -37,6 +37,22 @@ async function liveOp(res, b, code, seat) {
   return send(res, 200, { o: other || null });
 }
 
+/* Signaling for the direct link between players' devices (WebRTC): a small mailbox per seat. A message goes in the other seat's box; every
+   call takes (and empties) your own. Only setup goes through here (an offer, an answer, a goodbye); the plays still come to the server
+   as the record. */
+async function sigOp(res, b, code, seat) {
+  const to = typeof b.to === 'string' && /^[a-z0-9]{1,3}$/.test(b.to) && b.to !== seat ? b.to : null;
+  const msg = b.msg && typeof b.msg === 'object' && JSON.stringify(b.msg).length <= 12000 ? b.msg : null;
+  if (to && msg) await withLock('sg:' + code + ':' + to, async () => {
+    const k = rkey(code, 'sg:' + to), box = parse(await cmd(['GET', k])) || [];
+    box.push(Object.assign({}, msg, { from: seat, at: Date.now() })); while (box.length > 12) box.shift();
+    await setJ(k, box, 120);
+  });
+  const mine = rkey(code, 'sg:' + seat);
+  const got = await withLock('sg:' + code + ':' + seat, async () => { const box = parse(await cmd(['GET', mine])) || []; if (box.length) await cmd(['DEL', mine]); return box; });
+  return send(res, 200, { msgs: got.filter(m => Date.now() - (m.at || 0) < 60000) });
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   const b = readBody(req);
@@ -115,6 +131,7 @@ module.exports = async function handler(req, res) {
       return send(res, 200, { ok: true });
     }
     if (op === 'live') return await liveOp(res, b, code, seat);
+    if (op === 'sig') return await sigOp(res, b, code, seat);
     return fail(res, 400, 'bad_request');
   } catch (e) { return fail(res, 500, 'server'); }
 };

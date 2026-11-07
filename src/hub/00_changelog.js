@@ -2,6 +2,11 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-2', title: 'Faster online games', items: [
+    'Online games now connect your device straight to the other player\'s whenever the network allows it. Your controls respond instantly, the other player\'s moves arrive in about the time of a ping, and play calls show up on the other screen right away. Next to the room code you can see whether you have a direct link and your ping.',
+    'On networks that block direct links, the game runs through the server as before, now with less delay.',
+    'The result banner on a live play only says 1ST DOWN when it really is one. A run that comes up a few inches short is shown as short.'
+  ] },
   { id: '2026-11-07', title: 'Handoffs, usage and playing time', items: [
     'On designed runs the quarterback hands the ball off. He is locked into the handoff until the back has it, and you can see the ball go from his hands to the back\'s instead of jumping across the field.',
     'Usage now adds up. Each player\'s number is the share of plays he is on the field for. Change one and the rest of his group adjust automatically. Each position shows its total: 100% for backs and tight ends, and 200% for receivers because two play at once.',

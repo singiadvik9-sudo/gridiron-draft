@@ -4,7 +4,8 @@
    moves on to the next tick once it knows everything either controller did up to it (lockstep). */
 const LIVE = E.LIVE;
 const RL = 21;   // pixels per sideways unit on the live field
-const HAND_TICKS = 3;   // a handoff on screen: the ball travels from the quarterback to the back over this many ticks
+const HAND_TICKS = 3;
+const PRED = 12;   // online, the snap runs on up to this many ticks past the other player's confirmed inputs, guessing he holds his stick (corrected when they arrive)   // a handoff on screen: the ball travels from the quarterback to the back over this many ticks
 const RUNACTS = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button><button class="ab wide" data-lvk="1">Stiff arm</button>';
 const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r' };   // the right hand moves; every action is on the left side of the keyboard
 const lastName = n => { const w = String(n || '').trim().split(/\s+/); while (w.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(w[w.length - 1])) w.pop(); return w[w.length - 1] || ''; };   // (not "II" for a Jr. or a II)
@@ -35,7 +36,7 @@ function retKeys(teams, recv, kick) {
 }
 
 const LV = {
-  on: null, D: 10, held: {}, speed: 1, raf: 0, netT: 0, pend: [],
+  on: null, D: 10, early: {}, held: {}, speed: 1, raf: 0, netT: 0, pend: [],
   speedNow() { return window.__lvSpeed || this.speed; },
 
   /* ----- starting and stopping ----- */
@@ -63,13 +64,15 @@ const LV = {
       : { seed: S.seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick: E.legalOff(st, w.om.pick), defPick: E.DEF_CALLS[w.dm.pick] ? w.dm.pick : 'ZONE', OS: T[off].squad, DS: T[def].squad, ctlO: ctl[off], ctlD: ctl[def], dpos: ctl[def] && w.dm && w.dm.dp || null };
     this.lobArm = false;
     const m = this.on = {
-      n, wn: ret ? RVN + n : n, ret: ret ? w.ro : null, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? this.D : 0, dir: off === 'a' ? 1 : -1, st, T, keys: ret ? retKeys(T, off, def) : liveKeys(T, off, def),
+      n, wn: ret ? RVN + n : n, ret: ret ? w.ro : null, off, def, me, ctl, ctx, online, code0: S.code, D: online && both ? (NET.ok() ? 1 : 3) : 0, dir: off === 'a' ? 1 : -1, st, T, keys: ret ? retKeys(T, off, def) : liveKeys(T, off, def),
       stream: { a: { ev: [], upto: ctl.a ? 0 : 99999, fin: !ctl.a }, b: { ev: [], upto: ctl.b ? 0 : 99999, fin: !ctl.b } },
-      myCtl: !!ctl[me], oppCtl: !!ctl[other(me)], opp: other(me), last: 0, acc: 0, target: 0, stallAt: 0, ended: 0, inflight: false, lastNet: 0, lastStick: '0,0', pan: '', panT: 0, handed: false, tried: 0
+      myCtl: !!ctl[me], oppCtl: !!ctl[other(me)], opp: other(me), last: 0, acc: 0, target: 0, stallAt: 0, ended: 0, inflight: false, lastNet: 0, lastStick: '0,0', pan: '', panT: 0, handed: false, tried: 0, sentI: 0, p2pT: 0
     };
     const part = S.lvPart && S.lvPart[m.wn];   // coming back to a snap that was already under way
     if (part && part[me] && m.myCtl) { m.stream[me].ev = part[me].ev.slice(); m.stream[me].upto = part[me].upto; }
     this.build(m);
+    const early = this.early[m.wn]; this.early = {};   // the other player's inputs that came over the direct link before this screen started the snap
+    if (early && m.oppCtl) this.merge(m, m.opp, early.ev, early.upto, early.fin);
     const sc = { poss: off, ballOn: st.ballOn, down: st.down, toGo: st.toGo, teams: T };
     Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.flash = null; Field.scene = sc; Field.live = { items: [], ball: { wx: 0, sy: 0 }, los: Field.losX(sc), dir: m.dir };
     m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
@@ -94,7 +97,9 @@ const LV = {
     m.cc = { a: { ev: [], n: 0, i: 0, dx: 0, dy: 0 }, b: { ev: [], n: 0, i: 0, dx: 0, dy: 0 } };
     m.sn1 = this.snapshot(m); m.sn0 = m.sn1;
   },
-  rebuild(m) { m.target = Math.max(m.target, m.sim.t); this.build(m); m.acc = 0; },
+  // play the snap again from the start with what we know now, straight back to the tick we were on (before anything else can happen:
+  // an input pressed in between must not be stamped on an early tick)
+  rebuild(m) { const to = Math.max(m.target, m.sim.t); this.build(m); let g = 0; while (!m.sim.out && m.sim.t < to && g++ < 3000) this.tick(m); m.target = to; this.redos = (this.redos || 0) + 1; },   // (redos: how many corrections, for the tests)
   snapshot(m) { const B = m.sim.ball; return { p: m.sim.P.map(p => [p.x, p.y]), b: [B.x, B.y, B.z], f: B.st === 'air' && B.air ? B.air.k / B.air.n : -1 }; },   // f: how far through its flight a thrown ball is
   stop() {
     cancelAnimationFrame(this.raf); this.raf = 0; clearInterval(this.netT); this.netT = 0;
@@ -110,9 +115,22 @@ const LV = {
     for (const s of ['a', 'b']) {
       if (!m.ctl[s]) continue;
       if (s === m.me && m.myCtl) continue;   // my own stream is always up to date
-      const rs = m.stream[s]; if (rs.upto < need && !rs.fin) return true;
+      const rs = m.stream[s]; if (rs.upto + (m.online ? PRED : 0) < need && !rs.fin) return true;
     }
     return false;
+  },
+  // the result counts only once the other player's inputs are in through the end (until then it may still change)
+  confirmed(m) { if (!m.online || !m.oppCtl) return true; const rs = m.stream[m.opp]; return rs.fin || rs.upto >= m.sim.t; },
+  /* the other player's stream, from the direct link or the server: anything new that falls on a tick already played (we had guessed he
+     kept doing what he was doing) means playing the snap again from the start with the real inputs, straight back to where we were */
+  merge(m, s, ev, upto, fin) {
+    const rs = m.stream[s], n = Math.min(ev.length, rs.ev.length); let k = 0, redo = false;
+    while (k < n && ev[k] === rs.ev[k]) k++;
+    if (k < rs.ev.length) { if (k < ev.length) { rs.ev = ev.slice(); redo = true; } }   // (a shorter copy that agrees is just older news)
+    else if (ev.length > rs.ev.length) { const add = ev.slice(rs.ev.length); rs.ev = rs.ev.concat(add); if (add.some(e => Math.floor(e / 100) <= m.sim.t)) redo = true; }
+    if (upto > rs.upto) rs.upto = upto;
+    if (fin) rs.fin = true;
+    if (redo) this.rebuild(m);
   },
   sync(m, s) {
     const c = m.cc[s], ev = m.stream[s].ev;
@@ -129,14 +147,16 @@ const LV = {
       const catching = m.sim.t < m.target;
       if (!catching && m.acc < 50) break;
       if (this.blocked(m)) { if (!m.stallAt) m.stallAt = ts; break; }
-      if (m.stallAt && ts - m.stallAt > 150 && m.D > 0 && m.D < 18) m.D += 2;   // the connection is slower than the delay: type further ahead
+      if (m.stallAt && ts - m.stallAt > 150 && m.D > 0 && m.D < 8 && !NET.ok()) m.D += 1;   // the connection is slower than the delay: type further ahead
       m.stallAt = 0;
       if (!catching) m.acc -= 50;
       this.tick(m);
     }
     this.callouts(m, ts);
-    if (m.sim.out && !m.ended) { m.ended = ts; this.flashResult(m); this.flush(m); }
-    if (m.sim.out && ts - m.ended > 1250 / Math.max(1, this.speedNow() > 2 ? 4 : 1)) { this.finish(m); return; }
+    if (m.online && m.myCtl && NET.ok() && ts - m.p2pT > 45) { m.p2pT = ts; this.p2p(m); }
+    if (m.sim.out && !m.ended && !this.confirmed(m)) { if (!m.waitAt) m.waitAt = ts; } else m.waitAt = 0;
+    if (m.sim.out && !m.ended && this.confirmed(m)) { m.ended = ts; this.flashResult(m); this.flush(m); }
+    if (m.sim.out && m.ended && ts - m.ended > 1250 / Math.max(1, this.speedNow() > 2 ? 4 : 1)) { this.finish(m); return; }
     this.draw(m);
     if (ts - m.panT > 120) { m.panT = ts; this.panel(false); }
   },
@@ -159,11 +179,11 @@ const LV = {
     const st = this.stick(), key = st[0] + ',' + st[1];
     if (!code && key === m.lastStick) return;
     m.lastStick = key;
-    const stamp = Math.min(LIVE.MAXT + 9, m.sim.t + 1 + m.D);
+    const stamp = Math.min(LIVE.MAXT + 9, Math.max(m.lastStamp || 0, m.sim.t + 1 + m.D)); m.lastStamp = stamp;   // (never earlier than the last one)
     const ev = m.stream[m.me].ev, e = LIVE.enc(stamp, st[0], st[1], code || 0);
     ev.push(e);
-    if (ev.length > 3900) ev.splice(1, 1);
-    if (m.online) this.netTick();
+    if (ev.length > 3900) { ev.splice(1, 1); m.sentI = 0; }
+    if (m.online) { if (NET.ok()) this.p2p(m); else this.netTick(); }
   },
   hand() { const m = this.on; if (!m || !m.myCtl || m.handed) return; this.push(9); m.handed = true; this.panel(true); },
   key(ev, down) {
@@ -184,14 +204,38 @@ const LV = {
   hold(dir, down) { this.held[dir] = down; this.push(0); },
 
   /* ----- network ----- */
+  // my new inputs (and how far my stream is complete) straight to the other screen
+  p2p(m) {
+    if (!m.myCtl) return;
+    const mine = m.stream[m.me], i = Math.min(m.sentI, mine.ev.length);
+    const done = !!m.ended;   // (finished only once the result is confirmed: a guessed ending can still be played again)
+    const up = done ? 99999 : m.sim.t + m.D;
+    if (NET.send({ t: 'lv', n: m.wn, i, ev: mine.ev.slice(i), upto: up, fin: done })) m.sentI = mine.ev.length;
+  },
+  fromPeer(o) {
+    if (!Number.isInteger(o.n) || !Number.isInteger(o.i) || !Array.isArray(o.ev) || !o.ev.every(Number.isInteger)) return;
+    const m = this.on;
+    if (!m || o.n !== m.wn) {   // a snap this screen has not started yet: keep it for when it does
+      const e = this.early[o.n] || { ev: [], upto: 0, fin: false };
+      if (o.i <= e.ev.length) { e.ev = e.ev.slice(0, o.i).concat(o.ev); e.upto = Math.max(e.upto, o.upto || 0); e.fin = e.fin || !!o.fin; this.early[o.n] = e; }
+      else NET.send({ t: 'lvre', n: o.n });   // (a gap: ask for all of it)
+      return;
+    }
+    if (!m.oppCtl) return;
+    const rs = m.stream[m.opp];
+    if (o.i > rs.ev.length) { NET.send({ t: 'lvre', n: o.n }); return; }   // something went missing: ask for the whole stream again
+    this.merge(m, m.opp, rs.ev.slice(0, o.i).concat(o.ev), o.upto || 0, !!o.fin);
+  },
   async netTick() {
     const m = this.on;
     if (!m || !m.online || m.inflight || (!m.myCtl && !m.oppCtl)) return;
+    if (NET.ok() && performance.now() - m.lastNet < 450) return;   // the direct link carries the play: the server only needs the record
+    m.lastNet = performance.now();
     m.inflight = true;
     const mine = m.stream[m.me], gone = this.on !== m;
     try {
       const body = { code: S.code, seat: m.me, pid: PID, n: m.wn };
-      if (m.myCtl) { body.op = 'live'; body.ev = mine.ev; body.upto = m.sim.out ? 99999 : (m.sim.t + m.D); body.fin = !!m.sim.out; }
+      if (m.myCtl) { body.op = 'live'; body.ev = mine.ev; body.upto = m.ended ? 99999 : (m.sim.t + m.D); body.fin = !!m.ended; }
       else { body.op = 'live'; body.poll = 1; }
       const r = await api(body);
       if (this.on === m) this.take(m, r);
@@ -202,11 +246,7 @@ const LV = {
   take(m, r) {
     if (r.forced) { const f = r.forced, mine = m.stream[m.me]; if (f.ev.length !== mine.ev.length || f.ev.some((e, i) => e !== mine.ev[i])) { mine.ev = f.ev.slice(); this.rebuild(m); } mine.upto = 99999; mine.fin = true; m.handed = true; }
     const o = r.o; if (!o || !m.oppCtl) return;
-    const rs = m.stream[m.opp];
-    let same = o.ev.length >= rs.ev.length; for (let i = 0; same && i < rs.ev.length; i++) if (rs.ev[i] !== o.ev[i]) same = false;
-    if (!same) { rs.ev = o.ev.slice(); this.rebuild(m); } else if (o.ev.length > rs.ev.length) rs.ev = o.ev.slice();
-    if (o.upto > rs.upto) rs.upto = o.upto;
-    if (o.fin) rs.fin = true;
+    this.merge(m, m.opp, o.ev, o.upto, o.fin);
   },
   async force() {
     const m = this.on; if (!m || !m.online || !m.oppCtl) return;
@@ -216,6 +256,7 @@ const LV = {
   // send the finished stream even after the screen has moved on
   flush(m) {
     if (!m.online || !m.myCtl) return;
+    this.p2p(m);
     const send = async k => {
       try { await api({ op: 'live', code: S.code, seat: m.me, pid: PID, n: m.wn, ev: m.stream[m.me].ev, upto: 99999, fin: true }); }
       catch (e) { if (k < 12 && S.mode === 'online' && S.code === m.code0) setTimeout(() => send(k + 1), 600 * (k + 1)); }
@@ -253,17 +294,19 @@ const LV = {
     else if (o.k === 'safety') { text = 'SAFETY'; col = own(m.def); }
     else if (o.k === 'inc' && o.drop) { text = 'DROPPED'; col = '#ff8a6a'; const r = m.sim.by[o.tgt]; sub = r ? lastName(r.name).toUpperCase() + ' IS SHAKEN · BOOSTS GONE' : ''; }
     else if (o.k === 'inc') text = o.away ? 'THROWN AWAY' : 'INCOMPLETE';
-    else { const y = Math.round(o.x); text = y > 0 ? '+' + y + ' YARDS' : y === 0 ? 'NO GAIN' : y + ' YARDS'; if (y >= m.st.toGo) { text += ' · 1ST DOWN'; col = own(m.off); } }
+    else { const y = E.liveGain(o.x, m.st.ballOn, m.st.toGo); text = y > 0 ? '+' + y + ' YARDS' : y === 0 ? 'NO GAIN' : y + ' YARDS'; if (y >= m.st.toGo) { text += ' · 1ST DOWN'; col = own(m.off); } }   // (spotted the way the engine spots it: a first down only when the ball got to the line)
     if (o.fum && !turn && o.k !== 'ret') sub = 'FUMBLE! ' + ((m.T[m.off] || {}).name || 'THE OFFENSE').toUpperCase() + ' FALL ON IT';   // loose, but kept
     if (o.slide && !sub) sub = 'OUT OF TIME: HE GOES DOWN';
     Field.flash = { text, color: col }; if (turn) Field.flash.turn = (m.T[m.def] || {}).name || ''; if (sub) Field.flash.sub = sub;
     Field.celebrate(text, col);
   },
   finish(m) {
-    const n = m.n, lv = { a: m.stream.a.ev.slice(), b: m.stream.b.ev.slice() };
+    const end = m.sim.t, upto = ev => ev.filter(e => Math.floor(e / 100) <= end);   // (inputs pressed after the snap ended on the other screen do not belong to it)
+    const n = m.n, lv = { a: upto(m.stream.a.ev), b: upto(m.stream.b.ev) };
     if (!m.ctl.a) lv.a = []; if (!m.ctl.b) lv.b = [];
     if (m.ret) { S.rv[n] = { s: m.off, ev: lv[m.off] }; S.rvSeen[n] = true; }
     else { S.lv[n] = lv; S.lvSeen[n] = true; }
+    (this.ends = this.ends || []).push([m.wn, end, m.D, this.redos || 0]); if (m.myCtl) { this.done = this.done || {}; this.done[m.wn] = m.stream[m.me].ev.slice(); }   // (kept to send again if the other screen missed some)   // (for the tests)
     this.stop();
     S.callSig = null;
     if (S.mode === 'online' || S.mode === 'local') render();
@@ -395,9 +438,12 @@ const LV = {
     }
     const f = $('#lvforce');
     if (f) {
-      const want = m.online && m.oppCtl && m.stallAt && performance.now() - m.stallAt > 5000 && !sim.out;
+      const since = m.stallAt || m.waitAt, want = m.online && m.oppCtl && since && performance.now() - since > 5000 && !m.ended;   // (stuck guessing ahead, or at a result the other player has not confirmed)
       const html = want ? '<button class="btn small" data-act="live-force">Opponent not responding · let the computer take over their player</button>' : '';
       if (f.dataset.h !== html) { f.innerHTML = html; f.dataset.h = html; }
     }
   }
 };
+NET.listen('lv', o => LV.fromPeer(o));
+NET.listen('lvre', o => { const m = LV.on; if (m && o.n === m.wn) { m.sentI = 0; LV.p2p(m); } else if (LV.done && LV.done[o.n]) NET.send({ t: 'lv', n: o.n, i: 0, ev: LV.done[o.n], upto: 99999, fin: true }); });
+window.GD_LV = LV;
