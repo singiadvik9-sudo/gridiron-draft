@@ -2,6 +2,10 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-11', title: 'Play your campaign games together', items: [
+    'In a shared campaign, when two or more co-managers are online and press Ready to play, you all play the game together on the field against the computer. Whoever asked plays quarterback and calls the plays, and everyone else gets a receiver or back spot and a defender. The result counts for the campaign once the server has checked it.',
+    'If you are the only one online, you play it on your own as before.'
+  ] },
   { id: '2026-11-07-10', title: 'Run a campaign with friends', items: [
     'Open one of your campaigns and press Share, then invite friends (up to 5 co-managers). Everyone can do everything, and the campaign page shows who is online and a feed of what everyone did.',
     'Big moves need a second yes: trades, cutting or losing a player rated 80+, contracts over $15M a year, and first-round picks. The other co-managers get Approve and Reject buttons.',

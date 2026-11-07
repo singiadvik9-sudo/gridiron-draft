@@ -4,7 +4,7 @@
    nobody on it is the computer. Players see each other by a short id, never by the pid that stands in for a guest's login.
    lob = { host: pid, names: { a, b }, ps: [{ id, pid, name, team, pos, ds, ready }], started } */
 const { cmd, getJ, setJ, parse, withLock, send, fail, clean } = require('./_lib');
-const { rkey, TTL } = require('./_rooms');
+const { rkey, TTL, createRoom, readRoom } = require('./_rooms');
 const DR = require('../lib/draft.js');
 const POS = ['QB', 'HB', 'WR1', 'WR2', 'TE'], SPOTS = ['LDE', 'RDE', 'LDT', 'RDT', 'MLB', 'WLB', 'SLB', 'LCB', 'RCB', 'FS', 'SS'], MAX = 10;
 const newId = () => Math.random().toString(36).slice(2, 5).replace(/[^a-z0-9]/g, 'x').padEnd(3, 'x');
@@ -96,8 +96,8 @@ async function seatQBs(code, lob, room, d) {
   d = d || parse(await cmd(['GET', rkey(code, 'dr')]));
   for (const [t, i] of [['a', 0], ['b', 1]]) {
     const qb = lob.ps.find(p => p.team === t && p.pos === 'QB'), cur = parse(await cmd(['GET', rkey(code, t)]));
-    const roster = cur && cur.roster ? cur.roster : DR.toRoster(DR.teamIds(d, i));
-    await setJ(rkey(code, t), { pid: qb ? qb.pid : 'cpu:' + t, name: lob.names[t], status: 'ready', roster, cpu: lob.ps.some(p => p.team === t) ? 0 : 1 }, TTL);
+    const team = cur && cur.squad ? { squad: cur.squad, c1: cur.c1, c2: cur.c2 } : { roster: cur && cur.roster ? cur.roster : DR.toRoster(DR.teamIds(d, i)) };   // (a campaign's teams come with their squads)
+    await setJ(rkey(code, t), Object.assign({ pid: qb ? qb.pid : 'cpu:' + t, name: lob.names[t], status: 'ready', cpu: lob.ps.some(p => p.team === t) ? 0 : 1 }, team), TTL);
   }
 }
 // a person's input stream in a live snap; returns everyone else's in that snap that he asked for (b.want: their slots)
@@ -139,4 +139,25 @@ async function liveAll(code, mv) {
   at.slice(0, 600).forEach(([n, s, k], i) => { const o = out[n] = out[n] || { a: {}, b: {} }; o[s][k] = vals[i] || null; });
   return out;
 }
-module.exports = { create, op, live, force, liveAll, pub, memberOf, slotOk, POS, SPOTS, MAX };
+/* a shared campaign's game, played together: a squad room with the campaign's two teams (home a, away b), the co-managers on their team
+   (whoever asked plays quarterback, the others the receivers and backs, everyone a defender), the other team the computer; already started */
+async function campRoom(seed, T, side, names) {
+  const code = await createRoom(seed, null, {}, { squad: 1, cap: 0, camp: 1 }); if (!code) return null;
+  const order = ['QB', 'WR1', 'WR2', 'TE', 'HB'];
+  const lob = { host: 'u:' + names[0], names: { a: T.a.name, b: T.b.name }, ps: names.slice(0, 5).map((n, i) => ({ id: newId() + i, pid: 'u:' + n, name: n, team: side, pos: order[i], ds: null, ready: 1 })), started: Date.now() };
+  autoDs(lob); await setJ(lobKey(code), lob, TTL);
+  for (const t of ['a', 'b']) await setJ(rkey(code, t), { pid: t === side ? 'u:' + names[0] : 'cpu:' + t, name: T[t].name, status: 'ready', squad: T[t].squad, c1: T[t].c1, c2: T[t].c2, cpu: t === side ? 0 : 1 }, TTL);
+  return code;
+}
+// every move made in a squad room, as the engine plays them back (each person's stream in the live snaps; kick returns as usual)
+async function roomMoves(code) {
+  const rr = await readRoom(code); if (!rr) return null;
+  const mv = rr.moves, [ma, mb] = (await cmd(['MGET', rkey(code, 'ma'), rkey(code, 'mb')])).map(parse), lv = await liveAll(code, { a: ma, b: mb });
+  Object.keys(lv).forEach(n => {
+    const want = []; [['a', ma], ['b', mb]].forEach(([s, m]) => { const v = m && m[n]; if (v && v.c && Array.isArray(v.h)) v.h.forEach(k => want.push([s, k])); });
+    if (want.length && want.every(([s, k]) => lv[n][s][k] && lv[n][s][k].fin)) { const o = { a: {}, b: {} }; want.forEach(([s, k]) => { o[s][k] = lv[n][s][k].ev || []; }); mv[n + '-lv'] = o; }
+    else delete mv[n + '-lv'];
+  });
+  return { room: rr.room, moves: mv };
+}
+module.exports = { create, op, live, force, liveAll, pub, memberOf, slotOk, campRoom, roomMoves, POS, SPOTS, MAX };

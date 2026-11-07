@@ -29,8 +29,20 @@ function sharedShow() {
 }
 // the team's game is yours to play (everyone said they were ready): off you go
 function sharedBusyCheck() {
-  const b = C.shared && C.shared.meta.busy;
-  if (b && b.by === H.user && SH.busyStarted !== b.gid + ':' + b.at && G.state.mode === 'lobby') { SH.busyStarted = b.gid + ':' + b.at; sharedPlay(b.gid); }
+  const b = C.shared && C.shared.meta.busy; if (!b || G.state.mode !== 'lobby' || SH.busyStarted === b.gid + ':' + b.at) return;
+  if (b.room) { if ((b.players || []).indexOf(H.user) >= 0) { SH.busyStarted = b.gid + ':' + b.at; sharedTogether(b); } }   // played together: into the room
+  else if (b.by === H.user) { SH.busyStarted = b.gid + ':' + b.at; sharedPlay(b.gid); }
+}
+// the team's game with the other co-managers: a squad room against the computer; at the end it is reported (the server checks it from the
+// room's own record) and everyone goes back to the campaign
+function sharedTogether(b) {
+  const code = C.shared.code, L = C.L, g = L.sched.find(x => x.id === b.gid);
+  hubChatOff();
+  G.joinRoomCtx(b.room, {
+    label: g && g.pl === 'po' ? 'Playoffs' : 'Week ' + (g ? g.w : ''),
+    report: async () => { await call('camp', { op: 'report', code, room: b.room }); },
+    onDone: async () => { if (C.shared && C.shared.code === code) { await sharedLoad(); FR.tab = 'home'; go('camphub'); } }
+  });
 }
 function sharedPlay(gid) {
   const L = C.L, tid = L.user, g = L.sched.find(x => x.id === gid); if (!g) return;
@@ -80,7 +92,7 @@ function sharedTopHTML(L, M) {
   const me = H.user, on = M.online || [];
   let h = '<div class="panel shtop"><div class="row between"><span class="shwho">' + (M.members || []).map(n => '<span class="shm"><i class="frdot' + (on.indexOf(n) >= 0 ? ' on' : '') + '"></i>' + esc(n) + (n === M.owner ? ' <small>owner</small>' : '') + '</span>').join('') +
     ((M.inv || []).length ? '<span class="sub">invited: ' + M.inv.map(esc).join(', ') + '</span>' : '') + '</span></div>';
-  if (M.busy) h += '<div class="shbar">' + (M.busy.by === me ? 'You are playing the game. <button class="btn small ghost" data-h="sh-abandon">Give it up</button>' : '<b>' + esc(M.busy.by) + '</b> is playing the game. The team cannot be changed until it is over.') + '</div>';
+  if (M.busy) h += '<div class="shbar">' + (M.busy.room ? '<b>' + M.busy.players.map(esc).join(', ') + '</b> are playing the game together.' + ((M.busy.players || []).indexOf(me) >= 0 ? ' <button class="btn small primary" data-h="sh-rejoin">Back to the game</button>' : ' The team cannot be changed until it is over.') : M.busy.by === me ? 'You are playing the game.' : '<b>' + esc(M.busy.by) + '</b> is playing the game. The team cannot be changed until it is over.') + ((M.busy.players || [M.busy.by]).indexOf(me) >= 0 ? ' <button class="btn small ghost" data-h="sh-abandon">Give it up</button>' : '') + '</div>';
   if (M.rd) { const mine = !!M.rd.by[me], who = Object.keys(M.rd.by), wait = on.filter(n => !M.rd.by[n]);
     h += '<div class="shbar"><b>' + esc(M.rd.first) + '</b> wants to ' + esc(M.rd.label) + '. Ready: ' + who.map(esc).join(', ') + (wait.length ? ' · waiting for ' + wait.map(esc).join(', ') : '') + ' ' +
       (mine ? '<button class="btn small ghost" data-h="sh-unready">Not ready</button>' : '<button class="btn small primary" data-h="sh-ready" data-k="' + esc(M.rd.key) + '">Ready</button>') + '</div>'; }
@@ -95,6 +107,7 @@ ACT['sh-cancel'] = async t => { await run(() => shCall('cancel', { id: t.dataset
 ACT['sh-ready'] = async t => { const [kind, arg] = t.dataset.k.split(':'); await sharedAdv(kind, arg); };
 ACT['sh-unready'] = async () => { await run(() => shCall('unready')); await sharedAfter(null); };
 ACT['sh-abandon'] = async () => { if (confirm('Give up the game? It stays unplayed.')) { await run(() => shCall('abandon')); await sharedAfter(null); } };
+ACT['sh-rejoin'] = () => { const b = C.shared && C.shared.meta.busy; if (b && b.room) sharedTogether(b); };
 ACT['sh-exit'] = () => { C.shared = null; C.L = null; hubChatOff(); go('camp'); };
 ACT['sh-leave'] = async () => { if (!confirm('Leave this shared campaign? You can only come back if someone invites you again.')) return; if (await run(() => shCall('leave'))) ACT['sh-exit'](); };
 ACT['sh-end'] = async () => {

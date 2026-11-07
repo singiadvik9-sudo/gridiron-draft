@@ -1400,7 +1400,12 @@ function startBoard(o) {   // hub-driven snake draft (tournaments): {label, d, m
   sdStart(o); sdPollLoop(); render(); sdStep();
 }
 function exitToHub() { leave(); }
-window.GAME = { attrGrid, keyAttrs, resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, S, Field, chatDock, render: () => render() };
+// join a room for a game that counts somewhere (a shared campaign's game played together): the room as usual, with what to do at the end
+async function joinRoomCtx(code, ctx) {
+  await joinRoom(code, true);
+  if (S.code === code) { S.ctx = Object.assign({ kind: 'room', label: 'Live game', sent: false, status: '' }, ctx); S.callSig = null; render(); }
+}
+window.GAME = { attrGrid, keyAttrs, resume: () => { const saved = ssGet('gd_room'); if (saved && S.api && S.mode === 'lobby') joinRoom(saved, true); }, api, startCtxCpu, startCtxRoom, startBoard, exitToHub, buildLobby: () => buildLobby(), readName, toast, esc, spCanvas, paintCanvases, keyFor, genericKey, fieldKey, getSprite, openModal, closeModal, state: S, PID, joinRoom, joinRoomCtx, S, Field, chatDock, render: () => render() };
 
 /* ---------- router ---------- */
 function render() {
