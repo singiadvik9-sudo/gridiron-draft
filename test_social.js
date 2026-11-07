@@ -50,3 +50,12 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   ok((await call('save', { op: 'put', slot: 1, L, base: d2.rev, force: 1 }, al.token)).ok, 'unless the player chooses to overwrite');
   ok((await call('save', { op: 'put', slot: 1, L }, al.token)).ok, 'saves that do not say which version they came from (older pages) still go through');
 })();
+// a campaign sent gzipped (what browsers do now): stored the same as one sent as it is
+(async () => {
+  const zlib = require('zlib'); await new Promise(r => setTimeout(r, 3000));
+  const u = await call('auth', { op: 'register', name: 'zipper', password: 'secret1' }); const L = LG.newNFL({ user: 2, seed: 9 }); L.teams[2].owner = 'You';
+  const raw = JSON.stringify(L), z = zlib.gzipSync(raw).toString('base64');
+  const p = await call('save', { op: 'put', slot: 2, Lz: z }, u.token); const g = await call('save', { op: 'get', slot: 2 }, u.token);
+  ok(p.ok && JSON.stringify(g.L) === raw, 'a gzipped save comes back exactly (' + Math.round(raw.length / 1024) + ' KB sent as ' + Math.round(z.length / 1024) + ' KB)');
+  ok((await call('save', { op: 'put', slot: 2, Lz: 'not gzip' }, u.token)).error === 'bad_request', 'and a broken one is refused');
+})();
