@@ -115,7 +115,12 @@ ok(L.dead && !Object.keys(L.dead).length, 'dead money clears');
   LG.__suspend(C, fake, 4, () => 0.1); const a = C.news[0].t;
   ok(/obscure \w+( \w+)? law for/.test(a) && fake.sus === 1 && a.indexOf(LG.TEAM_STATE[t.abbr]) >= 0, 'a made-up player can break a dumb ' + LG.TEAM_STATE[t.abbr] + ' law, for one game: "' + a + '"');
   const fake2 = { i: 'g8', n: 'Bad News', p: 'WR', o: 90, a: 24, t: 1, gen: 1 }; C.players.g8 = fake2; LG.__suspend(C, fake2, 4, () => 0.9);
-  ok(!/obscure/.test(C.news[0].t) && fake2.sus === 4, 'or something worse, for longer: "' + C.news[0].t + '"');
+  const c2 = LG.CRIMES.find(c => C.news[0].t.indexOf(c[0]) >= 0), rg = c2 && LG.SUS_GAMES[c2[1]];
+  ok(!/obscure/.test(C.news[0].t) && rg && fake2.sus >= rg[0] && fake2.sus <= rg[1], 'or something worse, as long as it deserves: "' + C.news[0].t + '"');
+  // the worst ones are rare and cost years; the minor ones a game or two
+  const E = require('./lib/engine.js'), R = E.mulberry32(5); let long = 0, short = 0, N = 2000, ex = '';
+  for (let k = 0; k < N; k++) { const f = { i: 'gx' + k, n: 'Guy ' + k, p: 'LB', o: 85, a: 25, t: 2, gen: 1 }; C.players[f.i] = f; LG.__suspend(C, f, 3, R); if (f.sus >= 17) { long++; if (!ex) ex = C.news[0].t; } else if (f.sus <= 2) short++; delete C.players[f.i]; }
+  ok(long > 0 && long < N * 0.15 && short > N * 0.4, 'serious ones cost seasons (' + long + ' of ' + N + ', e.g. "' + ex + '"); most are a game or two (' + short + ')');
   const real = Object.values(C.players).find(p => !p.gen && p.t >= 0); real.o = 90; LG.__suspend(C, real, 2, () => 0.1);
   ok(/conduct policy/.test(C.news[0].t) && !/obscure/.test(C.news[0].t), 'a real player still only gets the league line');
   ok(Object.keys(LG.TEAM_STATE).length === 32 && Object.values(LG.TEAM_STATE).every(s => LG.DUMB_LAWS[s] && LG.DUMB_LAWS[s].length >= 2), 'every team\'s state has its dumb laws'); }
