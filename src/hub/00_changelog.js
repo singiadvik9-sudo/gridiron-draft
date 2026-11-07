@@ -2,6 +2,9 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-7', title: 'CPU teams keep their stars', items: [
+    'CPU teams now re-sign their great players unless they cannot fit them under the cap, or do not want to pay them: a rebuilding team with a veteran of 30+, or an aging player of 34+ when the team is not going for it now. Elite players (88+) get a short deal whatever their age. When a big name does hit free agency, the news says why.'
+  ] },
   { id: '2026-11-07-6', title: 'Press conferences make sense', items: [
     'Each press question now has its own answers that fit it. After a win you can credit the players or the game plan, after a loss take the blame or credit the other team, and questions about your star, the fans or the locker room have their own choices.',
     'Fixed: simulating could get stuck behind the "Simulating" note if you switched browser tabs at that moment.'
