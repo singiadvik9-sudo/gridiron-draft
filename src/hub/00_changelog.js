@@ -2,6 +2,10 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-9', title: 'Friends', items: [
+    'Signed in, you now have a Friends button. Add friends by their account name, then see who is online and what they are doing (in a quick game, running a campaign, in the menu…). The button shows how many friends are online and any requests waiting.',
+    'Challenge an online friend to a quick game with one click. You wait in a new room, and they get an invitation to accept or decline.'
+  ] },
   { id: '2026-11-07-8', title: 'More trouble off the field', items: [
     'Made-up players can now get suspended for over 30 different offenses, from bar fights and drug busts to driving a stolen golf cart through a Waffle House. Real players still only get the league\'s conduct-policy line.',
     'They can also get cited under an obscure law in their team\'s state, like eating fried chicken with a fork in Georgia or getting a fish drunk in Ohio. The baffled league gives them one game.',

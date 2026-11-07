@@ -50,12 +50,12 @@ function poll(fn, ms) {   // call fn repeatedly while the current view stays the
 function renderHeader() {
   const el = $('#hdr-right'); if (!el) return;
   el.innerHTML = '<button class="btn small ghost" data-h="changes">What\'s new</button><button class="btn small" data-h="home">Menu</button>' +
-    (H.user ? '<button class="btn small" data-h="account">' + esc(H.user) + '</button>' : '<button class="btn small primary" data-h="auth">Sign in</button>');
+    (H.user ? friendsBtn() + '<button class="btn small" data-h="account">' + esc(H.user) + '</button>' : '<button class="btn small primary" data-h="auth">Sign in</button>');
 }
 
 /* ---------- accounts ---------- */
 function signOut(silent) {
-  H.token = ''; H.user = ''; lsSet('gd_tok', null); lsSet('gd_user', null);
+  H.token = ''; H.user = ''; lsSet('gd_tok', null); lsSet('gd_user', null); friendsStart(); invShow(null);
   if (!silent) toast('Signed out.'); else toast('Please sign in again.');
   go('home');
 }
@@ -64,6 +64,7 @@ async function boot() {
     try { const r = await G.api({ op: 'me' }, 'auth'); H.user = r.name; H.seen = r.seen; H.created = r.created; lsSet('gd_user', r.name); }
     catch (e) { if (e.status === 401) { H.token = ''; H.user = ''; lsSet('gd_tok', null); lsSet('gd_user', null); } }
   }
+  friendsStart();   // (signed in: check in with your friends)
 }
 function needAccount(next, p) {
   if (H.user) return false;
@@ -83,7 +84,7 @@ ACT['auth-go'] = async () => {
   const name = $('#au-n').value.trim(), password = $('#au-p').value;
   const r = await run(() => call('auth', { op: H.p.reg ? 'register' : 'login', name, password }));
   if (!r) return;
-  H.token = r.token; H.user = r.name; lsSet('gd_tok', r.token); lsSet('gd_user', r.name);
+  H.token = r.token; H.user = r.name; lsSet('gd_tok', r.token); lsSet('gd_user', r.name); friendsStart();
   toast('Signed in as ' + r.name + '.');
   go(H.p.next || 'home', H.p.np);
 };

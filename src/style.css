@@ -653,3 +653,12 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 /* simulating the league: a note in the middle, and the page cannot be clicked until it is done */
 #simov { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(8, 11, 22, .35); color: #fff; font-weight: 700; letter-spacing: .04em; }
 #simov[hidden] { display: none; }
+/* friends */
+.fron { display: inline-block; min-width: 1.4em; padding: 0 5px; border-radius: 9px; background: #3fbf6a; color: #0b1020; font-size: 11px; font-weight: 700; }
+.frlist { list-style: none; padding: 0; margin: 6px 0 12px; }
+.frlist li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.06); flex-wrap: wrap; }
+.frwho { display: inline-flex; align-items: center; gap: 8px; }
+.frwho small { opacity: .7; }
+.frdot { width: 9px; height: 9px; border-radius: 50%; background: #666; display: inline-block; }
+.frdot.on { background: #3fbf6a; box-shadow: 0 0 6px #3fbf6a; }
+#invban { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 70; background: var(--panel, #1c2230); border: 1px solid var(--flag, #e0a030); border-radius: 10px; padding: 10px 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; box-shadow: 0 8px 28px rgba(0,0,0,.4); max-width: calc(100vw - 24px); }
