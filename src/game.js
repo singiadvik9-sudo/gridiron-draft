@@ -695,7 +695,8 @@ function startPoll() {
       if (!S.squad && S.me && S.seats.a && S.seats.b) NET.start(S.code, S.me, other(S.me));
       if (S.squad) NET.squad(S.code, S.lob);
     } catch (e) { /* transient: keep polling */ }
-    if (S.mode === 'online') { clearTimeout(S.poll); S.poll = setTimeout(tick, S.screen === 'game' ? 700 : 1200); }
+    // (with a direct link the other side nudges us the moment it calls, so the server is only the backstop: every 2 s instead of 0.7)
+    if (S.mode === 'online') { clearTimeout(S.poll); S.poll = setTimeout(tick, S.screen !== 'game' ? 1200 : NET.ok() ? 2000 : 700); }
   };
   S.pollNow = () => { if (S.mode === 'online') { clearTimeout(S.poll); tick(); } };
   tick();
