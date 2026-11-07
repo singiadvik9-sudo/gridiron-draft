@@ -55,8 +55,10 @@ ACT['stale-keep'] = async () => { G.closeModal(); C.state = 'saving'; try { awai
 async function simAway(L, first) {
   let ov = document.getElementById('simov'); if (!ov) { ov = document.createElement('div'); ov.id = 'simov'; ov.setAttribute('role', 'status'); document.body.appendChild(ov); }
   const say = () => { ov.textContent = 'Simulating ' + (L.phase === 'playoffs' ? 'the playoffs' : L.phase === 'regular' ? 'week ' + L.week : 'the season') + '…'; };
-  say(); ov.hidden = false; await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));   // (the note shows before the work starts)
-  try { if (first) first(); await LG.runUntilHumanAsync(L, 60, async () => { say(); await new Promise(r => setTimeout(r, 0)); }, 40); }
+  // (a short wait so the note shows before the work starts; a timer, not an animation frame, which a tab in the background never gets.
+  // In the background there is nobody to keep the page moving for, so it just runs straight through.)
+  say(); ov.hidden = false; if (!document.hidden) await new Promise(r => setTimeout(r, 30));
+  try { if (first) first(); await LG.runUntilHumanAsync(L, 60, async () => { say(); if (!document.hidden) await new Promise(r => setTimeout(r, 0)); }, 40); }
   finally { ov.hidden = true; }
 }
 const savedText = () => C.state === 'saved' ? 'Saved' : C.state === 'saving' ? 'Saving…' : C.state === 'error' ? 'Not saved!' : 'Unsaved changes';

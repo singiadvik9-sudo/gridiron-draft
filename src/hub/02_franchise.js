@@ -93,7 +93,7 @@ FRV.home = A => {
 };
 function pressHTML(L) {
   const P = L.press;
-  return '<div class="panel press"><span class="eyebrow">Press conference · ' + (P.won ? 'win' : P.tie ? 'tie' : 'loss') + ' ' + P.score + ' vs the ' + esc(P.opp) + '</span><h3>"' + esc(P.qs[P.i]) + '"</h3><div class="row">' + LG.COACH_ANSWERS.map((a, i) => '<button class="btn small" data-h="press" data-i="' + i + '">' + esc(a.t) + '</button>').join('') + '</div><p class="hint">Question ' + (P.i + 1) + ' of ' + P.qs.length + '. Your answers move team, fan and player morale.</p></div>';
+  return '<div class="panel press"><span class="eyebrow">Press conference · ' + (P.won ? 'win' : P.tie ? 'tie' : 'loss') + ' ' + P.score + ' vs the ' + esc(P.opp) + '</span><h3>"' + esc(P.qs[P.i]) + '"</h3><div class="row">' + LG.pressOptions(L).map((a, i) => '<button class="btn small" data-h="press" data-i="' + i + '">' + esc(a.t) + '</button>').join('') + '</div><p class="hint">Question ' + (P.i + 1) + ' of ' + P.qs.length + '. Your answers move team, fan and player morale.</p></div>';
 }
 ACT['press'] = async t => { await FR.A.act('press', { a: +t.dataset.i }); };
 ACT['fa-next'] = async () => { await FR.A.go('fa-next'); };
