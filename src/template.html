@@ -14,8 +14,9 @@
 </div>
 <div id="modal" hidden></div>
 <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+<script type="application/json" id="gd-data">/*DATA*/</script>
 <script>
-window.DATA = /*DATA*/;
+window.DATA = JSON.parse(document.getElementById('gd-data').textContent);
 </script>
 <script>
 /*ENGINE*/

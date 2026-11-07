@@ -2,6 +2,11 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-12', title: 'Faster, and a few fixes', items: [
+    'The game loads a quarter less to download and starts about 12% faster on phones.',
+    'Fixed: league and tournament games against the computer could sometimes not be reported ("That game did not finish"), when a play picked for you came back empty. The computer also finally calls the occasional fake punt it was meant to.',
+    'Online games with a direct link check the server less often, so they put less load on it without being any slower.'
+  ] },
   { id: '2026-11-07-11', title: 'Play your campaign games together', items: [
     'In a shared campaign, when two or more co-managers are online and press Ready to play, you all play the game together on the field against the computer. Whoever asked plays quarterback and calls the plays, and everyone else gets a receiver or back spot and a defender. The result counts for the campaign once the server has checked it.',
     'If you are the only one online, you play it on your own as before.'
