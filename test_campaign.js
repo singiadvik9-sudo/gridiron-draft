@@ -74,5 +74,12 @@ ok(L.dead && !Object.keys(L.dead).length, 'dead money clears');
 // fights: rare, in the game log, and the ejected do not come back
 { const C = mk(5), T = LG.teamsFor(C, 1, 2); let fights = 0, games = 40, again = 0; for (let g = 0; g < games; g++) { const R = E.replay(1000 + g, T, {}, ['a', 'b']); const fs = R.log.filter(e => e.fight); fights += fs.length; fs.forEach(f => { R.log.filter(e => e.n > f.n && e.on).forEach(e => { ['HB', 'WR1', 'WR2', 'TE'].forEach(k => { if (e.on[k] && e.on[k][0] === f.fight.i) again++; }); }); }); }
   ok(fights > 0 && fights < games * 0.35, 'fights are rare (' + fights + ' in ' + games + ' games)'); ok(again === 0, 'the ejected do not come back'); }
+// offensive linemen are never stars
+{ const C = mk(21), ol = LG.rosterOf(C, 0).filter(p => p.p === 'OL').sort((a, b) => b.o - a.o)[0]; ol.o = 95; ol.mor = 10; const b = LG.teamsFor(C, 0, 1).a.squad.ol.p.find(q => q[2] === ol.i);
+  ok(!LG.isStar(ol) && LG.isStar({ p: 'WR', o: 90 }), 'a 95 lineman is not a star'); ok(LG.moraleOf(C, ol) === 65 && b && b[1] === 95, 'and has no morale of his own to help or hurt him'); LG.setMorale(C, ol, -20); ok(ol.mor === 10, 'nothing moves it');
+  let g = 0; while (C.phase !== 'offseason' && g++ < 90) { LG.runUntilHuman(C, 60); LG.weekGames(C).forEach(x => LG.simGame(C, x)); LG.advanceWeek(C); LG.checkFinal(C); if (C.press) { const s = C.players[C.press.star]; if (s && s.p === 'OL') g = 999; } }
+  ok(g < 999, 'the press never asks about a lineman as your star');
+  ok(!C.inbox.some(m => m.kind === 'play' && C.players[m.pid] && C.players[m.pid].p === 'OL'), 'and linemen do not email about playing time');
+  ol.o = 89; ol.a = 25; const r = LG.progress(C); ok(!r.stars.some(id => C.players[id] && C.players[id].p === 'OL'), 'and a lineman is never announced as a new superstar'); }
 // leagues are untouched
 { const X = LG.newNFL({ seed: 7 }); ok(!X.camp && LG.teamsFor(X, 0, 1).a.squad.ff === 0, 'games outside a campaign have none of this'); }

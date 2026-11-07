@@ -3743,7 +3743,7 @@ function progress(L) {
       return;
     }
     if (p.o - old >= 4) report.up.push(p.i); else if (old - p.o >= 4) report.down.push(p.i);
-    if (p.o >= 90 && old < 90) report.stars.push(p.i);
+    if (p.o >= 90 && old < 90 && p.p !== 'OL') report.stars.push(p.i);
   });
   if (L.news.length > 40) L.news.length = 40;
   // old career line is kept in the player's history; season stats reset
@@ -4406,17 +4406,18 @@ function updateModes(L) {
 const teamMode = (L, tid) => L.teams[tid].mode || '';
 // what a player plays at: his rating, moved by his morale and the team's, and the coordinator of his side of the ball (your team only)
 const OFF_P = { QB: 1, HB: 1, WR: 1, TE: 1, OL: 1 }, DEF_P = { DE: 1, DT: 1, LB: 1, CB: 1, S: 1 };
-const moraleOf = (L, p) => p.mor != null ? p.mor : 65;
+const isStar = p => p.o >= 78 && p.p !== 'OL';   // offensive linemen are never stars: no morale of their own, no star treatment
+const moraleOf = (L, p) => p.p !== 'OL' && p.mor != null ? p.mor : 65;
 function effOvr(L, tid, p) {
   if (!L.camp || !L.teams[tid].owner || !p || !p.p) return p.o;
-  const star = p.o >= 78 ? clamp(Math.round((moraleOf(L, p) - 65) / 10), -3, 2) : 0, team = Math.round((L.morale.team - 60) / 15);
+  const star = isStar(p) ? clamp(Math.round((moraleOf(L, p) - 65) / 10), -3, 2) : 0, team = Math.round((L.morale.team - 60) / 15);
   const c = OFF_P[p.p] ? L.staff.oc : DEF_P[p.p] ? L.staff.dc : null, co = c ? Math.round((c.r - 70) / 6) : 0;
   return clamp(p.o + star + team + co, 40, 99);
 }
 const fightFactor = (L, tid) => !L.camp ? 0 : L.teams[tid].owner ? 1 + Math.max(0, (60 - L.morale.team) / 20) : 1;
-function setMorale(L, p, d) { p.mor = clamp(Math.round(moraleOf(L, p) + d), 0, 100); }
+function setMorale(L, p, d) { if (p.p === 'OL') return; p.mor = clamp(Math.round(moraleOf(L, p) + d), 0, 100); }
 function moraleBump(L, o) { if (o.team) L.morale.team = clamp(Math.round(L.morale.team + o.team), 0, 100); if (o.fans) L.morale.fans = clamp(Math.round(L.morale.fans + o.fans), 0, 100); if (o.cash) L.fin.cash = Math.round((L.fin.cash + o.cash) * 10) / 10; }
-const starsOf = L => rosterOf(L, myId(L)).filter(p => p.o >= 78).sort((a, b) => b.o - a.o);
+const starsOf = L => rosterOf(L, myId(L)).filter(isStar).sort((a, b) => b.o - a.o);
 
 /* the inbox */
 function inMail(L, m) {
@@ -4459,7 +4460,7 @@ function campWeek(L) {
   if (canTrade(L)) cpuTradesRound(L, 0.06);
   Object.values(L.players).forEach(p => {
     if (p.t < 0 || p.sus || p.ir) return;
-    const mine = p.t === myId(L), f = mine && p.o >= 78 ? 1 + Math.max(0, (50 - moraleOf(L, p)) / 8) : 1;   // an unhappy star is likelier to do something wild
+    const mine = p.t === myId(L), f = mine && isStar(p) ? 1 + Math.max(0, (50 - moraleOf(L, p)) / 8) : 1;   // an unhappy star is likelier to do something wild
     if (r() < 0.00012 * f) suspend(L, p, ri(r, 1, 6), r);
   });
   if (r() < 0.14) { const e = pickOf(r, PR_EVENTS); inMail(L, { from: e.from, subj: e.subj, body: e.body, kind: 'pr', opts: e.opts }); }
@@ -4526,7 +4527,7 @@ function campOffseason(L, rep) {
   L.teams.forEach(t => { const x = RR[t.id]; if (x.w + x.l + x.t >= MODE.games) t.lastPct = x.pct; });   // next season starts from this one's results
   updateModes(L);
   mine(rep.stars).forEach(p => inMail(L, { from: 'Head of scouting', subj: 'Superstar: ' + p.n, body: p.n + ' (' + p.p + ') is now a ' + p.o + '. He is one of the best in the league at his position. Build around him.', kind: 'alert', pid: p.i }));
-  mine(rep.sleepers).forEach(p => inMail(L, { from: 'Head of scouting', subj: (p.pt >= 90 ? 'Future superstar: ' : 'Sleeper: ') + p.n, body: 'We had ' + p.n + ' (' + p.p + ') wrong, in the good way. We rated his potential ' + p.was + '. After a season it looks like ' + p.pt + '. Get him on the field.', kind: 'alert', pid: p.i }));
+  mine(rep.sleepers).forEach(p => inMail(L, { from: 'Head of scouting', subj: (p.pt >= 90 && p.p !== 'OL' ? 'Future superstar: ' : 'Sleeper: ') + p.n, body: 'We had ' + p.n + ' (' + p.p + ') wrong, in the good way. We rated his potential ' + p.was + '. After a season it looks like ' + p.pt + '. Get him on the field.', kind: 'alert', pid: p.i }));
   mine(rep.busts).forEach(p => inMail(L, { from: 'Head of scouting', subj: 'Bust: ' + p.n, body: 'Bad news on ' + p.n + ' (' + p.p + '). We rated his potential ' + p.was + '. After a season it looks like ' + p.pt + '. He is not going to be what we hoped.', kind: 'alert', pid: p.i }));
   const money = Math.round((10 + R.w * 1.2 + L.morale.fans * 0.1 - (L.fin.lv.st + L.fin.lv.pr + L.fin.lv.me) * 1.5) * 10) / 10;
   moraleBump(L, { cash: money, fans: R.w >= 11 ? 6 : R.w <= 5 ? -5 : 0, team: 3 });
@@ -4757,7 +4758,7 @@ function contractOffer(L, tid, pid, o) {
     p.t = tid; p.sal = capHit(o); p.cx = L.season + o.y; p.ctr = Object.assign({ s0: L.season }, o); delete p.was; delete p.st; t.state = 'signed';
     if (L.fa) L.fa.exp = L.fa.exp.filter(x => x !== pid);
     t.msgs.push({ from: 'him', text: 'Deal. Thank you, coach. I am ready to go to work.' });
-    if (p.o >= 78) setMorale(L, p, ratio > 1.1 ? 12 : 6);
+    if (isStar(p)) setMorale(L, p, ratio > 1.1 ? 12 : 6);
     inMail(L, { from: p.n, subj: 'Contract signed', body: contractSummary(o), read: true, pid });
     if (p.o >= 85) L.news.unshift({ s: L.season, t: p.n + ' signs with the ' + L.teams[tid].nick + ': $' + Math.round((o.s * o.y + o.b) * 10) / 10 + 'M over ' + o.y + ' years.' });
     return { ok: true, signed: true };
@@ -4957,7 +4958,7 @@ const LG = {
   RET_POS, retRating, returnerCands, returnerOf, setReturner,
   USE_DEFAULT, usageList, setUsage, snapShare,
   progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, UNIT_ROUNDS, fillPrice, hasLegalPick, isUnitId, unitOf, unitRating, draftOvr, salOfId, draftLabel, unitNeeds, canDraftId, affordableId, autoPickFor, startSeason, trimRoster, fillDepth, finishDraft,
-  __suspend: suspend, modeOf, MODE, campInit, teamMode, updateModes, cpuTradesRound, tradeAsk, tradeCounter, tradeTalkLeft, tradeTalkUse, draftAdvance, draftUpOffers, draftDownBids, draftPrem, rookieScore, draftSlot, faNext, faFinish, letWalk, demandOf, contractOpen, contractOffer, contractSummary, inMail, mailRead, mailAnswer, unread, moraleOf, setMorale, moraleBump, pressAnswer, upgradeCost, upgrade, hireCoach, coachMarket, FACILITY, deadMoney, COACH_ANSWERS, playerValue, tradeCheck, cpuTrade, tradeEval, teamNeeds, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
+  __suspend: suspend, isStar, modeOf, MODE, campInit, teamMode, updateModes, cpuTradesRound, tradeAsk, tradeCounter, tradeTalkLeft, tradeTalkUse, draftAdvance, draftUpOffers, draftDownBids, draftPrem, rookieScore, draftSlot, faNext, faFinish, letWalk, demandOf, contractOpen, contractOffer, contractSummary, inMail, mailRead, mailAnswer, unread, moraleOf, setMorale, moraleBump, pressAnswer, upgradeCost, upgrade, hireCoach, coachMarket, FACILITY, deadMoney, COACH_ANSWERS, playerValue, tradeCheck, cpuTrade, tradeEval, teamNeeds, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
   newCustom, addTeam, removeTeam, assignDivisions, startCustom, finalizeLeagueDraft, customSchedule, ownerRecord, leaders, leagueTables,
   computeAwards, makeBracket, reportSeries, setSeries, bracketOrder, nflMatchups, assignWeeks, rrSchedule, mkPlayer, rng, shuffle
 };
@@ -6973,6 +6974,9 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-06-3', title: 'Linemen are not stars', items: [
+    'Offensive linemen no longer count as star players: no morale score, press questions, playing-time emails or superstar alerts.'
+  ] },
   { id: '2026-11-06-2', title: 'Win-now and rebuilding mean what they say', items: [
     'Only real contenders are win-now, and only really bad teams are rebuilding. It goes by how good a team is and how it is actually doing, and most teams are neither. Standings show who is which.'
   ] },
@@ -7405,7 +7409,7 @@ function playerPage(A, id) {
   const kept = L.camp || (p && L.teams[p.t >= 0 ? p.t : p.lt] && L.teams[p.t >= 0 ? p.t : p.lt].owner);
   if (!ps.seasons.length && !ps.games.length) h += '<p class="hint">' + (kept ? 'His game-by-game lines and seasons show up here as he plays.' : 'Game-by-game lines and past seasons are kept for players on teams a person runs.') + '</p>';
   if (L.camp && p && p.t >= 0 && p.t !== A.tid && !L.teams[p.t].owner && LG.canTrade(L)) h += '<div class="row"><button class="btn primary" data-h="tr-ask" data-id="' + p.i + '">Try to trade for him</button></div>';
-  if (L.camp && p && p.t === A.tid && p.o >= 78) h += '<p class="sub">Morale <b>' + LG.moraleOf(L, p) + '</b> / 100' + (p.sus ? ' · suspended ' + p.sus + ' game' + (p.sus > 1 ? 's' : '') : '') + (p.ctr ? ' · ' + esc(LG.contractSummary(p.ctr)) : '') + '</p>';
+  if (L.camp && p && p.t === A.tid && (LG.isStar(p) || p.sus || p.ctr)) h += '<p class="sub">' + [LG.isStar(p) ? 'Morale <b>' + LG.moraleOf(L, p) + '</b> / 100' : '', p.sus ? 'suspended ' + p.sus + ' game' + (p.sus > 1 ? 's' : '') : '', p.ctr ? esc(LG.contractSummary(p.ctr)) : ''].filter(Boolean).join(' · ') + '</p>';
   if (p && p.t === -2 && p.lt === A.tid && !hf && A.canEditRoster()) h += '<div class="row"><button class="btn primary" data-h="fr-hof" data-id="' + p.i + '">Send to the Hall of Fame</button></div>';
   return h;
 }
@@ -7493,7 +7497,7 @@ function faCampHTML(A) {
   const L = A.L, tid = A.tid, room = LG.capRoom(L, tid), n = LG.rosterOf(L, tid).length; let h = '';
   if (L.fa) {
     const exp = L.fa.exp.map(id => PL(L, id)).filter(Boolean).sort((a, b) => b.o - a.o);
-    h += '<div class="panel next"><span class="eyebrow">Free agency · day ' + L.fa.day + ' of ' + L.fa.days + '</span><h3>Your expiring contracts</h3>' + (exp.length ? tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, exp, p => { const d = LG.demandOf(L, p); return '<small>asks about $' + (Math.round((d.s + d.b / d.y) * 10) / 10) + 'M/yr · morale ' + LG.moraleOf(L, p) + '</small> <button class="btn small primary" data-h="ct-open" data-id="' + p.i + '">Negotiate</button><button class="btn small ghost" data-h="ct-walk" data-id="' + p.i + '">Let walk</button>'; })) : '<p class="hint">All your contracts are settled.</p>') + '<div class="row"><button class="btn" data-h="fa-next">' + (L.fa.day >= L.fa.days ? 'Finish free agency: go to the draft' : 'Next day') + '</button></div></div>';
+    h += '<div class="panel next"><span class="eyebrow">Free agency · day ' + L.fa.day + ' of ' + L.fa.days + '</span><h3>Your expiring contracts</h3>' + (exp.length ? tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, exp, p => { const d = LG.demandOf(L, p); return '<small>asks about $' + (Math.round((d.s + d.b / d.y) * 10) / 10) + 'M/yr' + (LG.isStar(p) ? ' · morale ' + LG.moraleOf(L, p) : '') + '</small> <button class="btn small primary" data-h="ct-open" data-id="' + p.i + '">Negotiate</button><button class="btn small ghost" data-h="ct-walk" data-id="' + p.i + '">Let walk</button>'; })) : '<p class="hint">All your contracts are settled.</p>') + '<div class="row"><button class="btn" data-h="fa-next">' + (L.fa.day >= L.fa.days ? 'Finish free agency: go to the draft' : 'Next day') + '</button></div></div>';
   }
   const fa = Object.values(L.players).filter(p => p.t === -1 && (FR.faPos === 'ALL' || p.p === FR.faPos)).sort((a, b) => b.o - a.o).slice(0, 40);
   h += '<div class="panel"><div class="row between"><h3>On the market</h3><select data-hc="fapos" aria-label="Position"><option>ALL</option>' + POSN.map(p => '<option' + (p === FR.faPos ? ' selected' : '') + '>' + p + '</option>').join('') + '</select></div><p class="hint">Roster ' + n + ' / ' + LG.ROSTER_MAX + ' · payroll $' + LG.payroll(L, tid) + 'M of the $' + LG.payrollCap(L) + 'M cap · <b>' + (room >= 0 ? '$' + room + 'M room' : '$' + (-room) + 'M over the cap') + '</b>.</p>' +
@@ -7789,7 +7793,7 @@ ACT['mail-ans'] = async t => { const r = await FR.A.act('mail', { id: t.dataset.
 /* the Franchise tab: morale, money, facilities, coordinators */
 function franchiseHTML(L, tid) {
   const meter = (l, v) => '<div class="st"><span>' + l + '</span><span class="bar"><i class="' + (v >= 66 ? 'hi' : v >= 40 ? 'mid' : 'lo') + '" style="width:' + v + '%"></i></span><b>' + v + '</b></div>';
-  const stars = LG.rosterOf(L, tid).filter(p => p.o >= 78).sort((a, b) => b.o - a.o).slice(0, 12);
+  const stars = LG.rosterOf(L, tid).filter(LG.isStar).sort((a, b) => b.o - a.o).slice(0, 12);
   let h = '<div class="panel"><h3>Morale</h3><div class="stats">' + meter('Team', L.morale.team) + meter('Fans', L.morale.fans) + '</div><p class="hint">Team morale moves with results, press conferences and playing time, and it changes how your whole team plays. Fans follow results. Unhappy stars play worse, ask for more money and are more likely to get into trouble.</p>' +
     tbl(['Star', 'Morale', ''], stars.map(p => '<tr><td class="nm"><span class="pos">' + p.p + '</span> ' + plLink(p) + '</td><td>' + LG.moraleOf(L, p) + '</td><td>' + (p.sus ? 'Suspended ' + p.sus : p.inj ? 'Hurt' : '') + '</td></tr>').join('')) + '</div>';
   h += '<div class="panel"><h3>Team money: $' + L.fin.cash + 'M</h3><p class="hint">Separate from the salary cap. It comes in from home games (more with a bigger stadium and happy fans), sponsors after each season and PR deals. It pays for upgrades and coaches.</p>' +
@@ -7856,7 +7860,7 @@ function campAdapter() {
         LG.offseasonBegin(L, 7); FR.tab = 'inbox';
         const gone = ((L.progress && L.progress.retired) || []).map(id => L.players[id]).filter(p => p && p.lt === tid);
         const al = L.progress || {}, me2 = ids => (ids || []).map(id => L.players[id]).filter(p => p && p.t === tid);
-        const alerts = me2(al.stars).map(p => '<li><b class="slp">Superstar</b> ' + G.esc(p.n) + ' (' + p.p + ') is now a ' + p.o + '.</li>').concat(me2(al.sleepers).map(p => '<li><b class="slp">' + (p.pt >= 90 ? 'Future superstar' : 'Sleeper') + '</b> ' + G.esc(p.n) + ' (' + p.p + '): potential ' + p.pt + ', the scouts said ' + p.was + '.</li>'), me2(al.busts).map(p => '<li><i class="bust">Bust</i> ' + G.esc(p.n) + ' (' + p.p + '): potential ' + p.pt + ', the scouts said ' + p.was + '.</li>'));
+        const alerts = me2(al.stars).map(p => '<li><b class="slp">Superstar</b> ' + G.esc(p.n) + ' (' + p.p + ') is now a ' + p.o + '.</li>').concat(me2(al.sleepers).map(p => '<li><b class="slp">' + (p.pt >= 90 && p.p !== 'OL' ? 'Future superstar' : 'Sleeper') + '</b> ' + G.esc(p.n) + ' (' + p.p + '): potential ' + p.pt + ', the scouts said ' + p.was + '.</li>'), me2(al.busts).map(p => '<li><i class="bust">Bust</i> ' + G.esc(p.n) + ' (' + p.p + '): potential ' + p.pt + ', the scouts said ' + p.was + '.</li>'));
         if (alerts.length && !gone.length) setTimeout(() => G.openModal('<h3>Scouting report</h3><ul class="news">' + alerts.join('') + '</ul>'), 50);
         if (gone.length) setTimeout(() => G.openModal((alerts.length ? '<h3>Scouting report</h3><ul class="news">' + alerts.join('') + '</ul>' : '') + '<h3>Retirements</h3><p class="sub">' + gone.length + ' of your players ' + (gone.length > 1 ? 'have' : 'has') + ' retired.</p><ul class="news">' + gone.map(p => '<li><a href="#" class="plk" data-h="fr-pl" data-id="' + G.esc(p.i) + '">' + G.esc(p.n) + '</a> (' + p.p + ', ' + p.a + ', peak ' + (p.peak || p.o) + ') <button class="btn small" data-h="fr-hof" data-id="' + p.i + '">Hall of Fame</button></li>').join('') + '</ul><p class="hint">Their stats stay with them for good (Stats tab, Your retired players).</p>'), 50);
       }

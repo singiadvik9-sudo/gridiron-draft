@@ -2,6 +2,9 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-06-3', title: 'Linemen are not stars', items: [
+    'Offensive linemen no longer count as star players: no morale score, press questions, playing-time emails or superstar alerts.'
+  ] },
   { id: '2026-11-06-2', title: 'Win-now and rebuilding mean what they say', items: [
     'Only real contenders are win-now, and only really bad teams are rebuilding. It goes by how good a team is and how it is actually doing, and most teams are neither. Standings show who is which.'
   ] },
