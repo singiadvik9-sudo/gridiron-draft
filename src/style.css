@@ -636,3 +636,17 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .emo-bubble.go { transform: translate(-50%, -100%) scale(1); opacity: 1; }
 .netst.away::before { background: #e2463c; }
 @media (max-width: 640px) { #chatdock { right: 8px; bottom: 8px; } .chat-log { max-height: 160px; } }
+/* squad games: the lobby */
+.sqlobby { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0; }
+.sqteam { border: 1px solid var(--line, #333c4e); border-radius: 10px; padding: 10px; }
+.sqteam h3 { margin: 0; }
+.sqname { font: inherit; font-weight: 700; color: inherit; background: transparent; border: 1px dashed var(--line, #333c4e); border-radius: 6px; padding: 2px 6px; max-width: 12em; }
+.sqslot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; border-top: 1px solid rgba(255,255,255,.06); }
+.sqpos { min-width: 7.5em; opacity: .75; font-size: 12px; }
+.sqwho { font-weight: 700; }
+.sqwho.me { color: var(--flag, #e0a030); }
+.sqslot select { max-width: 14em; }
+.hostchip { border-color: var(--flag, #e0a030); color: var(--flag, #e0a030); }
+.sqbench, .sqmine { margin: 10px 0; }
+.row.wrap { flex-wrap: wrap; }
+@media (max-width: 640px) { .sqlobby { grid-template-columns: 1fr; } }

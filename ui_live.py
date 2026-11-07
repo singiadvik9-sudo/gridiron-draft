@@ -81,10 +81,11 @@ with sync_playwright() as p:
     log('both in the game')
     # This machine blocks WebRTC traffic, so the direct link is stood in for by a BroadcastChannel between the two pages with 40 ms of delay
     # each way: everything above the link (inputs streamed across, guessing ahead, corrections, confirmed results) runs for real.
-    FAKE = '''() => { const N = GD_NET; N.stop(); N.code = GAME.S.code; N.me = GAME.S.me; N.peer = GAME.S.me === 'a' ? 'b' : 'a'; const g = ++N.gen;
-      const bc = new BroadcastChannel('gd-link'), ch = { readyState: 'open', close() {}, send: d => setTimeout(() => bc.postMessage({ to: N.peer, d }), 40) };
-      bc.onmessage = e => { if (e.data.to === N.me && N.ch === ch) setTimeout(() => ch.onmessage({ data: e.data.d }), 0); };
-      N.wire(ch, g); N.state = 'open'; ch.onopen(); }'''
+    FAKE = """() => { const N = GD_NET; N.stop(); N.code = GAME.S.code; N.me = GAME.S.me; const peer = GAME.S.me === 'a' ? 'b' : 'a';
+      const bc = new BroadcastChannel('gd-link'), l = { peer, state: 'connecting', gen: 1, t0: Date.now(), tries: 0, rtt: null, lastPo: 0, pingT: 0 };
+      const ch = { readyState: 'open', close() {}, send: d => setTimeout(() => bc.postMessage({ to: peer, d }), 40) };
+      bc.onmessage = e => { if (e.data.to === N.me && l.ch === ch) setTimeout(() => ch.onmessage({ data: e.data.d }), 0); };
+      N.links = { [peer]: l }; N.hub = null; N.wire(l, ch, 1); ch.onopen(); }"""
     import os
     if not os.environ.get('NOLINK'):
         for pg in (A, B): pg.evaluate(FAKE)

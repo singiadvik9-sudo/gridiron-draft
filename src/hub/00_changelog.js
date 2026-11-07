@@ -2,6 +2,11 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-4', title: 'Squad games: up to ten players', items: [
+    'Quick games now have a Squad game option for 2 to 10 people, five a side. Share the room code. The host puts each person on a team and a position (quarterback, running back, two receivers, tight end) and can move people around between plays. Open spots, and a team with nobody on it, are played by the computer.',
+    'Each team\'s quarterback calls the plays, on offense and on defense. In the snap everyone runs his own player: receivers see their route in yellow, the quarterback sees every route, and on defense you pick the defender you play and see your zone or your man.',
+    'Whoever has the ball gets a white ring and his name, and everyone in the game is labeled by name. Passes to a receiver someone is running go to where he is heading, so run your route or break off it.'
+  ] },
   { id: '2026-11-07-3', title: 'Chat, emotes and rematches', items: [
     'Every online game, league and tournament now has a chat in the corner. There are quick lines like "Good game!", and click a name to mute someone (only on your device). League and tournament chats are for members only.',
     'In games, send emotes from the chat box. They pop up by your team\'s name on the other player\'s scoreboard.',
