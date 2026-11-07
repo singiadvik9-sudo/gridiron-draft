@@ -603,3 +603,10 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .tmode{font-size:10px;padding:0 4px;border-radius:3px;margin-left:4px}
 .tmode.win{color:#3fdc6a;border:1px solid #3fdc6a}
 .tmode.rebuild{color:#ff8a6a;border:1px solid #ff8a6a}
+/* the link to the other player: a dot and the ping next to the room code */
+.netst { font-size: 12px; display: inline-flex; align-items: center; gap: 5px; margin-right: 8px; opacity: .9; white-space: nowrap; }
+.netst::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #888; }
+.netst.direct::before { background: #3fbf6a; }
+.netst.server::before { background: #e0a030; }
+.netst.conn::before { background: #888; animation: netblink 1s infinite; }
+@keyframes netblink { 50% { opacity: .3; } }
