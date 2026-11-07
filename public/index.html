@@ -531,6 +531,7 @@ body.ingame.fs.gover .mast { display: flex; }
 .fvbar { position: absolute; top: 8px; right: 8px; z-index: 3; display: flex; gap: 6px; align-items: flex-start; line-height: 1.2; }
 .use input { width: 3.6em; padding: 3px 4px; margin-right: 2px; }
 .use small { opacity: .75; }
+.usetot.short { color: var(--warn, #e0a030); }
 .inj { font-size: 10px; letter-spacing: .06em; color: #fff; background: #b3261e; border-radius: 4px; padding: 1px 5px; }
 .rotl { opacity: .85; }
 .rel { display: grid; gap: 6px; }
@@ -2001,6 +2002,7 @@ function vmaxOf(grp, o, s) {
   }
 }
 const ACC = 16, ACC_HUMAN = 25;
+const MESH = 2.6;   // a handoff: the quarterback reaches the ball out to a back within arm's length (no closer than this and the ball never changes hands)
 // pass protection tuning: bias per tick (base, plus extra while the line is still setting up), help per free lineman, skill weight, noise, how hard a losing block gets driven back, when a block is beaten
 const PRO = { flyDB: 0.19, flyLB: 0.12, flyDL: 0.05, flyPick: 0.10, fum: 0.028, fumSack: 2.0, ball: 4, blitzDelay: 6, blitzEdge: 0.006, base: 0.0038, set: 0.012, setT: 50, help: 0.005, skill: 0.0020, noise: 0.04, drive: 1.2, beat: -0.82, latLoose: 0.3, rel: 2.0, catchH: 1.4, dlHands: 2.6, batLow: 0.4, swFar: 7, swGap: 3, humanSpd: 1.04, humanReach: 1.2, humanTackle: 0.07, timedBall: 4, timedPick: 0.07, cbCush: 1.0, flyCB: 0.21, cbBall: 2, jumpT: 9, jumpCool: 14, jumpSwat: 0.06, jumpPick: 0.6, stiffT: 10, stiffCool: 34, stiff: 0.15, stiffDown: 5, stiffSlow: 0.88, jukeNear: 2.6, jukeT: 10, jukeBeat: 1.8, revHome: 3.0, revContain: 4.2, scrX: -1.0, shed: 0.22, shedD: 1.9, lateT: 46, lateT2: 80, swim: 0.2, swimLev: 0.9, bull: 0.5, bullCool: 8, getoff: 0.2, getoffT: 6, burst: 14 };
 // trick plays on the field
@@ -2333,7 +2335,9 @@ function step(sim, inO, inD, acts) {
     think(sim, p, carrier, t);
   }
   // human overrides
-  if (ctlO && sO && ctlO.hold === 0 && !ctlO.eng) { const sp = ctlO.vmax * (ctlO.id === 'QB' && ctlO.x <= 0 && B.car === 'QB' && !sim.thrown && sim.kind === 'pass' ? 0.95 : 1); ctlO.wx = sO[0] * sp; ctlO.wy = sO[1] * sp; ctlO.human = 1; ctlO.steerT = sim.t; }
+  // a designed run (or the flea flicker's handoff): the quarterback is locked into the handoff until the back has the ball
+  const meshLock = ctlO && ctlO.id === 'QB' && B.car === 'QB' && ((sim.kind === 'run' && !sim.handoff) || (sim.pm.trick === 'flea' && !sim.fleaT));
+  if (ctlO && sO && ctlO.hold === 0 && !ctlO.eng && !meshLock) { const sp = ctlO.vmax * (ctlO.id === 'QB' && ctlO.x <= 0 && B.car === 'QB' && !sim.thrown && sim.kind === 'pass' ? 0.95 : 1); ctlO.wx = sO[0] * sp; ctlO.wy = sO[1] * sp; ctlO.human = 1; ctlO.steerT = sim.t; }
   if (ctlD && sD && ctlD.hold === 0 && !ctlD.eng) {
     let dx = sD[0], dy = sD[1];
     // tackle assist: steering at a nearby ball carrier takes the defender onto his path
@@ -2406,7 +2410,10 @@ function thinkOff(sim, p, carrier, t) {
       // handoff
       const hb = sim.by.HB;
       const rb = sim.by[sim.pm.carrier || 'HB'];
-      if (!sim.handoff) { steer(p, -3.2, 0, 0.3); if (dist(p, rb) < 1.6 || t >= sim.hoT + 5) { if (t >= sim.hoT) giveBall(sim, rb.id); } }
+      // the mesh: the ball changes hands only within arm's reach (MESH; the screen shows it go from his hands to the back's); a quarterback
+      // still too far from his back when it is time goes to him first. (Otherwise the same timing as ever: no change to how runs go.)
+      if (!sim.handoff) { const d = dist(p, rb), go = t >= sim.hoT && (d < 1.6 || (t >= sim.hoT + 5 && d < MESH));
+        if (go) giveBall(sim, rb.id); else if (t >= sim.hoT + 5) steer(p, rb.x + rb.vx * 0.1, rb.y + rb.vy * 0.1, 1); else steer(p, -3.2, 0, 0.3); }
       else steer(p, p.x, p.y, 0);
     } else if (sim.handoff || sim.thrown) steer(p, p.x - 1, p.y, 0.15);
     return;
@@ -2415,7 +2422,8 @@ function thinkOff(sim, p, carrier, t) {
     if (sim.kind === 'run' && !sim.handoff) {
       const out = sim.offPick === 'RUN_OUT';
       if (!sim.runSide) { const ts = sim.by.TE.y > 0 ? 1 : -1; sim.runSide = sim.pm.flip ? -ts : ts; }
-      if (out) { const fake = sim.pm.flip && sim.t < 6 ? -1 : 1; steer(p, -3.2 + 0.2, 4.5 * sim.runSide * fake * 0.8, 0.95); }
+      const late = sim.hoT && t >= sim.hoT + 2 && dist(p, sim.by.QB) >= MESH;   // (he waits at the mesh for the ball rather than leaving without it)
+      if (out) { const fake = sim.pm.flip && sim.t < 6 ? -1 : 1; steer(p, -3.2 + 0.2, 4.5 * sim.runSide * fake * 0.8, late ? 0.95 : 0.95); }
       else steer(p, -3.4, 0, 0.8);
       return;
     }
@@ -3188,16 +3196,57 @@ function squadOf(L, tid) {
    the best of each group plays most. A group's usages share its spots (the receivers' add up to two spots); on a given play the
    ones who fit it best are a little likelier, and on passing downs a receiver can take the TE spot (the slot). */
 const USE_DEFAULT = { HB: [65, 30, 5], WR: [95, 80, 20, 5], TE: [85, 15] };   // each group adds up to its spots (1 HB, 2 WR, 1 TE)
+const USE_SPOTS = { HB: 1, WR: 2, TE: 1 };
+// fit raw weights to a total (spots x 100) with no one over 100: scaled in proportion, anyone over 100 capped and the rest shared out again
+function fitUse(w, total) {
+  const out = w.map(() => 0), free = w.map((x, i) => i);
+  let left = Math.min(total, 100 * w.length);
+  if (!w.some(x => x > 0)) return w.map((x, i) => i < total / 100 ? 100 : 0);
+  for (let pass = 0; pass < w.length && free.length && left > 1e-9; pass++) {
+    const sum = free.reduce((t, i) => t + w[i], 0); if (sum <= 0) { free.forEach(i => { out[i] += left / free.length; }); break; }
+    const over = free.filter(i => out[i] + w[i] / sum * left > 100);
+    if (!over.length) { free.forEach(i => { out[i] += w[i] / sum * left; }); left = 0; break; }
+    over.forEach(i => { left -= 100 - out[i]; out[i] = 100; free.splice(free.indexOf(i), 1); });
+  }
+  return out;
+}
+// whole numbers that still add up exactly (the biggest remainders round up)
+function roundTo(xs, total) {
+  const f = xs.map(Math.floor), short = Math.round(Math.min(total, xs.reduce((t, x) => t + x, 0))) - f.reduce((t, x) => t + x, 0);
+  xs.map((x, i) => ({ i, r: x - f[i] })).sort((a, b) => b.r - a.r || a.i - b.i).slice(0, Math.max(0, short)).forEach(o => { f[o.i]++; });
+  return f;
+}
+// u: his share of the team's plays (a whole percent); the group's shares always fill its spots (two receivers on the field: 200 between them)
 function usageList(L, tid, pos) {
   const ps = rosterOf(L, tid).filter(p => p.p === pos && healthy(p)).sort(depthOrder);
-  return ps.map((p, k) => ({ p, u: p.use != null ? p.use : (USE_DEFAULT[pos][k] || 0), set: p.use != null }));
+  const raw = ps.map((p, k) => p.use != null ? p.use : (USE_DEFAULT[pos][k] || 0)), us = roundTo(fitUse(raw, USE_SPOTS[pos] * 100), USE_SPOTS[pos] * 100);
+  return ps.map((p, k) => ({ p, u: us[k], set: p.use != null }));
 }
+const useOf = (L, tid, p) => { const x = usageList(L, tid, p.p).find(y => y.p === p); return x ? x.u : 0; };
+/* playing time he was just given (his share raised, or a promise kept): for PT_CALM games he does not ask for more, unless it is taken back
+   (his share cut below what he was given, or he loses the starting job he was given). p.ptOk = { s: season, w: last week, u: share, st: starter } */
+const PT_CALM = 6;
+function ptRaised(L, p, u) { if (p.t < 0 || !L.teams[p.t]) return; p.ptOk = { s: L.season, w: (L.week || 0) + PT_CALM, u: u == null ? (USE_DEFAULT[p.p] ? useOf(L, p.t, p) : 0) : u, st: starterIds(L, p.t)[p.i] ? 1 : 0 }; }
+function ptCalm(L, tid, p) {
+  const k = p.ptOk; if (!k || k.s !== L.season || (L.week || 0) >= k.w) return false;
+  if (USE_DEFAULT[p.p] && useOf(L, tid, p) < k.u) return false;
+  if (k.st && !starterIds(L, tid)[p.i]) return false;
+  return true;
+}
+// setting one player's share: the rest of his group make up the difference in proportion to what they had, so the group still fills its spots
 function setUsage(L, tid, pid, v) {
   const p = L.players[pid];
   if (!p || p.t !== tid || !USE_DEFAULT[p.p]) return 'Usage is for running backs, receivers and tight ends.';
-  if (v === null || v === '') { delete p.use; return null; }   // back to the default for his place on the depth chart
+  if (v === null || v === '') { rosterOf(L, tid).forEach(q => { if (q.p === p.p) delete q.use; }); return null; }   // the whole group back to the default for the depth chart
   v = Math.round(+v); if (!isFinite(v) || v < 0 || v > 100) return 'Usage is 0 to 100.';
-  p.use = v; return null;
+  const list = usageList(L, tid, p.p), me = list.find(x => x.p === p), total = USE_SPOTS[p.p] * 100;
+  if (!me) { p.use = v; return null; }   // (he is hurt: kept for when he is back)
+  const rest = list.filter(x => x !== me);
+  v = Math.max(v, total - 100 * rest.length);   // with too few healthy players at the spot, everyone plays (no gap to fill)
+  const was = me.u, fill = roundTo(fitUse(rest.map(x => x.u), total - v), total - v);
+  p.use = v; rest.forEach((x, k) => { x.p.use = fill[k]; });
+  if (v > was) ptRaised(L, p, v);
+  return null;
 }
 function teamsFor(L, aId, bId) {
   const T = id => ({ name: L.teams[id].nick, squad: squadOf(L, id), c1: L.teams[id].c1, c2: L.teams[id].c2 });   // (the colours are only for the screen)
@@ -4480,6 +4529,38 @@ function campHeal(L) {   // the medical staff gets players back a little sooner
   rosterOf(L, myId(L)).forEach(p => { if (p.inj > 1 && p.inj < SEASON_OUT && r() < (lv - 1) * 0.12) p.inj--; });
 }
 /* after every game: suspensions for fights; for your team morale, the fans, the gate, playing time and the press */
+/* after each of your games: playing time. Stars who sit lose morale and ask; good backups who sit ask (it goes through team morale); a
+   promise kept (or a bigger share) keeps them quiet for PT_CALM games */
+function ptMail(L, me, won, tie) {
+  starsOf(L).forEach(p => {
+    if (!healthy(p)) return;
+    const ln = lineup(L, me)[p.p] || [], plays = ln.indexOf(p) >= 0 && !(USE_DEFAULT[p.p] && useOf(L, me, p) < 25);
+    setMorale(L, p, (won ? 1 : tie ? 0 : -1) + (plays ? 0.5 : -3));
+    if (p.prom > 0) { if (plays) { p.prom = 0; setMorale(L, p, 3); ptRaised(L, p); } else if (--p.prom <= 0) { setMorale(L, p, -12); moraleBump(L, { team: -2 }); inMail(L, { from: p.n, subj: 'You promised me snaps', body: 'Coach, you told me I would get more snaps. I did not. I will remember that when my contract comes up.', pid: p.i }); } }
+    else if (!plays && moraleOf(L, p) < 58 && (p.mailG || 0) + 4 <= L.week && !ptCalm(L, me, p)) {
+      p.mailG = L.week;
+      inMail(L, { from: p.n, subj: 'My playing time', body: 'Coach, can we talk? I am rated ' + p.o + ' and I am barely on the field. I came here to play. What is the plan for me?', kind: 'play', pid: p.i, opts: [
+        { t: 'Promise him more snaps', star: 8, prom: 2, reply: 'Thanks, coach. I will hold you to that. (Start him within two games, or he will not forget it.)' },
+        { t: 'Tell him to earn it', star: -5, team: 1, reply: 'Understood. I will show you in practice, but I am not happy.' },
+        { t: 'Offer to shop him', star: 2, shop: 1, reply: 'I appreciate the honesty. (He is on your trading block now.)' }] });
+    }
+  });
+  // good backups want to play too: no morale of their own, but it gets around the locker room
+  const st = starterIds(L, me);
+  rosterOf(L, me).forEach(p => {
+    if (st[p.i]) { p.ben = 0; if (p.prom > 0) { p.prom = 0; ptRaised(L, p); } return; }   // (a promise kept)
+    if (!(STAR_SPOTS[p.p] || DEF_P[p.p]) || p.o < GOOD_O || !healthy(p)) return;
+    p.ben = (p.ben || 0) + 1;
+    if (p.prom > 0) { if (--p.prom <= 0) { moraleBump(L, { team: -2 }); inMail(L, { from: p.n, subj: 'You promised me snaps', body: 'Coach, you told me I would get more snaps. I did not. The guys in this room all heard about it.', pid: p.i }); } }
+    else if (p.ben >= 3 && (p.mailG || 0) + 6 <= L.week && !ptCalm(L, me, p)) {
+      p.mailG = L.week;
+      inMail(L, { from: p.n, subj: 'My playing time', body: 'Coach, can we talk? I am rated ' + p.o + ' and I am sitting behind other guys. I came here to play. What is the plan for me?', kind: 'play', pid: p.i, opts: [
+        { t: 'Promise him more snaps', team: 1, prom: 2, reply: 'Thanks, coach. I will hold you to that. (Make him a starter within two games, or the locker room will hear about it.)' },
+        { t: 'Tell him to earn it', team: -1, reply: 'Understood. I will show you in practice, but I am not happy.' },
+        { t: 'Offer to shop him', shop: 1, reply: 'I appreciate the honesty. (He is on your trading block now.)' }] });
+    }
+  });
+}
 function campAfterGame(L, g, T, R) {
   const me = myId(L);
   R.log.forEach(e => { if (!e.fight) return; const p = L.players[e.fight.i]; if (!p) return;
@@ -4491,35 +4572,7 @@ function campAfterGame(L, g, T, R) {
   const opp = L.teams[home ? g.a : g.h];
   moraleBump(L, { team: (55 - L.morale.team) * 0.12 + (tie ? 0 : won ? 2 + margin / 10 : -2 - margin / 10), fans: (55 - L.morale.fans) * 0.1 + (tie ? 0 : won ? 2 + margin / 7 : -2 - margin / 7) });   // (both drift back toward the middle)
   if (home) moraleBump(L, { cash: Math.round((2 + L.fin.lv.st * 0.8 + L.morale.fans * 0.02) * 10) / 10 });
-  // playing time
-  starsOf(L).forEach(p => {
-    if (!healthy(p)) return;
-    const ln = lineup(L, me)[p.p] || [], plays = ln.indexOf(p) >= 0 && !(p.use != null && p.use < 25);
-    setMorale(L, p, (won ? 1 : tie ? 0 : -1) + (plays ? 0.5 : -3));
-    if (p.prom > 0) { if (plays) { p.prom = 0; setMorale(L, p, 3); } else if (--p.prom <= 0) { setMorale(L, p, -12); moraleBump(L, { team: -2 }); inMail(L, { from: p.n, subj: 'You promised me snaps', body: 'Coach, you told me I would get more snaps. I did not. I will remember that when my contract comes up.', pid: p.i }); } }
-    else if (!plays && moraleOf(L, p) < 58 && (p.mailG || 0) + 4 <= L.week) {
-      p.mailG = L.week;
-      inMail(L, { from: p.n, subj: 'My playing time', body: 'Coach, can we talk? I am rated ' + p.o + ' and I am barely on the field. I came here to play. What is the plan for me?', kind: 'play', pid: p.i, opts: [
-        { t: 'Promise him more snaps', star: 8, prom: 2, reply: 'Thanks, coach. I will hold you to that. (Start him within two games, or he will not forget it.)' },
-        { t: 'Tell him to earn it', star: -5, team: 1, reply: 'Understood. I will show you in practice, but I am not happy.' },
-        { t: 'Offer to shop him', star: 2, shop: 1, reply: 'I appreciate the honesty. (He is on your trading block now.)' }] });
-    }
-  });
-  // good backups want to play too: no morale of their own, but it gets around the locker room
-  const st = starterIds(L, me);
-  rosterOf(L, me).forEach(p => {
-    if (st[p.i]) { p.ben = 0; return; }
-    if (!(STAR_SPOTS[p.p] || DEF_P[p.p]) || p.o < GOOD_O || !healthy(p)) return;
-    p.ben = (p.ben || 0) + 1;
-    if (p.prom > 0) { if (--p.prom <= 0) { moraleBump(L, { team: -2 }); inMail(L, { from: p.n, subj: 'You promised me snaps', body: 'Coach, you told me I would get more snaps. I did not. The guys in this room all heard about it.', pid: p.i }); } }
-    else if (p.ben >= 3 && (p.mailG || 0) + 6 <= L.week) {
-      p.mailG = L.week;
-      inMail(L, { from: p.n, subj: 'My playing time', body: 'Coach, can we talk? I am rated ' + p.o + ' and I am sitting behind other guys. I came here to play. What is the plan for me?', kind: 'play', pid: p.i, opts: [
-        { t: 'Promise him more snaps', team: 1, prom: 2, reply: 'Thanks, coach. I will hold you to that. (Make him a starter within two games, or the locker room will hear about it.)' },
-        { t: 'Tell him to earn it', team: -1, reply: 'Understood. I will show you in practice, but I am not happy.' },
-        { t: 'Offer to shop him', shop: 1, reply: 'I appreciate the honesty. (He is on your trading block now.)' }] });
-    }
-  });
+  ptMail(L, me, won, tie);
   // the boo birds
   if (home && !won && L.morale.fans < 35) {
     const s = starsOf(L)[0]; moraleBump(L, { team: -1 }); starsOf(L).slice(0, 4).forEach(p => setMorale(L, p, -2));
@@ -4980,7 +5033,7 @@ const LG = {
   depthOrder, setStarter,
   INJ_RATE, IR_MIN, SEASON_OUT, activeRoster, healthy, injuries, injuryWeek, placeIR, activateIR,
   RET_POS, retRating, returnerCands, returnerOf, setReturner,
-  USE_DEFAULT, usageList, setUsage, snapShare,
+  USE_DEFAULT, USE_SPOTS, usageList, setUsage, snapShare, ptCalm, PT_CALM, __ptMail: L => ptMail(L, myId(L), false, true),
   progress, offseasonBegin, startDraft, draftPick, onClock, autoDraftToHuman, cpuPickFor, canDraftPos, affordable, capInfo, salOf, UNIT_ROUNDS, fillPrice, hasLegalPick, isUnitId, unitOf, unitRating, draftOvr, salOfId, draftLabel, unitNeeds, canDraftId, affordableId, autoPickFor, startSeason, trimRoster, fillDepth, finishDraft,
   __suspend: suspend, isStar, starterIds, modeOf, MODE, campInit, teamMode, updateModes, cpuTradesRound, tradeAsk, tradeCounter, tradeTalkLeft, tradeTalkUse, draftAdvance, draftUpOffers, draftDownBids, draftPrem, rookieScore, draftSlot, faNext, faFinish, letWalk, demandOf, contractOpen, contractOffer, contractSummary, inMail, mailRead, mailAnswer, unread, moraleOf, setMorale, moraleBump, pressAnswer, upgradeCost, upgrade, hireCoach, coachMarket, FACILITY, deadMoney, COACH_ANSWERS, playerValue, tradeCheck, cpuTrade, tradeEval, teamNeeds, doTrade, canTrade, cpuOffers, PAYROLL_CAP, payrollCap, payroll, capRoom, signFA, release, BLOCK_MAX, blockOf, setBlock, blockBids,
   newCustom, addTeam, removeTeam, assignDivisions, startCustom, finalizeLeagueDraft, customSchedule, ownerRecord, leaders, leagueTables,
@@ -6472,6 +6525,7 @@ function submitCall(pick, opt) {
    moves on to the next tick once it knows everything either controller did up to it (lockstep). */
 const LIVE = E.LIVE;
 const RL = 21;   // pixels per sideways unit on the live field
+const HAND_TICKS = 3;   // a handoff on screen: the ball travels from the quarterback to the back over this many ticks
 const RUNACTS = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button><button class="ab wide" data-lvk="1">Stiff arm</button>';
 const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r' };   // the right hand moves; every action is on the left side of the keyboard
 const lastName = n => { const w = String(n || '').trim().split(/\s+/); while (w.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(w[w.length - 1])) w.pop(); return w[w.length - 1] || ''; };   // (not "II" for a Jr. or a II)
@@ -6780,7 +6834,11 @@ const LV = {
       items.push(it);
     });
     items.sort((u, v) => u.sy - v.sy);
-    const bx = lerp(pv.b[0], cu.b[0]), by = lerp(pv.b[1], cu.b[1]), bz = lerp(pv.b[2], cu.b[2]);
+    let bx = lerp(pv.b[0], cu.b[0]), by = lerp(pv.b[1], cu.b[1]), bz = lerp(pv.b[2], cu.b[2]);
+    // a handoff: the ball goes from the quarterback's hands to the back's over a few frames (it never jumps)
+    const ho = sim.evt.filter(e => e[0] === 'hand').pop(), qi = ho && sim.t - ho[1] < HAND_TICKS ? sim.P.findIndex(p => p.id === 'QB') : -1;
+    if (qi >= 0) { const k = Math.min(1, (sim.t - ho[1] + alpha) / HAND_TICKS), e = k * k * (3 - 2 * k), qa = pv.p[qi] || cu.p[qi], qb = cu.p[qi], qx = lerp(qa[0], qb[0]), qy = lerp(qa[1], qb[1]);
+      bx = qx + (bx - qx) * e; by = qy + (by - qy) * e; }
     const carried = sim.ball.car != null, car = carried ? sim.by[sim.ball.car] : null;
     L.items = items; L.los = los; L.dir = dir;
     const fl = cu.f >= 0 ? (pv.f >= 0 ? lerp(pv.f, cu.f) : cu.f) : -1;
@@ -6840,7 +6898,7 @@ const LV = {
         else if (qbHas) {
           info = 'You are <b>' + esc(lastName(sim.by[pz].name)) + '</b>, ' + (pz === 'QB' ? 'the quarterback' : 'throwing the halfback pass') + '. ' + K('←↑↓→') + ' move. Throw to ' + K('A') + esc(lastName(sim.by.WR1.name)) + ' ' + K('S') + esc(lastName(sim.by.WR2.name)) + ' ' + K('D') + esc(lastName(sim.by.TE.name)) + ' ' + K('F') + esc(lastName(sim.by.HB.name)) + '. Hold ' + K('Shift') + ' to lob it over the defense · ' + K('Space') + ' throws it away. Run past the line to scramble.';
           acts = ['1', '2', '3', '4'].map((k, i) => '<button class="ab" data-lvk="' + k + '">' + THROWLAB[i] + '</button>').join('') + '<button class="ab wide' + (LV.lobArm ? ' on' : '') + '" data-lvk="lob">Lob</button><button class="ab wide" data-lvk="5">Throw away</button>';
-        } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. ' + K('←↑↓→') + ' move.'; acts = ''; }
+        } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Handing it off: the ball comes to your back in a moment, and then he is yours.'; acts = ''; }
         else if (sim.fake && sim.ball.car !== sim.ctlId.o) { info = 'Trick play: sell it. The ball comes to you in a moment. ' + K('←↑↓→') + ' move.'; acts = ''; }
         else if (sim.pm.trick === 'lat' && sim.ball.car === sim.pm.tgt && !sim.latT) { info = 'Hook and lateral: ' + K('E') + ' pitches it to <b>' + esc(lastName(sim.by[sim.pm.mate].name)) + '</b> trailing you (do it before they wrap you up). ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="6">Lateral</button><button class="ab wide" data-lvk="5">Juke</button>'; }
         else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin · ' + K('W') + ' stiff arm. A juke right in a defender\'s face or a stiff arm that puts him down can get you a confidence boost.'; acts = RUNACTS; }
@@ -6998,6 +7056,11 @@ if (document.readyState === 'loading') document.addEventListener('DOMContentLoad
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07', title: 'Handoffs, usage and playing time', items: [
+    'On designed runs the quarterback hands the ball off. He is locked into the handoff until the back has it, and you can see the ball go from his hands to the back\'s instead of jumping across the field.',
+    'Usage now adds up. Each player\'s number is the share of plays he is on the field for. Change one and the rest of his group adjust automatically. Each position shows its total: 100% for backs and tight ends, and 200% for receivers because two play at once.',
+    'A player you just gave more playing time, by raising his usage or keeping a promise, will not ask for more for 6 games, unless you take it away again.'
+  ] },
   { id: '2026-11-06-3', title: 'Who counts as a star', items: [
     'Only your QB1, RB1, top two receivers, TE1 and defensive starters can be stars, and only if they are rated 78 or better. Linemen, kickers, punters and backups have no morale score of their own, and press questions and superstar alerts are about stars only.',
     'Good backups can still email you about playing time. What you tell them affects team morale.'
@@ -7464,11 +7527,17 @@ function injCell(L, tid, p, edit) {
   if (edit && p.ir) { const ready = (p.irw || 0) >= LG.IR_MIN && !p.inj; h += '<button class="btn small ghost" data-h="fr-act" data-id="' + p.i + '"' + (ready ? '' : ' disabled title="' + (p.inj ? 'Still injured' : 'At least ' + LG.IR_MIN + ' weeks on IR') + '"') + '>Activate</button>'; }
   return h;
 }
+// the group's shares of the plays add up to the men it puts on the field (two receivers: 200%)
+function useTotal(L, tid, pos) {
+  if (!LG.USE_SPOTS || !LG.USE_SPOTS[pos]) return '';
+  const n = LG.USE_SPOTS[pos], t = LG.usageList(L, tid, pos).reduce((s, x) => s + x.u, 0);
+  return ' · <span class="usetot' + (t < n * 100 ? ' short' : '') + '" title="Each player\'s usage is the share of plays he is on the field for. Change one and the others adjust.">snaps ' + t + '% of ' + n * 100 + '%' + (n > 1 ? ' (' + n + ' on the field)' : '') + '</span>';
+}
 function useCell(L, tid, p, edit) {
   if (!LG.USE_DEFAULT[p.p]) return '';
   if (!LG.healthy(p)) return '<span class="use"><small>sits while hurt' + (p.use != null ? ' (usage ' + p.use + '% when back)' : '') + '</small></span> ';
   const x = LG.usageList(L, tid, p.p).find(y => y.p === p), u = x ? x.u : 0, sh = LG.snapShare(L, p);
-  return '<span class="use" title="Share of snaps at his spots; on passing downs receivers can also play the slot">' + (edit ? '<input type="number" min="0" max="100" step="5" data-hc="use" data-id="' + p.i + '" value="' + u + '" aria-label="Usage for ' + esc(p.n) + '">%' : 'use ' + u + '%') +
+  return '<span class="use" title="Share of plays he is on the field for (the others in his group adjust when you change it); on passing downs receivers can also play the slot">' + (edit ? '<input type="number" min="0" max="100" step="1" data-hc="use" data-id="' + p.i + '" value="' + u + '" aria-label="Usage for ' + esc(p.n) + '">%' : 'use ' + u + '%') +
     (sh != null ? ' <small>played ' + Math.round(sh * 100) + '%</small>' : '') + '</span> ';
 }
 FRV.roster = A => {
@@ -7483,7 +7552,7 @@ FRV.roster = A => {
   POSN.forEach(pos => {
     const list = ro.filter(p => p.p === pos).sort((a, b) => b.o - a.o);
     if ((pos === 'KR' || pos === 'PR') && !list.length) return;   // no returner position any more (older saves may still list some)
-    h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + '</small></h4>' +
+    h += '<h4 class="pos-h">' + (LG.POS_NAME && LG.POS_NAME[pos] || pos) + ' <small>' + (pos === 'KR' ? 'returns kickoffs' : pos === 'PR' ? 'returns punts' : 'starts ' + LG.counts(L.teams[tid].sch)[pos]) + useTotal(L, tid, pos) + '</small></h4>' +
       tbl(['Pos', 'Name', 'Age', 'OVR', '', ''], plRows(L, list, p => injCell(L, tid, p, mineT && A.canEditRoster()) + useCell(L, tid, p, mineT && A.canEditRoster()) + (start[p.i] ? '<span class="star" title="Starter">★</span> ' : '') + (mineT && blk.has(p.i) ? '<span class="blk" title="On the trading block">BLOCK</span> ' : '') +
         (mineT && A.canEditRoster() && LG.counts(L.teams[tid].sch)[p.p] ? (p.st ? '<button class="btn small" data-h="fr-st" data-id="' + p.i + '" data-on="" title="You named him a starter">Starter ✓</button>' : !start[p.i] && LG.healthy(p) ? '<button class="btn small ghost" data-h="fr-st" data-id="' + p.i + '" data-on="1">Start</button>' : '') : '') +
         (mineT && A.canEditRoster() ? (A.blockBids ? '<button class="btn small ghost" data-h="fr-blk" data-id="' + p.i + '" data-on="' + (blk.has(p.i) ? '' : '1') + '">' + (blk.has(p.i) ? 'Off block' : 'Shop') + '</button>' : '') + '<button class="btn small ghost" data-h="fr-rel" data-id="' + p.i + '">Release</button>' : '')));

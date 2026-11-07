@@ -4,6 +4,7 @@
    moves on to the next tick once it knows everything either controller did up to it (lockstep). */
 const LIVE = E.LIVE;
 const RL = 21;   // pixels per sideways unit on the live field
+const HAND_TICKS = 3;   // a handoff on screen: the ball travels from the quarterback to the back over this many ticks
 const RUNACTS = '<button class="ab wide" data-lvk="5">Juke</button><button class="ab wide" data-lvk="7">Spin</button><button class="ab wide" data-lvk="1">Stiff arm</button>';
 const KEYDIR = { ArrowUp: 'u', ArrowDown: 'd', ArrowLeft: 'l', ArrowRight: 'r' };   // the right hand moves; every action is on the left side of the keyboard
 const lastName = n => { const w = String(n || '').trim().split(/\s+/); while (w.length > 1 && /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(w[w.length - 1])) w.pop(); return w[w.length - 1] || ''; };   // (not "II" for a Jr. or a II)
@@ -312,7 +313,11 @@ const LV = {
       items.push(it);
     });
     items.sort((u, v) => u.sy - v.sy);
-    const bx = lerp(pv.b[0], cu.b[0]), by = lerp(pv.b[1], cu.b[1]), bz = lerp(pv.b[2], cu.b[2]);
+    let bx = lerp(pv.b[0], cu.b[0]), by = lerp(pv.b[1], cu.b[1]), bz = lerp(pv.b[2], cu.b[2]);
+    // a handoff: the ball goes from the quarterback's hands to the back's over a few frames (it never jumps)
+    const ho = sim.evt.filter(e => e[0] === 'hand').pop(), qi = ho && sim.t - ho[1] < HAND_TICKS ? sim.P.findIndex(p => p.id === 'QB') : -1;
+    if (qi >= 0) { const k = Math.min(1, (sim.t - ho[1] + alpha) / HAND_TICKS), e = k * k * (3 - 2 * k), qa = pv.p[qi] || cu.p[qi], qb = cu.p[qi], qx = lerp(qa[0], qb[0]), qy = lerp(qa[1], qb[1]);
+      bx = qx + (bx - qx) * e; by = qy + (by - qy) * e; }
     const carried = sim.ball.car != null, car = carried ? sim.by[sim.ball.car] : null;
     L.items = items; L.los = los; L.dir = dir;
     const fl = cu.f >= 0 ? (pv.f >= 0 ? lerp(pv.f, cu.f) : cu.f) : -1;
@@ -372,7 +377,7 @@ const LV = {
         else if (qbHas) {
           info = 'You are <b>' + esc(lastName(sim.by[pz].name)) + '</b>, ' + (pz === 'QB' ? 'the quarterback' : 'throwing the halfback pass') + '. ' + K('←↑↓→') + ' move. Throw to ' + K('A') + esc(lastName(sim.by.WR1.name)) + ' ' + K('S') + esc(lastName(sim.by.WR2.name)) + ' ' + K('D') + esc(lastName(sim.by.TE.name)) + ' ' + K('F') + esc(lastName(sim.by.HB.name)) + '. Hold ' + K('Shift') + ' to lob it over the defense · ' + K('Space') + ' throws it away. Run past the line to scramble.';
           acts = ['1', '2', '3', '4'].map((k, i) => '<button class="ab" data-lvk="' + k + '">' + THROWLAB[i] + '</button>').join('') + '<button class="ab wide' + (LV.lobArm ? ' on' : '') + '" data-lvk="lob">Lob</button><button class="ab wide" data-lvk="5">Throw away</button>';
-        } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Hold on, the handoff is coming. ' + K('←↑↓→') + ' move.'; acts = ''; }
+        } else if (sim.kind === 'run' && sim.ball.car === 'QB') { info = 'Handing it off: the ball comes to your back in a moment, and then he is yours.'; acts = ''; }
         else if (sim.fake && sim.ball.car !== sim.ctlId.o) { info = 'Trick play: sell it. The ball comes to you in a moment. ' + K('←↑↓→') + ' move.'; acts = ''; }
         else if (sim.pm.trick === 'lat' && sim.ball.car === sim.pm.tgt && !sim.latT) { info = 'Hook and lateral: ' + K('E') + ' pitches it to <b>' + esc(lastName(sim.by[sim.pm.mate].name)) + '</b> trailing you (do it before they wrap you up). ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke.'; acts = '<button class="ab wide" data-lvk="6">Lateral</button><button class="ab wide" data-lvk="5">Juke</button>'; }
         else { info = 'You have the ball: <b>' + esc(lastName(cp ? cp.name : '')) + '</b>. ' + K('←↑↓→') + ' run · ' + K('Space') + ' juke · ' + K('Q') + ' spin · ' + K('W') + ' stiff arm. A juke right in a defender\'s face or a stiff arm that puts him down can get you a confidence boost.'; acts = RUNACTS; }

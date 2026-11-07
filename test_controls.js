@@ -51,8 +51,8 @@ ok(hit.tk > base.tk + 0.04, 'a big hit (Q on defense) tackles more often (' + Ma
   LV.advance(sim, co, cd);
   const ang = (x, y) => Math.atan2(y, x), err = a => Math.abs(Math.atan2(Math.sin(a - ang(ix, iy)), Math.cos(a - ang(ix, iy))));
   ok(sim.out || err(ang(d.wx, d.wy)) < err(ang(-1, -1)) - 0.05, 'steering roughly at the carrier is nudged onto his path (' + Math.round(err(ang(-1, -1)) * 57) + ' degrees off with the stick alone, ' + Math.round(err(ang(d.wx, d.wy)) * 57) + ' with the assist)'); }
-// quicker controlled player
-{ const a = LV.create(ctx(4, { offPick: 'RUN_IN' })), b = LV.create(ctx(4, { offPick: 'RUN_IN', ctlO: false }));
+// quicker controlled player (on a pass: on a designed run the quarterback is locked into the handoff)
+{ const a = LV.create(ctx(4, { offPick: 'PASS_S' })), b = LV.create(ctx(4, { offPick: 'PASS_S', ctlO: false }));
   const co = LV.cursor([LV.enc(1, 0, 1, 0)]), cn = LV.cursor([]), cd = LV.cursor([]);
   LV.advance(a, co, cd); LV.advance(a, co, cd); LV.advance(b, cn, cd); LV.advance(b, cn, cd);
   ok(Math.abs(a.by.QB.vy) > 0.7, 'the player you steer gets going quickly (' + Math.abs(a.by.QB.vy).toFixed(2) + ' yd/s after two ticks)'); }
