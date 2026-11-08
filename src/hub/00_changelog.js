@@ -2,6 +2,12 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-07-14', title: 'New plays, with diagrams', items: [
+    'Ten new plays: Trap, Iso, Stretch and Jet Sweep on the ground; Shallow Cross, Slant-Flat, Smash, Dagger, Fade and Wheel through the air.',
+    'Three new defenses: Cover 6 (quarters on one side, Cover 2 on the other), Tampa 2 (a linebacker runs the deep middle) and Bracket (double their two best receivers).',
+    'Every play now shows a diagram on its button: the routes and where the ball carrier goes on offense, and each defender\'s zone, man or rush on defense.',
+    'Deep throws into a deep zone are now contested properly, so long bombs are a gamble against good coverage instead of a sure thing. The old Cover 0 is gone; it gave up too many big plays to be worth calling.'
+  ] },
   { id: '2026-11-07-13', title: 'Tougher CPU defense', items: [
     'A juke is now a contest. A shifty back beats a slow linebacker more often than an elite one, timing matters, and a juke that fails leaves the runner off balance for the tackle. Pressing it on every play no longer gains easy yards.',
     'CPU defenses read what you have been doing this game: run it every early down and you will see the box stacked; throw on every passing down and you will see more coverage.',

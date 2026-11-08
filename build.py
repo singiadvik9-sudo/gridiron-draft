@@ -14,7 +14,7 @@ def mini(code, loader='js'):
     return m
 t=rd('src/template.html')
 hub='(function(){\n\'use strict\';\n'+'\n'.join(rd(f) for f in sorted(glob.glob(os.path.join(R,'src/hub/*.js'))))+'\n})();'
-t=t.replace('/*CSS*/',mini(rd('src/style.css'),'css')).replace('/*DATA*/',json.dumps(json.load(open(os.path.join(R,'lib/data.json'))),separators=(',',':')).replace('</','<\\/')).replace('/*ENGINE*/',mini(rd('lib/engine.js')+'\n'+rd('lib/live.js')+'\n'+rd('lib/league.js')+'\n'+rd('lib/draft.js'))).replace('/*APP*/',mini(rd('src/game.js').replace('/*NET*/',rd('src/net.js')).replace('/*CHAT*/',rd('src/chat.js')).replace('/*SQUAD*/',rd('src/squad.js')).replace('/*LIVE_CLIENT*/',rd('src/live_client.js')))).replace('/*HUB*/',mini(hub))
+t=t.replace('/*CSS*/',mini(rd('src/style.css'),'css')).replace('/*DATA*/',json.dumps(json.load(open(os.path.join(R,'lib/data.json'))),separators=(',',':')).replace('</','<\\/')).replace('/*ENGINE*/',mini(rd('lib/engine.js')+'\n'+rd('lib/live.js')+'\n'+rd('lib/league.js')+'\n'+rd('lib/draft.js'))).replace('/*APP*/',mini(rd('src/game.js').replace('/*NET*/',rd('src/net.js')).replace('/*CHAT*/',rd('src/chat.js')).replace('/*DIAG*/',rd('src/diagrams.js')).replace('/*SQUAD*/',rd('src/squad.js')).replace('/*LIVE_CLIENT*/',rd('src/live_client.js')))).replace('/*HUB*/',mini(hub))
 os.makedirs(os.path.join(R,'public'),exist_ok=True)
 open(os.path.join(R,'public/index.html'),'w').write(t)
 print(len(t),'bytes')
