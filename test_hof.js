@@ -8,7 +8,7 @@ for (let y = 0; y < 4 && !mine.length; y++) {
   rep = LG.offseasonBegin(L, 7); mine = rep.retired.map(i => L.players[i]).filter(p => p.lt === 0);
   if (!mine.length) { while (L.phase === 'draft') { const on = LG.onClock(L); LG.draftPick(L, on, L.draft.pool[0]); } LG.startSeason(L); }
 }
-const p = mine[0];
+const p = mine.find(x => { const s0 = LG.playerStats(L, x.i); return s0 && s0.seasons.length; }) || mine[0];   // (one who played: a backup who never got on the field has no stats to keep)
 ok(!!p && p.t === -2 && p.lt === 0 && p.ry === L.season && p.peak >= p.o, 'a retired player remembers the team he retired from, the season and his peak (' + (p && p.n) + ', peak ' + (p && p.peak) + ')');
 ok(L.news.some(n => n.t.indexOf('Retired: ' + p.n) === 0), 'and the league news says so');
 const ps = LG.playerStats(L, p.i); ok(ps && ps.seasons.length > 0 && Object.keys(ps.career).length > 0, 'his stats stay: ' + ps.seasons.length + ' season(s), career ' + JSON.stringify(ps.career));
