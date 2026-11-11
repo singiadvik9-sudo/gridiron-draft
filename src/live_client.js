@@ -62,7 +62,7 @@ const LV = {
     const ctl = {}; ctl[off] = ret ? true : !!w.om.ctl; ctl[def] = ret ? false : !!(w.dm && w.dm.ctl);
     const online = S.mode === 'online', both = ctl.a && ctl.b;
     const ctx = ret ? { seed: S.seed, playNo: n, ret: { kind: w.ro.kind }, ballOn: w.ro.at, toGo: 10, OS: T[off].squad, DS: T[def].squad, ctlO: true, ctlD: false }
-      : { seed: S.seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick: E.legalOff(st, w.om.pick), defPick: E.DEF_CALLS[w.dm.pick] ? w.dm.pick : 'ZONE', OS: T[off].squad, DS: T[def].squad, ctlO: ctl[off], ctlD: ctl[def], dpos: ctl[def] && w.dm && w.dm.dp || null };
+      : { seed: S.seed, playNo: n, ballOn: st.ballOn, toGo: st.toGo, offPick: E.legalOff(st, w.om.pick), defPick: E.DEF_CALLS[w.dm.pick] ? w.dm.pick : 'ZONE', OS: T[off].squad, DS: T[def].squad, ctlO: ctl[off], ctlD: ctl[def], dpos: ctl[def] && w.dm && w.dm.dp || null, dj: w.dm && E.ADJS && E.ADJS[w.dm.dj] ? w.dm.dj : null };
     this.lobArm = false;
     // a squad game: everyone on the field has his own stream (team + position or defender); the sim knows which players are people
     const sq = S.squad && !ret && !!(w.om.hm || (w.dm && w.dm.hm));

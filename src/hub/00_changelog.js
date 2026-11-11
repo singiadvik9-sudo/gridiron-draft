@@ -2,6 +2,13 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-11', title: 'Defense with a plan', items: [
+    'Show a look before the snap: Show Blitz, Press, QB Spy, Sink Safeties or Crash the Line (press L to cycle, or tap one above your calls). Each helps against some plays and hurts against others, and you can see it in how your defense lines up.',
+    'Computer quarterbacks read your look and sometimes check out of their call into one that beats it. Bluff a blitz and play coverage, and the quick throw he checks to may go right to you.',
+    'A pre-snap read when you are on defense: the formation the offense is showing (against the computer it tells the truth about 7 times in 10) and what they have called on downs like this one.',
+    'Quarterbacks make mistakes: now and then the ball slips out as he winds up, or he throws one right to a defender. A shakier passer under pressure makes more of them.',
+    'Defensive momentum: stops, sacks and turnovers fill the bar under each score. When it is full, that defense goes into LOCKDOWN and plays better for 4 snaps, unless a touchdown or a 20-yard play breaks it.'
+  ] },
   { id: '2026-11-07-14', title: 'New plays, with diagrams', items: [
     'Ten new plays: Trap, Iso, Stretch and Jet Sweep on the ground; Shallow Cross, Slant-Flat, Smash, Dagger, Fade and Wheel through the air.',
     'Three new defenses: Cover 6 (quarters on one side, Cover 2 on the other), Tampa 2 (a linebacker runs the deep middle) and Bracket (double their two best receivers).',

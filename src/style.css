@@ -676,3 +676,20 @@ body .ctlrow.spots, body.ingame:not(.gover) .ctlrow.spots{display:flex;flex-wrap
 .call .pdiag { grid-column: 1 / -1; display: block; margin-bottom: 4px; }
 .call .pdiag svg { display: block; width: 100%; height: auto; max-height: 120px; border-radius: 2px; }
 body.ingame:not(.gover) .call .pdiag svg { max-height: 96px; }
+
+/* defensive momentum (scoreboard) and the defense's pre-snap rows */
+.sb-mom { height: 4px; background: rgba(255,255,255,.08); overflow: hidden; }
+.sb-mom i { display: block; height: 100%; width: 0; background: var(--mute); transition: width .4s; }
+.sb-team.a .sb-mom i { background: var(--ta); }
+.sb-team.b .sb-mom { direction: rtl; }
+.sb-team.b .sb-mom i { background: var(--tb); }
+.sb-mom.lock { height: 6px; box-shadow: 0 0 8px var(--flag); }
+.sb-mom.lock i { background: var(--flag) !important; animation: lockpulse 1s ease-in-out infinite alternate; }
+@keyframes lockpulse { from { opacity: .6 } to { opacity: 1 } }
+.lockrow { color: var(--flag); font-weight: 600; }
+.momrow { color: var(--mute); }
+.readrow b { font-size: 13px; }
+.looks .btn.on { outline: 2px solid var(--flag); }
+body .ctlrow.readrow, body .ctlrow.looks, body.ingame:not(.gover) .ctlrow.readrow, body.ingame:not(.gover) .ctlrow.looks { flex-wrap: wrap; gap: 4px 8px; }
+.ctlrow.readrow .hint, .ctlrow.looks .hint { flex: 1 0 100%; }
+.ctlrow.looks .btn { padding: 3px 8px; font-size: 10px; white-space: nowrap; flex: 0 0 auto; }
