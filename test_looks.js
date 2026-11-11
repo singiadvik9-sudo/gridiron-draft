@@ -84,3 +84,28 @@ const mk = n => { const r = E.mulberry32(n); return [E.mkTeam('A', E.autoDraft(r
   }
   ok(n > 300 && honest / n > 0.6 && honest / n < 0.85, 'the read tells the truth about 7 in 10 (' + Math.round(honest / n * 100) + '%)');
 }
+
+// ---- check-with-me (your offense): only against a look your call is weak against, into the section you named, never by the real call
+{
+  const r = E.mulberry32(3), T = { a: E.mkTeam('A', E.autoDraft(r)), b: E.mkTeam('B', E.autoDraft(r)) }, U = { a: E.teamUnits(T.a), b: E.teamUnits(T.b) };
+  const st = Object.assign(E.initState(1), { poss: 'a', ballOn: 40, down: 1, toGo: 10, playNo: 5, kick: null });
+  let hits = 0, wrong = 0;
+  for (let s = 0; s < 200; s++) { const a = E.checkWithMe(st, U, 'a', s, 'RUN_IN', 'SCREEN', 'CRASH'); if (a) { hits++; if (E.OFF[a].cat !== 'SCREEN') wrong++; } }
+  ok(hits > 40 && !wrong, 'against crashing linebackers an inside run checks to a screen (' + hits + ' of 200)');
+  ok(!E.checkWithMe(st, U, 'a', 1, 'PASS_M', 'RUN_IN', 'SHOW'), 'no check when the look is no threat to the call');
+  ok(E.cleanMoves({ '2-a': { pick: 'RUN_IN', ck: 'SCREEN' }, '3-a': { pick: 'RUN_IN', ck: 'NOPE' } })['2-a'].ck === 'SCREEN', 'cleanMoves keeps a real check only');
+  // in a game: a scripted offense with a check set, against a CPU defense that shows looks, checks now and then and replays the same
+  let ck = 0;
+  for (let g = 0; g < 6; g++) {
+    const seed = 70 + g, moves = {}; let R = E.replay(seed, T, moves, ['b']);
+    for (let i = 0; i < 400 && !R.state.over && R.wait == null; i++) {
+      const st2 = R.state, n = st2.playNo, side = 'a', role = st2.poss === side ? 'off' : 'def';
+      if (moves[n + '-' + side]) break;
+      moves[n + '-' + side] = Object.assign({ pick: E.cpuMove(st2, R.U, side, seed, role, R.log) }, role === 'off' ? { ck: 'SCREEN' } : {});
+      R = E.replay(seed, T, moves, ['b']);
+    }
+    R.log.forEach(e => { if (e.ck) ck++; });
+    ok(JSON.stringify(E.replay(seed, T, moves, ['b']).state) === JSON.stringify(R.state), 'game ' + g + ' with checks replays the same');
+  }
+  ok(ck > 0, 'your quarterback checked to a screen in play (' + ck + ' times in 6 games)');
+}

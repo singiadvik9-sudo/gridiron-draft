@@ -2,6 +2,14 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-11-2', title: 'Audibles, a brighter look, and handier controls', items: [
+    'Offense audibles: pick a play type in the new Audible row (A cycles it). If the defense shows a look your call is weak against, your quarterback may check to the best play of that type. Better quarterbacks read it more often, and a disguised look can fool them.',
+    'A brighter game: freshly mowed stripes, end zones in team colours, stadium lights, glowing lines of scrimmage and first down, a team-coloured scoreboard and a glowing field when a defense is in lockdown.',
+    'More animation: a trail behind the ball in the air, the yards floating up after a big gain or a loss, the first-down line pulsing when the chains move, flashes that pop in, scores that bounce when they change.',
+    'Find a play by name: type in the box above the play sections (or press /), Enter calls the first match.',
+    'Press ? (or Keys & settings) for every keyboard shortcut and a Fast setting for play animations.',
+    'Leaving a game in progress now asks first.'
+  ] },
   { id: '2026-11-11', title: 'Defense with a plan', items: [
     'Show a look before the snap: Show Blitz, Press, QB Spy, Sink Safeties or Crash the Line (press L to cycle, or tap one above your calls). Each helps against some plays and hurts against others, and you can see it in how your defense lines up.',
     'Computer quarterbacks read your look and sometimes check out of their call into one that beats it. Bluff a blitz and play coverage, and the quick throw he checks to may go right to you.',
