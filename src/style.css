@@ -2,23 +2,26 @@
    coral vs blue team colors, a yellow first-down-line accent used for the one primary action. */
 :root {
   color-scheme: dark;
-  --ink: #0b1020;
-  --panel: #121a30;
-  --panel2: #1a2442;
-  --line: #2b3860;
+  --ink: #0a0d22;
+  --panel: #141a3a;
+  --panel2: #1d2650;
+  --line: #34407a;
   --chalk: #efe9d6;
   --mute: #93a0c4;
-  --flag: #ffcf3f;
-  --ta: #ff6b4a;
-  --tb: #4aa8ff;
-  --good: #5fd38d;
-  --bad: #ff6b6b;
+  --flag: #ffd23f;
+  --hot: #ff4f8b;
+  --ta: #ff5a3c;
+  --tb: #3aa0ff;
+  --good: #3fe08a;
+  --bad: #ff5a6a;
   --display: 'Silkscreen', 'Courier New', monospace;
   --body: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif;
 }
 * { box-sizing: border-box; }
 body {
-  margin: 0; background: var(--ink); color: var(--chalk);
+  margin: 0; color: var(--chalk); min-height: 100vh;
+  background: radial-gradient(1200px 600px at 15% -10%, rgba(255,79,139,.16), transparent 60%), radial-gradient(1000px 600px at 90% -5%, rgba(58,160,255,.18), transparent 60%), radial-gradient(900px 500px at 50% 110%, rgba(63,224,138,.08), transparent 60%), var(--ink);
+  background-attachment: fixed;
   font-family: var(--body); font-size: 18px; line-height: 1.3;
   padding-inline: 16px; padding-block: 14px 48px;
 }
@@ -693,3 +696,46 @@ body.ingame:not(.gover) .call .pdiag svg { max-height: 96px; }
 body .ctlrow.readrow, body .ctlrow.looks, body.ingame:not(.gover) .ctlrow.readrow, body.ingame:not(.gover) .ctlrow.looks { flex-wrap: wrap; gap: 4px 8px; }
 .ctlrow.readrow .hint, .ctlrow.looks .hint { flex: 1 0 100%; }
 .ctlrow.looks .btn { padding: 3px 8px; font-size: 10px; white-space: nowrap; flex: 0 0 auto; }
+
+/* ---------- a brighter broadcast: gradients, glow and a bit of motion ---------- */
+.brand { text-shadow: 0 0 18px rgba(255,210,63,.25); }
+.brand span { background: linear-gradient(90deg, #ffd23f, #ff8a3c, #ff4f8b, #ffd23f); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: brandshine 6s linear infinite; }
+@keyframes brandshine { to { background-position: 300% 0; } }
+.mast::after { width: 140px; background: linear-gradient(90deg, var(--flag), var(--hot)); box-shadow: 0 0 12px rgba(255,79,139,.5); }
+.panel { background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,0) 40%), var(--panel); box-shadow: 0 8px 28px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06); }
+.btn { transition: transform .08s, border-color .15s, box-shadow .15s, background-color .15s; }
+.btn:hover:not(:disabled) { border-color: #7f8fd0; box-shadow: 0 0 14px rgba(127,143,208,.25); }
+.btn.primary { background: linear-gradient(180deg, #ffe066, #ffc21f); box-shadow: 0 0 16px rgba(255,210,63,.3); }
+.btn.primary:hover:not(:disabled) { box-shadow: 0 0 22px rgba(255,210,63,.55); }
+.btn.ctl.on, .looks .btn.on { background: linear-gradient(180deg, #ffe066, #ffc21f); color: #1a1405; border-color: #a67d00; box-shadow: 0 0 12px rgba(255,210,63,.45); }
+.sb-team { background: linear-gradient(180deg, rgba(255,255,255,.04), transparent), var(--panel); }
+.sb-team.a { background: linear-gradient(100deg, rgba(255,90,60,.22), transparent 70%), var(--panel); }
+.sb-team.b { background: linear-gradient(260deg, rgba(58,160,255,.22), transparent 70%), var(--panel); }
+.sb-team.a .sb-score { text-shadow: 0 0 14px rgba(255,90,60,.6); }
+.sb-team.b .sb-score { text-shadow: 0 0 14px rgba(58,160,255,.6); }
+.sb-score.pop { animation: scorepop .7s cubic-bezier(.2,1.6,.4,1); }
+@keyframes scorepop { 0% { transform: scale(1); } 30% { transform: scale(1.6); color: var(--flag); } 100% { transform: scale(1); } }
+.sb-mid { background: linear-gradient(180deg, #1d2650, #141a3a); box-shadow: inset 0 0 0 1px rgba(255,210,63,.15); }
+.call { transition: transform .12s, box-shadow .15s, border-color .15s; }
+.call:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.4), 0 0 14px rgba(255,210,63,.18); }
+.call.rec { box-shadow: 0 0 0 1px rgba(255,210,63,.4), 0 0 16px rgba(255,210,63,.2); }
+.cat.on { box-shadow: 0 0 12px rgba(255,210,63,.4); }
+.locked { animation: lockin .35s ease-out; }
+@keyframes lockin { from { transform: scale(.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.role.off { box-shadow: 0 0 12px rgba(255,210,63,.45); }
+.role.def { box-shadow: 0 0 12px rgba(58,160,255,.5); }
+body.lockfield .fieldhost canvas.field { box-shadow: 0 0 0 3px var(--lockc), 0 0 28px var(--lockc); animation: lockglow 1.4s ease-in-out infinite alternate; }
+@keyframes lockglow { from { box-shadow: 0 0 0 2px var(--lockc), 0 0 10px var(--lockc); } to { box-shadow: 0 0 0 3px var(--lockc), 0 0 34px var(--lockc); } }
+.fieldhost canvas.field { box-shadow: 0 10px 40px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.06); }
+.log li { transition: background-color .3s; }
+.log li:first-child { animation: logslide .4s ease-out; }
+@keyframes logslide { from { transform: translateX(-10px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* find a play, the shortcut sheet */
+.psearch { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.psearch input { flex: 0 1 260px; font: inherit; font-size: 16px; padding: 6px 10px; background: var(--ink); color: var(--chalk); border: 2px solid var(--line); border-radius: 2px; }
+.psearch input:focus { border-color: var(--flag); outline: none; box-shadow: 0 0 10px rgba(255,210,63,.35); }
+.keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 8px 0 14px; }
+.keys dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 6px 0 0; align-items: center; }
+.keys dd { margin: 0; color: var(--mute); }
+kbd { font-family: var(--display); font-size: 11px; padding: 3px 7px; background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 3px; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .brand span, body.lockfield .fieldhost canvas.field, .sb-score.pop, .locked, .log li:first-child { animation: none !important; } }

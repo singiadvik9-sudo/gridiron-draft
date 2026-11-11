@@ -159,8 +159,9 @@ module.exports = async function handler(req, res) {
       // u: the defender he starts the snap as (LDE, RCB ...), k: how close to the middle of the meter he stopped his kick (0 is perfect, 100 the edge)
       const dp = typeof b.dp === 'string' && /^[A-Z]{1,6}$/.test(b.dp) ? b.dp : '', kt = Number.isInteger(b.kt) && b.kt >= 0 && b.kt <= 100 ? b.kt : null;
       const dj = typeof b.dj === 'string' && E.ADJS[b.dj] ? b.dj : '';   // j: the defense's pre-snap look
+      const ck = typeof b.ck === 'string' && E.CHECKS.indexOf(b.ck) >= 0 ? b.ck : '';   // a: the offense's check-with-me section
       const hm = room.squad && Array.isArray(b.hm) ? b.hm.filter(k => SQ.POS.indexOf(k) >= 0 || SQ.SPOTS.indexOf(k) >= 0).slice(0, 5) : null;
-      if (moves[n] === undefined) moves[n] = b.ctl || b.to || b.two || cs || dp || dj || kt != null || (hm && hm.length) ? Object.assign({ p: pick }, b.ctl ? { c: 1 } : {}, b.to ? { t: 1 } : {}, b.two ? { w: 1 } : {}, cs ? { s: cs } : {}, dp ? { u: dp } : {}, dj ? { j: dj } : {}, kt != null ? { k: kt } : {}, hm && hm.length && b.ctl ? { h: hm } : {}) : pick;
+      if (moves[n] === undefined) moves[n] = b.ctl || b.to || b.two || cs || dp || dj || ck || kt != null || (hm && hm.length) ? Object.assign({ p: pick }, b.ctl ? { c: 1 } : {}, b.to ? { t: 1 } : {}, b.two ? { w: 1 } : {}, cs ? { s: cs } : {}, dp ? { u: dp } : {}, dj ? { j: dj } : {}, ck ? { a: ck } : {}, kt != null ? { k: kt } : {}, hm && hm.length && b.ctl ? { h: hm } : {}) : pick;
       await setJ(mk, moves, TTL);
       return send(res, 200, { ok: true });
     }

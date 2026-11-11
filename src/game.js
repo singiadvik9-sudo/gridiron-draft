@@ -3,7 +3,7 @@
 const E = window.E;
 const $ = (s, r) => (r || document).querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
-const TEAM_COL = { a: '#ff6b4a', b: '#4aa8ff' };
+const TEAM_COL = { a: '#ff5a3c', b: '#3aa0ff' };
 const other = t => t === 'a' ? 'b' : 'a';
 /*NET*/
 /*CHAT*/
@@ -26,7 +26,7 @@ const S = {
   mode: 'lobby', code: null, seed: 0, me: null, seats: {}, moves: {}, mine: {},
   myName: lsGet('gd_name') || '', screen: null, shown: null, callSig: null,
   poll: null, ready: false, G: null, cpuFor: -1, busy: false, api: true, cpuSides: [], ctx: null, sd: null,
-  ctlOn: lsGet('gd_ctl') === '1', pcOn: lsGet('gd_pc') !== '0', dpos: lsGet('gd_dpos') || '', dpN: {}, djN: {}, djSel: null, ktN: {}, km: null, csN: {}, toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
+  ctlOn: lsGet('gd_ctl') === '1', pcOn: lsGet('gd_pc') !== '0', dpos: lsGet('gd_dpos') || '', dpN: {}, djN: {}, djSel: null, ckN: {}, ck: lsGet('gd_ck') || '', q: '', anim: lsGet('gd_anim') || 'normal', ktN: {}, km: null, csN: {}, toN: {}, toSel: null, ctlN: {}, lv: {}, rv: {}, rvSeen: {}, lvSeen: {}, lvPart: {}, lvLoaded: true
 };
 
 /* ---------- sprites ---------- */
@@ -209,8 +209,8 @@ function teamOf(seat) {
   const name = String(d.name || 'Team ' + seat.toUpperCase()).slice(0, 18);
   return d.squad ? { name, squad: d.squad } : { name, roster: d.roster, squad: E.squadFromRoster(d.roster) };
 }
-const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}, v.w ? { two: 1 } : {}, v.s ? { cs: v.s } : {}, v.u ? { dp: v.u } : {}, v.j ? { dj: v.j } : {}, v.k != null ? { kt: v.k } : {}, Array.isArray(v.h) ? { hm: v.h } : {}) : { pick: v };
-const myMove = n => Object.assign({ pick: S.mine[n] }, S.hmN && S.hmN[n] ? { hm: S.hmN[n] } : {}, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {}, S.csN[n] ? { cs: S.csN[n] } : {}, S.dpN[n] ? { dp: S.dpN[n] } : {}, S.djN[n] ? { dj: S.djN[n] } : {}, S.ktN[n] != null ? { kt: S.ktN[n] } : {});
+const moveOf = v => v && typeof v === 'object' ? Object.assign({ pick: v.p }, v.c ? { ctl: 1 } : {}, v.t ? { to: 1 } : {}, v.w ? { two: 1 } : {}, v.s ? { cs: v.s } : {}, v.u ? { dp: v.u } : {}, v.j ? { dj: v.j } : {}, v.a ? { ck: v.a } : {}, v.k != null ? { kt: v.k } : {}, Array.isArray(v.h) ? { hm: v.h } : {}) : { pick: v };
+const myMove = n => Object.assign({ pick: S.mine[n] }, S.hmN && S.hmN[n] ? { hm: S.hmN[n] } : {}, S.ctlN[n] ? { ctl: 1 } : {}, S.toN[n] ? { to: 1 } : {}, S.csN[n] ? { cs: S.csN[n] } : {}, S.dpN[n] ? { dp: S.dpN[n] } : {}, S.djN[n] ? { dj: S.djN[n] } : {}, S.ckN[n] ? { ck: S.ckN[n] } : {}, S.ktN[n] != null ? { kt: S.ktN[n] } : {});
 function allMoves() {
   const mv = Object.assign({}, S.moves);
   if (S.me) for (const n in S.mine) mv[n + '-' + S.me] = myMove(n);
@@ -246,7 +246,10 @@ const Field = {
     const parts = /TOUCHDOWN|ON FIRE/.test(text) ? Array.from({ length: 46 }, (_, i) => ({ x: Math.random() * this.W, y: -10 - Math.random() * 120, vx: (Math.random() - 0.5) * 60, vy: 90 + Math.random() * 140, c: i % 3 ? color : '#ffcf3f', s: 3 + Math.random() * 4, fire: /ON FIRE/.test(text) })) : [];
     this.fx = { t0: performance.now(), shake: big ? 9 : 6, parts };
   },
-  set(sc) { this.scene = sc; this.YPP = this.BASE_YPP; this.cam = this.clampCam(this.losX(sc)); this.ballX = null; this.ballLift = 0; this.flash = null; this.draw(); },
+  set(sc) { this.scene = sc; this.YPP = this.BASE_YPP; this.cam = this.clampCam(this.losX(sc)); this.ballX = null; this.ballLift = 0; this.flash = null; this.trail = []; this.draw(); },
+  // keep drawing for a moment after a play (a line that pulses, a number that floats away) without a loop running all game
+  kick(ms) { this.until = Math.max(this.until || 0, performance.now() + ms); if (this.looping) return; this.looping = true;
+    const f = () => { if (this.anim || performance.now() > this.until) { this.looping = false; if (!this.anim) this.draw(); return; } this.draw(); requestAnimationFrame(f); }; requestAnimationFrame(f); },
   formation(sc) {
     const o = sc.poss, d = other(o), dir = o === 'a' ? 1 : -1, los = this.losX(sc);
     const midY = this.TOP + (this.H - this.TOP) / 2, ROW = 24;
@@ -273,7 +276,9 @@ const Field = {
     if (!x) return;
     x.imageSmoothingEnabled = false;
     x.clearRect(0, 0, W, H);
-    x.fillStyle = '#0e1528'; x.fillRect(0, 0, W, H);
+    // the stands at night: a deep sky with the stadium lights glowing over the top of the field
+    const sky = this.skyG || (this.skyG = (() => { const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#1a1040'); g.addColorStop(0.35, '#0f1636'); g.addColorStop(1, '#0a0f24'); return g; })());
+    x.fillStyle = sky; x.fillRect(0, 0, W, H);
     if (!sc) return;
     const fx = this.fx, fe = fx ? (performance.now() - fx.t0) / 1000 : 9;
     if (fx && fe > 1.4) this.fx = null;
@@ -283,9 +288,14 @@ const Field = {
     for (let yd = -10; yd < 110; yd += 5) {
       const a = sx(yd), b = sx(yd + 5);
       if (b < 0 || a > W) continue;
-      x.fillStyle = yd < 0 ? '#6b2a1e' : yd >= 100 ? '#1b4a80' : (((yd / 5) | 0) % 2 === 0 ? '#1f5233' : '#245c3a');
-      x.fillRect(a, TOP, b - a + 1, H - TOP);
+      if (yd < 0 || yd >= 100) { x.fillStyle = '#122016'; x.fillRect(a, TOP, b - a + 1, H - TOP); x.globalAlpha = 0.55; x.fillStyle = TEAM_COL[yd < 0 ? 'a' : 'b']; x.fillRect(a, TOP, b - a + 1, H - TOP); x.globalAlpha = 1; }   // end zones in the teams' colours
+      else { x.fillStyle = (((yd / 5) | 0) % 2 === 0 ? '#22803f' : '#2a9149'); x.fillRect(a, TOP, b - a + 1, H - TOP); }   // freshly mowed stripes
     }
+    // floodlights: brighter down the middle of the field, falling off to the sidelines
+    const lg = this.lightG || (this.lightG = (() => { const g = x.createLinearGradient(0, TOP, 0, H); g.addColorStop(0, 'rgba(10,15,36,.45)'); g.addColorStop(0.18, 'rgba(255,250,220,0)'); g.addColorStop(0.5, 'rgba(255,250,220,.07)'); g.addColorStop(0.82, 'rgba(255,250,220,0)'); g.addColorStop(1, 'rgba(10,15,36,.5)'); return g; })());
+    x.fillStyle = lg; x.fillRect(0, TOP, W, H - TOP);
+    x.fillStyle = 'rgba(239,233,214,.85)'; x.fillRect(0, TOP, W, 2); x.fillRect(0, H - 2, W, 2);   // sidelines
+    for (let i = 0; i < 5; i++) { const lx = (i + 0.5) * W / 5, rg = x.createRadialGradient(lx, TOP - 6, 2, lx, TOP - 6, 70); rg.addColorStop(0, 'rgba(255,244,200,.55)'); rg.addColorStop(1, 'rgba(255,244,200,0)'); x.fillStyle = rg; x.fillRect(lx - 70, 0, 140, TOP + 64); }   // the light towers
     // yard lines + numbers
     x.textAlign = 'center'; x.font = '14px Silkscreen, monospace';
     for (let yd = 0; yd <= 100; yd += 5) {
@@ -308,8 +318,9 @@ const Field = {
     // scrimmage + first down lines
     const los = this.losX(sc), dir = sc.poss === 'a' ? 1 : -1;
     const fd = Math.max(-0.01, Math.min(100.01, los + dir * sc.toGo));
-    x.fillStyle = '#5aa9ff'; x.fillRect(Math.round(sx(los)) - 1, TOP, 3, H - TOP);
-    x.fillStyle = '#ffcf3f'; x.fillRect(Math.round(sx(fd)) - 1, TOP, 3, H - TOP);
+    x.shadowBlur = 10; x.shadowColor = '#5aa9ff'; x.fillStyle = '#6fb6ff'; x.fillRect(Math.round(sx(los)) - 1, TOP, 3, H - TOP);
+    x.shadowColor = '#ffd23f'; x.fillStyle = '#ffd23f'; x.fillRect(Math.round(sx(fd)) - 1, TOP, 3, H - TOP); x.shadowBlur = 0;
+    if (this.fdT) { const k = (performance.now() - this.fdT) / 1300; if (k >= 1) this.fdT = 0; else { x.globalAlpha = 0.55 * (1 - k); x.fillRect(Math.round(sx(fd)) - 1 - 10 * k, TOP, 3 + 20 * k, H - TOP); x.globalAlpha = 1; } }   // the chains just moved
     // players
     const live = this.live;
     const offscreen = [];
@@ -394,6 +405,15 @@ const Field = {
     // ball
     const bx = live ? live.ball.wx : (this.ballX == null ? los - dir * 0.2 : this.ballX);
     const gy = live ? live.ball.sy : TOP + (H - TOP) / 2, by = gy - this.ballLift;
+    if (!live && this.anim && this.ballX != null && this.ballLift > 4) {   // a ball in the air leaves a trail
+      const tr = this.trail || (this.trail = []); tr.push([bx, by]); if (tr.length > 9) tr.shift();
+      tr.forEach((q, i) => { x.globalAlpha = (i + 1) / tr.length * 0.35; x.fillStyle = '#efe9d6'; x.beginPath(); x.ellipse(sx(q[0]), q[1], 3, 2, 0, 0, Math.PI * 2); x.fill(); }); x.globalAlpha = 1;
+    } else if (this.trail && this.trail.length) this.trail = [];
+    if (this.gain) {   // the yards, floating up from where the play ended
+      const g = this.gain, k = (performance.now() - g.t0) / 1100;
+      if (k >= 1) this.gain = null;
+      else { x.globalAlpha = 1 - k * k; x.font = '18px Silkscreen, monospace'; x.textAlign = 'center'; x.lineWidth = 4; x.strokeStyle = '#0b1020'; const yy = gy - 30 - k * 34; x.strokeText(g.txt, sx(g.wx), yy); x.fillStyle = g.col; x.fillText(g.txt, sx(g.wx), yy); x.globalAlpha = 1; }
+    }
     x.fillStyle = 'rgba(0,0,0,.35)'; x.beginPath(); x.ellipse(sx(bx), gy + 8, 6, 2.5, 0, 0, Math.PI * 2); x.fill();
     x.fillStyle = '#8a4b22'; x.beginPath(); x.ellipse(sx(bx), by, 6, 3.6, 0, 0, Math.PI * 2); x.fill();
     x.fillStyle = '#efe9d6'; x.fillRect(Math.round(sx(bx)) - 2, Math.round(by) - 1, 4, 1);
@@ -450,9 +470,11 @@ const Field = {
         x.fillStyle = f.color; x.fillRect(0, cy - 46, W, 4); x.fillRect(0, cy + (f.sub ? 46 : 26), W, 4);
         x.textAlign = 'center'; x.font = '12px Silkscreen, monospace'; x.fillStyle = f.color; x.fillText('TURNOVER · ' + f.turn.toUpperCase() + ' BALL', W / 2, cy - 28);
       }
-      x.textAlign = 'center'; x.font = '34px Silkscreen, monospace';
+      if (!f.t0) f.t0 = performance.now();
+      const pk = Math.min(1, (performance.now() - f.t0) / 200), sz = Math.round(34 * (1 + 0.45 * (1 - pk) * (1 - pk)));   // it pops in
+      x.textAlign = 'center'; x.font = sz + 'px Silkscreen, monospace'; x.globalAlpha = 0.35 + 0.65 * pk;
       x.lineWidth = 6; x.strokeStyle = '#0b1020'; x.strokeText(f.text, W / 2, cy + (f.turn ? 6 : 0));
-      x.fillStyle = f.color; x.fillText(f.text, W / 2, cy + (f.turn ? 6 : 0));
+      x.fillStyle = f.color; x.fillText(f.text, W / 2, cy + (f.turn ? 6 : 0)); x.globalAlpha = 1;
       if (f.sub) { x.font = '13px Silkscreen, monospace'; x.lineWidth = 4; x.strokeText(f.sub, W / 2, cy + 32); x.fillStyle = '#efe9d6'; x.fillText(f.sub, W / 2, cy + 32); }
     }
   },
@@ -472,7 +494,8 @@ const Field = {
     if (kind === 'fg') endX = dir === 1 ? 104 : -4;
     endX = Math.max(-9, Math.min(109, endX));
     const lift = kind === 'punt' ? 80 : kind === 'fg' ? 70 : (kind === 'pass' || kind === 'int' || kind === 'inc') ? 46 : 0;
-    const dur = kind === 'punt' || kind === 'fg' ? 850 : (kind === 'pass' || kind === 'int' || kind === 'inc') ? 640 : 520;   // quick, so the game keeps moving
+    const SP = S.anim === 'fast' ? 0.55 : 1;   // the animation speed setting (? opens it)
+    const dur = (kind === 'punt' || kind === 'fg' ? 850 : (kind === 'pass' || kind === 'int' || kind === 'inc') ? 640 : 520) * SP;   // quick, so the game keeps moving
     const startX = los - dir * (kind === 'punt' || kind === 'fg' ? 7 : 3);
     const FL = {
       td: ['TOUCHDOWN', entry.ptsTeam], fg: ['FIELD GOAL', entry.ptsTeam], fgmiss: ['NO GOOD', null],
@@ -484,11 +507,12 @@ const Field = {
     const fl = FL[entry.ev] || (entry.firstDown ? ['FIRST DOWN', b.poss] : null);
     const after = { poss: entry.after.poss, ballOn: entry.after.ballOn, down: entry.after.down, toGo: entry.after.toGo, teams };
     const turnover = entry.after.poss !== b.poss && /^(int|fumble|downs)$/.test(entry.ev) && !entry.before.pat;   // these get the turnover band and a longer look
-    const t0 = performance.now(), hold = turnover ? 1500 : fl || entry.contested || entry.conf ? 650 : 110, settle = 220;
+    const t0 = performance.now(), hold = (turnover ? 1500 : fl || entry.contested || entry.conf || entry.lock || entry.aud ? 650 : 110) * SP, settle = 220 * SP;
     let finished = false;
-    const finish = () => { if (finished) return; finished = true; this.flash = null; this.fxFire = 0; this.anim = null; this.set(after); done(); };
+    const finish = () => { if (finished) return; finished = true; this.flash = null; this.fxFire = 0; this.fxLock = 0; this.anim = null; this.set(after);
+      if (this.gain || this.fdT) this.kick(1300); done(); };
     const camStart = this.cam;
-    this.anim = { kind, startX, endX, entry, dir };
+    this.anim = { kind, startX, endX, entry, dir }; this.gainSet = 0; this.trail = [];
     const step = t => {
       if (finished) return;
       const el = t - t0;
@@ -499,6 +523,7 @@ const Field = {
         this.cam = this.clampCam(los + (endX - los) * e * 0.8);
       } else if (el < dur + hold) {
         this.ballX = endX; this.ballLift = 0;
+        if (!this.gainSet) { this.gainSet = 1; const y = entry.yards; if ((kind === 'run' || kind === 'pass') && y != null && (y >= 8 || y < 0) && entry.ev !== 'td') this.gain = { txt: (y > 0 ? '+' : '') + y, wx: endX, t0: performance.now(), col: y > 0 ? '#3fdc6a' : '#ff6a5a' }; if (entry.firstDown) this.fdT = performance.now() + dur; }
         if (fl && !this.flash) {
           this.flash = { text: fl[0], color: fl[1] ? TEAM_COL[fl[1]] : '#efe9d6' };
           if (turnover) { this.flash.turn = (teams[entry.after.poss] || {}).name || ''; this.flash.sub = turnoverLine(entry); }
@@ -629,7 +654,7 @@ function resetForMode() {
   stopPoll(); socUnmount(); S.squad = false; S.lob = null; S.canCall = false; S.hmN = {};
   S.seats = {}; S.moves = {}; S.mine = {}; S.shown = null; S.callSig = null; S.G = null; S.cpuFor = -1;
   S.cpuSides = []; S.ctx = null; sdStop(); S.screen = null; Field.queue = []; Field.busy = false; document.body.classList.remove('fbusy'); Field.scene = null;
-  S.ctlN = {}; S.toN = {}; S.dpN = {}; S.djN = {}; S.djSel = null; S.ktN = {}; S.km = null; S.csN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
+  S.ctlN = {}; S.toN = {}; S.dpN = {}; S.djN = {}; S.djSel = null; S.ckN = {}; S.q = ''; S.ktN = {}; S.km = null; S.csN = {}; S.toSel = null; S.lv = {}; S.rv = {}; S.rvSeen = {}; S.lvSeen = {}; S.lvPart = {}; S.lvLoaded = true; LV.stop();
 }
 function startLocal() {
   readName();
@@ -1061,7 +1086,7 @@ function buildGame() {
     '<div class="fieldhost" id="fieldHost"></div>' +
     '<div class="deck"><div class="lvpanel panel" id="lvpanel"></div>' +
     '<div class="side"><div class="banner" id="banner"></div><ol class="log" id="log"></ol>' +
-    '<div class="row"><button class="btn small" data-act="rosters">Rosters</button><button class="btn small" data-act="matchups">Matchups</button><button class="btn small" data-act="gstats">Stats (X)</button></div></div></div></section>';
+    '<div class="row"><button class="btn small" data-act="rosters">Rosters</button><button class="btn small" data-act="matchups">Matchups</button><button class="btn small" data-act="gstats">Stats (X)</button><button class="btn small" data-act="keys" title="Keyboard shortcuts and settings">Keys &amp; settings (?)</button></div></div></div></section>';
   $('#fieldHost').appendChild(Field.cv);
   $('#fieldHost').insertAdjacentHTML('beforeend', '<div class="callpanel playcall" id="callpanel"></div>');   // play calling happens on the field, Madden style
   $('#fieldHost').insertAdjacentHTML('beforeend', '<div class="fvbar"><button class="fsbtn" data-act="fullscreen" title="Full screen (F)" aria-label="Toggle full screen">' + fsLabel() + '</button></div>');
@@ -1075,7 +1100,9 @@ function updateGame() {
   document.body.classList.toggle('gover', !!st.over);
   const set = (id, v) => { const el = $(id); if (el && el.textContent !== String(v)) el.textContent = v; };
   set('#sb-an', T.a.name + (S.me === 'a' ? ' (you)' : '')); set('#sb-bn', T.b.name + (S.me === 'b' ? ' (you)' : ''));
-  set('#sb-as', st.score.a); set('#sb-bs', st.score.b);
+  ['a', 'b'].forEach(t => { const el = $('#sb-' + t + 's'); if (el && el.textContent !== String(st.score[t])) { el.textContent = st.score[t]; if (S.shownScore && S.shownScore[t] != null && S.shownScore[t] !== st.score[t]) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); } } });
+  S.shownScore = { a: st.score.a, b: st.score.b };
+  document.body.classList.toggle('lockfield', !st.over && !!(st.lock && st.lock[other(st.poss)] > 0)); document.body.style.setProperty('--lockc', TEAM_COL[other(st.poss)]);
   const aEl = $('.sb-team.a'), bEl = $('.sb-team.b');
   if (aEl) aEl.classList.toggle('has', !st.over && st.poss === 'a');
   if (bEl) bEl.classList.toggle('has', !st.over && st.poss === 'b');
@@ -1208,7 +1235,7 @@ function renderCall0(G) {
     p.innerHTML = '<div class="cp-head"><span class="role def">Kickoff</span><span class="sit">' + esc(T[st.kick.k].name) + ' kick off</span></div><div class="locked"><span class="eyebrow">Get ready</span><b>You receive the kick</b><p class="sub">Waiting for ' + esc(T[st.kick.k].name) + ' to choose a deep kick or an onside kick…</p></div>'; return;
   }
   const locked = S.mine[n] != null ? S.mine[n] : null;
-  const sig = n + '|' + role + '|' + (callCat(role, st) || '') + '|' + (locked || '') + '|' + (lastCallFor(G) || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0) + '|' + (st.kick ? 'k' : '') + '|' + (toSel(n) ? 1 : 0) + '|' + (S.toN[n] ? 1 : 0) + '|' + st.clock + '|' + st.ro + '|' + S.dpos + '|' + (st.pat ? 'p' : '') + '|' + curLook(n);
+  const sig = n + '|' + role + '|' + (callCat(role, st) || '') + '|' + (locked || '') + '|' + (lastCallFor(G) || '') + '|' + st.down + '|' + st.ballOn + '|' + (S.ctlOn ? 1 : 0) + '|' + (S.ctlN[n] ? 1 : 0) + '|' + (st.kick ? 'k' : '') + '|' + (toSel(n) ? 1 : 0) + '|' + (S.toN[n] ? 1 : 0) + '|' + st.clock + '|' + st.ro + '|' + S.dpos + '|' + (st.pat ? 'p' : '') + '|' + curLook(n) + '|' + S.ck + '|' + S.q;
   if (S.callSig === sig) return; S.callSig = sig;
   const sit = st.kick ? 'Kickoff' : st.pat ? (role === 'off' ? 'Touchdown! Kick the extra point, or call any run or pass from the 2 to go for two' : 'They kick the extra point or go for two from the 2') : ddLabel(st) + ' at ' + spotLabel(st, T);
   if (S.km && S.km.n === n && !locked) { kickMeterPanel(G, p); return; }   // you are kicking: the meter
@@ -1220,15 +1247,18 @@ function renderCall0(G) {
   if (locked) {
     const lbl = role === 'off' ? offLabel(locked) : E.DEF_CALLS[locked].label;
     p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'Offense' : 'Defense') + '</span><span class="sit">' + esc(sit) + '</span></div>' +
-      '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + (role === 'def' && S.djN[n] ? ' · ' + esc(E.ADJS[S.djN[n]].label) : '') + '</b>' + (S.ctlN[n] ? '<p class="sub ctlnote">You will run the players on the field.</p>' : '') + (S.toN[n] ? '<p class="sub ctlnote">Timeout called.</p>' : '') + '<p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
+      '<div class="locked"><span class="eyebrow">Locked in</span><b>' + esc(lbl) + (role === 'def' && S.djN[n] ? ' · ' + esc(E.ADJS[S.djN[n]].label) : '') + (role === 'off' && S.ckN[n] ? ' · check to ' + esc(catLabel(S.ckN[n])) : '') + '</b>' + (S.ctlN[n] ? '<p class="sub ctlnote">You will run the players on the field.</p>' : '') + (S.toN[n] ? '<p class="sub ctlnote">Timeout called.</p>' : '') + '<p class="sub">Waiting for ' + esc(T[other(S.me)].name) + (S.mode === 'local' ? '…' : ' to call their play…') + '</p></div>';
     return;
   }
-  const cats = callCats(role, st), cat = callCat(role, st), shown = callOpts(role, st).filter(o => o.cat === cat);
+  const cats = callCats(role, st), cat = callCat(role, st), qq = S.q.trim().toLowerCase();
+  const shown = qq ? callOpts(role, st).filter(o => (o.label + ' ' + o.desc + ' ' + o.id).toLowerCase().indexOf(qq) >= 0) : callOpts(role, st).filter(o => o.cat === cat);
   let k = 0;
   p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><button class="pclock' + (S.pcOn ? '' : ' off') + '" id="pclock" data-act="pc-toggle" title="Play clock: the coach calls his pick when it runs out. P turns it on or off.">' + (S.pcOn ? 'PLAY CLOCK ' + PLAY_CLOCK : 'PLAY CLOCK OFF') + '</button><span class="sit">' + esc(sit) + '</span></div>' +
-    coachRowHTML(G, role) + fireRowHTML(st, role) + momRowHTML(G, role) + readRowHTML(G, role) + lookRowHTML(st, role) + ctlRowHTML(role) + spotRowHTML(role) + (st.pat ? '' : toRowHTML(st)) + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
-    '<div class="cats" role="tablist" aria-label="Play type">' + cats.map(c => '<button class="cat' + (c.id === cat ? ' on' : '') + '" role="tab" aria-selected="' + (c.id === cat) + '" data-act="cat" data-cat="' + c.id + '">' + esc(c.label) + '<i>' + c.n + '</i></button>').join('') + '</div>' +
+    coachRowHTML(G, role) + fireRowHTML(st, role) + momRowHTML(G, role) + readRowHTML(G, role) + lookRowHTML(st, role) + checkRowHTML(st, role) + ctlRowHTML(role) + spotRowHTML(role) + (st.pat ? '' : toRowHTML(st)) + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
+    '<div class="psearch"><input id="psearch" type="search" placeholder="Find a play (/)" aria-label="Find a play by name" value="' + esc(S.q) + '" autocomplete="off">' + (qq ? '<span class="hint">' + shown.length + ' match' + (shown.length === 1 ? '' : 'es') + '. Esc clears.</span>' : '') + '</div>' +
+    '<div class="cats" role="tablist" aria-label="Play type">' + cats.map(c => '<button class="cat' + (c.id === cat && !qq ? ' on' : '') + '" role="tab" aria-selected="' + (c.id === cat) + '" data-act="cat" data-cat="' + c.id + '">' + esc(c.label) + '<i>' + c.n + '</i></button>').join('') + '</div>' +
     '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k, rec = coachPicks(G, role).indexOf(o.id); const dg = playDiagram(o.id, role, G); return '<button class="call' + (rec >= 0 ? ' rec' : '') + '" data-act="call" data-id="' + o.id + '" title="' + esc(o.desc) + '"' + (o.disabled ? ' disabled' : '') + '>' + (dg ? '<span class="pdiag">' + dg + '</span>' : '') + '<span class="key">' + key + '</span>' + (rec >= 0 ? '<i class="cbadge">' + (rec ? 'Coach' : '★ Coach') + '</i>' : '') + '<b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
+  if (S.qFocus) { const i = $('#psearch'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
 }
 // play calls come in sections (Inside Run, Quick Pass, Cover 2/3/4 ...): one section is open at a time
 function callOpts(role, st) {
@@ -1362,6 +1392,27 @@ function readRowHTML(G, role) {
   const last = td.last.length ? ' Last calls: ' + td.last.map(id => (E.OFF[id] || {}).label || id).join(', ') + '.' : '';
   return '<div class="ctlrow readrow"><span class="eyebrow">Pre-snap read</span>' + (look ? '<b>' + esc(look.look) + '</b><span class="hint">Looks like ' + esc(look.leanLabel) + '. Formations tell the truth most of the time, not always.</span>' : '') + '<span class="hint">' + esc(tend + last) + '</span></div>';
 }
+const catLabel = id => ((E.OFF_CATS.find(c => c.id === id) || {}).label || id);
+// check-with-me: a section your quarterback checks into if the defense shows a look your call is weak against (it stays set: A cycles)
+function checkRowHTML(st, role) {
+  if (role !== 'off' || st.kick || st.pat || st.down === 4 || !E.CHECKS) return '';
+  return '<div class="ctlrow looks checks"><span class="eyebrow">Audible (A)</span>' + [''].concat(E.CHECKS).map(id => '<button class="btn small ctl' + (S.ck === id ? ' on' : '') + '" data-act="check" data-id="' + id + '" aria-pressed="' + (S.ck === id) + '">' + esc(id ? catLabel(id) : 'None') + '</button>').join('') +
+    '<span class="hint">' + (S.ck ? 'If the defense shows a look your call is weak against (press, a blitz look, crashing linebackers...), your quarterback may check to the best ' + esc(catLabel(S.ck)) + ' against it. A better quarterback reads it more often; a disguise can fool him.' : 'Pick a play type to check into when the defense shows a look that beats your call.') + '</span></div>';
+}
+function setCheck(id) { S.ck = E.CHECKS.indexOf(id) >= 0 ? id : ''; lsSet('gd_ck', S.ck); S.callSig = null; if (S.G) renderCall(S.G); }
+function cycleCheck() { const L = [''].concat(E.CHECKS), i = L.indexOf(S.ck); setCheck(L[(i + 1) % L.length]); }
+const KEYS = [['1-9', 'Call the numbered play'], ['← →', 'Switch play section'], ['/', 'Find a play by name'], ['G', "Call the coach's pick"], ['R', 'Hurry-up: same call again'], ['L', 'Defense: cycle the pre-snap look'], ['A', 'Offense: cycle the audible'], ['T', 'Timeout'], ['C', 'Control your players on or off'], ['B', 'Defense: the defender you start as'], ['P', 'Play clock on or off'], ['X', 'Game stats'], ['F', 'Full screen'], ['?', 'This sheet'], ['Esc', 'Close a window, clear the search']];
+const LIVE_KEYS = [['Arrows', 'Move'], ['A S D F / 1-4', 'Throw to a receiver (Shift: a lob)'], ['Space', 'Juke, dive tackle, throw it away'], ['W', 'Stiff arm with the ball; jump for a pass on defense'], ['Q', 'Spin with the ball; big hit on defense'], ['E / Tab', 'Switch defender']];
+function showKeys() {
+  openModal('<h3>Keys &amp; settings</h3><div class="keys"><div><span class="eyebrow">Calling plays</span><dl>' + KEYS.map(k => '<dt><kbd>' + esc(k[0]) + '</kbd></dt><dd>' + esc(k[1]) + '</dd>').join('') + '</dl></div>' +
+    '<div><span class="eyebrow">On the field</span><dl>' + LIVE_KEYS.map(k => '<dt><kbd>' + esc(k[0]) + '</kbd></dt><dd>' + esc(k[1]) + '</dd>').join('') + '</dl></div></div>' +
+    '<span class="eyebrow">Play animations</span><div class="row">' + [['normal', 'Normal'], ['fast', 'Fast']].map(([id, l]) => '<button class="btn small ctl' + (S.anim === id ? ' on' : '') + '" data-act="animspeed" data-id="' + id + '">' + l + '</button>').join('') + '</div>');
+}
+function confirmLeave() {
+  const G = S.G;
+  if (S.screen !== 'game' || !G || G.state.over || !G.log.length) { leave(); return; }
+  openModal('<h3>Leave this game?</h3><p class="sub">' + (S.mode === 'online' ? 'You can rejoin with the room code while the game is still open.' : S.ctx ? 'The game is not finished, so it will not count yet.' : 'This practice game will be lost.') + '</p><div class="row"><button class="btn primary" data-act="leave-yes">Leave</button></div>');
+}
 const LOOK_IDS = ['', 'SHOW', 'PRESS', 'SPY', 'SINK', 'CRASH'];
 const curLook = n => S.djSel && S.djSel.n === n ? S.djSel.id : '';
 function lookRowHTML(st, role) {
@@ -1401,9 +1452,11 @@ function submitCall(pick, opt) {
   if (ctl) S.ctlN[n] = 1; else delete S.ctlN[n];
   const dp = role === 'def' && ctl && S.dpos ? S.dpos : ''; if (dp) S.dpN[n] = dp; else delete S.dpN[n];   // the defender you start as
   const dj = role === 'def' && !st.kick && !st.pat ? curLook(n) : ''; if (dj) S.djN[n] = dj; else delete S.djN[n];   // the look you show
+  const ck = role === 'off' && !st.kick && !st.pat && st.down < 4 && E.OFF[pick] && E.OFF[pick].cat !== 'SPEC' ? S.ck : ''; if (ck) S.ckN[n] = ck; else delete S.ckN[n];   // your audible
+  S.q = ''; S.qFocus = false;
   const cs = S.pc && S.pc.n === n ? Math.round(S.pc.run) : 0; if (cs) S.csN[n] = cs; else delete S.csN[n];   // how long the call took (clock run-off)
   if (S.mode === 'online') {
-    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to, cs, dp: dp || undefined, dj: dj || undefined, kt: kt != null ? kt : undefined, hm: hm || undefined }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; delete S.ktN[n]; delete S.dpN[n]; delete S.djN[n]; S.callSig = null; handleErr(e); updateGame(); });
+    api({ op: 'move', code: S.code, seat: S.me, pid: PID, n, pick, ctl, to, cs, dp: dp || undefined, dj: dj || undefined, ck: ck || undefined, kt: kt != null ? kt : undefined, hm: hm || undefined }).catch(e => { delete S.mine[n]; delete S.ctlN[n]; delete S.toN[n]; delete S.ktN[n]; delete S.dpN[n]; delete S.djN[n]; delete S.ckN[n]; S.callSig = null; handleErr(e); updateGame(); });
   }
   updateGame();
 }
@@ -1468,7 +1521,11 @@ document.addEventListener('click', ev => {
   else if (a === 'join') joinRoom($('#code').value);
   else if (a === 'cpu') startLocal();
   else if (a === 'fullscreen') toggleFull();
-  else if (a === 'leave') leave();
+  else if (a === 'leave') confirmLeave();
+  else if (a === 'leave-yes') { closeModal(); leave(); }
+  else if (a === 'keys') showKeys();
+  else if (a === 'animspeed') { S.anim = t.dataset.id === 'fast' ? 'fast' : 'normal'; lsSet('gd_anim', S.anim); showKeys(); }
+  else if (a === 'check') setCheck(t.dataset.id || '');
   else if (a === 'rematch') rematch();
   else if (a === 'ctx-done') { const c = S.ctx; leave(); if (c && c.onDone) c.onDone(); }
   else if (a === 'ctx-retry') { const c = S.ctx; if (c) { c.sent = false; ctxFinish(S.G); renderCall(S.G); } }
@@ -1498,6 +1555,11 @@ document.addEventListener('click', ev => {
 document.addEventListener('keydown', ev => {
   const tag = ev.target && ev.target.tagName;
   if (ev.key === 'Enter' && ev.target && ev.target.id === 'code') { joinRoom(ev.target.value); return; }
+  if (ev.target && ev.target.id === 'psearch') {   // find a play: Enter calls the first match, Esc clears
+    if (ev.key === 'Escape') { S.q = ''; S.qFocus = false; S.callSig = null; ev.target.blur(); if (S.G) renderCall(S.G); }
+    else if (ev.key === 'Enter') { const b = $('#callpanel .call:not([disabled])'); if (b) { S.qFocus = false; submitCall(b.dataset.id); } }
+    return;
+  }
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   if (ev.key === 'Escape') { closeModal(); return; }
   const m = $('#modal'); if (m && !m.hidden) return;
@@ -1508,6 +1570,9 @@ document.addEventListener('keydown', ev => {
   if (S.screen === 'game' && S.km && (ev.key === ' ' || ev.key === 'Spacebar')) { ev.preventDefault(); stopMeter(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'b' || ev.key === 'B') && $('#callpanel .spots')) { const i = DSPOTS.findIndex(x => x[0] === S.dpos); setSpot(DSPOTS[(i + 1) % DSPOTS.length][0]); return; }
   if (S.screen === 'game' && (ev.key === 'x' || ev.key === 'X') && !ev.ctrlKey && !ev.metaKey) { showGameStats(); return; }
+  if (S.screen === 'game' && !LV.on && (ev.key === 'a' || ev.key === 'A') && !ev.ctrlKey && !ev.metaKey && $('#callpanel .checks')) { cycleCheck(); return; }
+  if (S.screen === 'game' && !LV.on && ev.key === '/' && $('#psearch')) { ev.preventDefault(); S.qFocus = true; $('#psearch').focus(); return; }
+  if (S.screen === 'game' && !LV.on && ev.key === '?') { showKeys(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'l' || ev.key === 'L') && !ev.ctrlKey && !ev.metaKey && $('#callpanel .looks')) { cycleLook(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 't' || ev.key === 'T')) { const b = $('[data-act="to-toggle"]'); if (b) b.click(); return; }
   if (S.screen === 'game' && !LV.on && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && $('#callpanel .cats')) { ev.preventDefault(); stepCat(ev.key === 'ArrowRight' ? 1 : -1); return; }
@@ -1531,6 +1596,7 @@ document.addEventListener('change', ev => {   // the returner pick in the draft 
 });
 document.addEventListener('input', ev => {
   if (ev.target && ev.target.id === 'sd-q' && S.sd) { S.sd.q = ev.target.value; sdList(); return; }
+  if (ev.target && ev.target.id === 'psearch') { S.q = ev.target.value.slice(0, 30); S.qFocus = true; S.callSig = null; if (S.G) renderCall(S.G); return; }
   if (ev.target && ev.target.id === 'code') ev.target.value = ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
 });
 
