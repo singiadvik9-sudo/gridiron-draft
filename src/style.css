@@ -693,7 +693,7 @@ body.ingame:not(.gover) .call .pdiag svg { max-height: 96px; }
 .momrow { color: var(--mute); }
 .readrow b { font-size: 13px; }
 .looks .btn.on { outline: 2px solid var(--flag); }
-body .ctlrow.readrow, body .ctlrow.looks, body.ingame:not(.gover) .ctlrow.readrow, body.ingame:not(.gover) .ctlrow.looks { flex-wrap: wrap; gap: 4px 8px; }
+body .ctlrow.readrow, body .ctlrow.looks, body .ctlrow.swings, body .ctlrow.wxrow, body.ingame:not(.gover) .ctlrow.readrow, body.ingame:not(.gover) .ctlrow.looks, body.ingame:not(.gover) .ctlrow.swings, body.ingame:not(.gover) .ctlrow.wxrow { flex-wrap: wrap; gap: 4px 8px; }
 .ctlrow.readrow .hint, .ctlrow.looks .hint { flex: 1 0 100%; }
 .ctlrow.looks .btn { padding: 3px 8px; font-size: 10px; white-space: nowrap; flex: 0 0 auto; }
 
@@ -739,3 +739,40 @@ body.lockfield .fieldhost canvas.field { box-shadow: 0 0 0 3px var(--lockc), 0 0
 .keys dd { margin: 0; color: var(--mute); }
 kbd { font-family: var(--display); font-size: 11px; padding: 3px 7px; background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 3px; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .brand span, body.lockfield .fieldhost canvas.field, .sb-score.pop, .locked, .log li:first-child { animation: none !important; } }
+
+/* in-game swings and weather */
+.swings { gap: 6px; }
+.swing { font-size: 14px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel2); white-space: nowrap; }
+.swing i { font-style: normal; color: var(--mute); font-size: 12px; }
+.swing.up { border-color: rgba(63,224,138,.55); box-shadow: 0 0 8px rgba(63,224,138,.18); }
+.swing.down { border-color: rgba(255,90,106,.55); box-shadow: 0 0 8px rgba(255,90,106,.18); }
+.swing.mine { background: linear-gradient(180deg, rgba(255,210,63,.12), transparent), var(--panel2); }
+.sb-wx { font-size: 13px; color: var(--chalk); padding: 1px 8px; border-radius: 9px; background: rgba(255,255,255,.06); }
+.sb-wx.wx-rain, .sb-wx.wx-storm { background: rgba(90,140,255,.22); }
+.sb-wx.wx-snow, .sb-wx.wx-cold { background: rgba(200,230,255,.18); }
+.sb-wx.wx-wind { background: rgba(239,233,214,.14); }
+.wxrow { color: #b9d2ff; }
+
+/* the inbox, brighter: a colour and an icon for who it is from, unread ones glowing, a big card when mail comes in */
+.mails li { grid-template-columns: 28px 1fr; column-gap: 8px; border-left: 4px solid transparent; transition: background-color .15s; }
+.mails li .mic { grid-row: span 3; font-size: 20px; align-self: center; }
+.mails li.new { background: linear-gradient(90deg, rgba(255,210,63,.12), transparent 70%); }
+.mails li.new b { color: var(--flag); }
+.mails li.ask small { color: #ff9a3f; opacity: 1; }
+.mk-owner { --mk: #ffd23f; } .mk-league { --mk: #ff5a6a; } .mk-player { --mk: #3aa0ff; } .mk-media { --mk: #ff4f8b; } .mk-event { --mk: #3fe08a; } .mk-staff { --mk: #93a0c4; } .mk-deal { --mk: #c49bff; }
+.mails li[class*="mk-"] { border-left-color: var(--mk); }
+.mhead { display: flex; gap: 12px; align-items: center; padding: 10px 12px; margin: -4px -4px 4px; border-radius: 4px; background: linear-gradient(100deg, color-mix(in srgb, var(--mk) 28%, transparent), transparent 80%); border-left: 5px solid var(--mk); }
+.mic.big { font-size: 30px; line-height: 1; }
+.mbody { font-size: 18px; line-height: 1.45; }
+.mbadge { display: inline-block; min-width: 20px; padding: 1px 7px; border-radius: 10px; background: var(--hot); color: #fff; font-family: var(--display); font-size: 10px; letter-spacing: .04em; vertical-align: middle; }
+.mbadge.glow { animation: mglow 1.2s ease-in-out infinite alternate; box-shadow: 0 0 10px var(--hot); }
+@keyframes mglow { from { box-shadow: 0 0 4px var(--hot); } to { box-shadow: 0 0 16px var(--hot); } }
+.mailpop { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 9000; display: flex; gap: 14px; align-items: center; width: min(560px, calc(100vw - 32px)); padding: 16px 18px; border-radius: 6px;
+  background: linear-gradient(110deg, color-mix(in srgb, var(--mk) 35%, #141a3a), #141a3a 70%); border: 2px solid var(--mk); box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 0 30px color-mix(in srgb, var(--mk) 45%, transparent); animation: mpin .45s cubic-bezier(.2,1.4,.4,1); }
+.mailpop.out { opacity: 0; transform: translate(-50%, -20px); transition: opacity .35s, transform .35s; }
+.mailpop .mp-txt { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.mailpop .mp-txt b { font-size: 19px; }
+.mailpop .mp-txt small { color: var(--mute); }
+.mailpop .mp-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+@keyframes mpin { from { transform: translate(-50%, -40px) scale(.9); opacity: 0; } to { transform: translate(-50%, 0) scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mailpop, .mbadge.glow { animation: none; } }
