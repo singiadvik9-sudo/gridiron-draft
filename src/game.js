@@ -321,6 +321,12 @@ const Field = {
     x.shadowBlur = 10; x.shadowColor = '#5aa9ff'; x.fillStyle = '#6fb6ff'; x.fillRect(Math.round(sx(los)) - 1, TOP, 3, H - TOP);
     x.shadowColor = '#ffd23f'; x.fillStyle = '#ffd23f'; x.fillRect(Math.round(sx(fd)) - 1, TOP, 3, H - TOP); x.shadowBlur = 0;
     if (this.fdT) { const k = (performance.now() - this.fdT) / 1300; if (k >= 1) this.fdT = 0; else { x.globalAlpha = 0.55 * (1 - k); x.fillRect(Math.round(sx(fd)) - 1 - 10 * k, TOP, 3 + 20 * k, H - TOP); x.globalAlpha = 1; } }   // the chains just moved
+    // the weather over the field (drawn each frame: it moves while plays run)
+    const wx = this.wx;
+    if (wx === 'rain' || wx === 'storm') { const nR = wx === 'storm' ? 140 : 60; x.strokeStyle = 'rgba(180,210,255,' + (wx === 'storm' ? 0.35 : 0.25) + ')'; x.lineWidth = 1; x.beginPath(); for (let i = 0; i < nR; i++) { const rx = Math.random() * W, ry = TOP + Math.random() * (H - TOP); x.moveTo(rx, ry); x.lineTo(rx - 3, ry + 11); } x.stroke(); if (wx === 'storm') { x.fillStyle = 'rgba(20,30,60,.18)'; x.fillRect(0, TOP, W, H - TOP); } }
+    else if (wx === 'snow') { x.fillStyle = 'rgba(255,255,255,.75)'; for (let i = 0; i < 90; i++) { const rx = Math.random() * W, ry = TOP + Math.random() * (H - TOP); x.fillRect(rx, ry, 2, 2); } x.fillStyle = 'rgba(235,240,255,.10)'; x.fillRect(0, TOP, W, H - TOP); }
+    else if (wx === 'wind') { x.strokeStyle = 'rgba(239,233,214,.12)'; x.lineWidth = 1; x.beginPath(); for (let i = 0; i < 16; i++) { const rx = Math.random() * W, ry = TOP + Math.random() * (H - TOP); x.moveTo(rx, ry); x.lineTo(rx + 40, ry - 2); } x.stroke(); }
+    else if (wx === 'cold') { x.fillStyle = 'rgba(190,220,255,.07)'; x.fillRect(0, TOP, W, H - TOP); }
     // players
     const live = this.live;
     const offscreen = [];
@@ -535,6 +541,9 @@ const Field = {
         else if (entry.conf && this.flash && !this.flash.sub) this.flash.sub = entry.conf.toUpperCase() + ' IS FEELING IT';
         else if (entry.shaken && !this.flash) this.flash = { text: 'DROPPED', color: '#ff8a6a', sub: entry.shaken.toUpperCase() + ' IS SHAKEN' };
         if (entry.fight && !this.flash) this.flash = { text: 'EJECTED', color: '#ff8a6a', sub: entry.fight.n.toUpperCase() + ' THROWN OUT FOR FIGHTING' };
+        if (entry.dime && !this.flash) { this.flash = { text: 'DIME!', color: '#ffd23f', sub: 'A PERFECT THROW: CAUGHT IN STRIDE' }; this.celebrate('CONTESTED', '#ffd23f'); }
+        if (entry.dfire && !this.fxFire) { this.fxFire = 1; if (this.flash && !this.flash.sub2) this.flash.sub = (this.flash.sub ? this.flash.sub + ' · ' : '') + entry.dfire.toUpperCase() + ' IS ON FIRE'; else if (!this.flash) this.flash = { text: 'ON FIRE', color: '#ff7a1a', sub: entry.dfire.toUpperCase() }; this.celebrate('ON FIRE', '#ff7a1a'); }
+        if (entry.iced && entry.ev !== 'fg' && entry.ev !== 'xp' && this.flash) this.flash.sub = 'ICED BY THE TIMEOUT';
         if (entry.lock && !this.fxLock) { this.fxLock = 1; if (!this.flash) this.flash = { text: 'LOCKDOWN', color: TEAM_COL[entry.lock], sub: ((teams[entry.lock] || {}).name || '').toUpperCase() + ' DEFENSE +' + E.LOCK_BOOST + ' FOR ' + E.LOCK_SNAPS + ' SNAPS' }; this.celebrate('LOCKDOWN', TEAM_COL[entry.lock]); }
         if (entry.slip && !turnover && !this.flash) this.flash = { text: 'IT SLIPPED', color: '#ff8a6a', sub: 'HE FALLS ON IT' };
         if (entry.aud && !this.flash) this.flash = { text: 'AUDIBLE', color: '#efe9d6', sub: 'THE QUARTERBACK CHECKED OUT OF THE CALL' };
@@ -1081,7 +1090,7 @@ function buildGame() {
   $('#main').innerHTML =
     '<section class="game">' +
     '<div class="sb"><div class="sb-team a"><div class="sb-name" id="sb-an"></div><div class="sb-score" id="sb-as">0</div><div class="sb-mom" id="sb-am" title="Defensive momentum"><i></i></div></div>' +
-    '<div class="sb-mid"><div class="sb-q" id="sb-q"></div><div class="sb-dd" id="sb-dd"></div><div class="sb-ball" id="sb-ball"></div><div class="sb-to" id="sb-to"></div></div>' +
+    '<div class="sb-mid"><div class="sb-q" id="sb-q"></div><div class="sb-dd" id="sb-dd"></div><div class="sb-ball" id="sb-ball"></div><div class="sb-to" id="sb-to"></div><div class="sb-wx" id="sb-wx"></div></div>' +
     '<div class="sb-team b"><div class="sb-name" id="sb-bn"></div><div class="sb-score" id="sb-bs">0</div><div class="sb-mom" id="sb-bm" title="Defensive momentum"><i></i></div></div></div>' +
     '<div class="fieldhost" id="fieldHost"></div>' +
     '<div class="deck"><div class="lvpanel panel" id="lvpanel"></div>' +
@@ -1108,6 +1117,7 @@ function updateGame() {
   if (bEl) bEl.classList.toggle('has', !st.over && st.poss === 'b');
   set('#sb-q', st.over ? 'FINAL' : ck.q + ' · ' + clockText(G) + (ck.running ? ' ▶' : ''));
   set('#sb-to', st.over ? '' : 'Timeouts ' + st.to.a + ' · ' + st.to.b);
+  { const W = E.WEATHER[st.wx] || E.WEATHER.clear, el = $('#sb-wx'); if (el) { set('#sb-wx', W.icon + ' ' + W.label); el.title = W.desc; el.className = 'sb-wx wx-' + (st.wx || 'clear'); } Field.wx = st.wx || 'clear'; }
   ['a', 'b'].forEach(t => { const el = $('#sb-' + t + 'm'); if (!el) return; const lk = st.lock && st.lock[t] > 0, v = lk ? 100 : Math.round((st.mom && st.mom[t]) || 0);
     el.classList.toggle('lock', !!lk); el.firstChild.style.width = v + '%'; el.title = lk ? 'LOCKDOWN: their defense plays +' + E.LOCK_BOOST + ' for ' + st.lock[t] + ' more snap' + (st.lock[t] === 1 ? '' : 's') : 'Defensive momentum ' + v + '%: stops, sacks and turnovers fill it; full, the defense locks down'; });
   set('#sb-dd', st.over ? '' : ddLabel(st));
@@ -1254,7 +1264,7 @@ function renderCall0(G) {
   const shown = qq ? callOpts(role, st).filter(o => (o.label + ' ' + o.desc + ' ' + o.id).toLowerCase().indexOf(qq) >= 0) : callOpts(role, st).filter(o => o.cat === cat);
   let k = 0;
   p.innerHTML = '<div class="cp-head"><span class="role ' + role + '">' + (role === 'off' ? 'You have the ball' : 'You are on defense') + '</span><button class="pclock' + (S.pcOn ? '' : ' off') + '" id="pclock" data-act="pc-toggle" title="Play clock: the coach calls his pick when it runs out. P turns it on or off.">' + (S.pcOn ? 'PLAY CLOCK ' + PLAY_CLOCK : 'PLAY CLOCK OFF') + '</button><span class="sit">' + esc(sit) + '</span></div>' +
-    coachRowHTML(G, role) + fireRowHTML(st, role) + momRowHTML(G, role) + readRowHTML(G, role) + lookRowHTML(st, role) + checkRowHTML(st, role) + ctlRowHTML(role) + spotRowHTML(role) + (st.pat ? '' : toRowHTML(st)) + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
+    coachRowHTML(G, role) + fireRowHTML(st, role) + swingRowHTML(G) + wxRowHTML(st) + momRowHTML(G, role) + readRowHTML(G, role) + lookRowHTML(st, role) + checkRowHTML(st, role) + ctlRowHTML(role) + spotRowHTML(role) + (st.pat ? '' : toRowHTML(st)) + (lastCallFor(G) ? '<div class="ctlrow"><button class="btn small primary" data-act="hurry">Hurry-up: ' + esc(role === 'off' ? offLabel(lastCallFor(G)) : E.DEF_CALLS[lastCallFor(G)].label) + ' again (R)</button><span class="hint">No huddle: run the same call again.</span></div>' : '') +
     '<div class="psearch"><input id="psearch" type="search" placeholder="Find a play (/)" aria-label="Find a play by name" value="' + esc(S.q) + '" autocomplete="off">' + (qq ? '<span class="hint">' + shown.length + ' match' + (shown.length === 1 ? '' : 'es') + '. Esc clears.</span>' : '') + '</div>' +
     '<div class="cats" role="tablist" aria-label="Play type">' + cats.map(c => '<button class="cat' + (c.id === cat && !qq ? ' on' : '') + '" role="tab" aria-selected="' + (c.id === cat) + '" data-act="cat" data-cat="' + c.id + '">' + esc(c.label) + '<i>' + c.n + '</i></button>').join('') + '</div>' +
     '<div class="calls">' + shown.map(o => { const key = o.disabled ? '' : ++k, rec = coachPicks(G, role).indexOf(o.id); const dg = playDiagram(o.id, role, G); return '<button class="call' + (rec >= 0 ? ' rec' : '') + '" data-act="call" data-id="' + o.id + '" title="' + esc(o.desc) + '"' + (o.disabled ? ' disabled' : '') + '>' + (dg ? '<span class="pdiag">' + dg + '</span>' : '') + '<span class="key">' + key + '</span>' + (rec >= 0 ? '<i class="cbadge">' + (rec ? 'Coach' : '★ Coach') + '</i>' : '') + '<b>' + esc(o.label) + '</b><small>' + esc(o.desc) + '</small>' + (o.note ? '<em>' + esc(o.note) + '</em>' : '') + '</button>'; }).join('') + '</div>';
@@ -1316,7 +1326,7 @@ const METER_KICKS = { FG: 1, XP: 1, KO: 1, ONSIDE: 1 };
 function kickDist(st, pick) { return pick === 'XP' ? E.XP_DIST : pick === 'FG' ? 100 - st.ballOn + 17 : pick === 'ONSIDE' ? 20 : 30; }
 function openMeter(G, pick) {
   const st = G.state, U = G.U[S.me], dist = kickDist(st, pick);
-  S.km = { n: st.playNo, pick, win: E.kickWin(U.kac, dist), range: E.kickRange(U.kpw), dist, t0: performance.now(), per: Math.max(700, 1150 - Math.max(0, dist - 30) * 9), stop: null };
+  S.km = { n: st.playNo, pick, win: E.kickGreen(st, U.kac, dist), range: E.kickReach(st, U.kpw), dist, t0: performance.now(), per: Math.max(700, 1150 - Math.max(0, dist - 30) * 9), stop: null };
   S.callSig = null; renderCall(G); meterLoop();
 }
 const meterPos = km => { const ph = ((performance.now() - km.t0) / km.per) % 2; return (ph < 1 ? ph : 2 - ph) * 200 - 100; };   // -100 .. 100, back and forth
@@ -1371,6 +1381,23 @@ function fireRowHTML(st, role) {
     (sh.length ? '<div class="ctlrow confrow shaken"><span>💧 ' + sh.map(c => esc(c.n) + ' ' + c.b + ' (' + c.f + ' snaps)').join(', ') + ': shaken after a drop.</span></div>' : '');
   if (!hot.length) return confRow;
   return '<div class="ctlrow firerow"><span>🔥 ' + hot.map(f => esc(f.n) + ' (' + f.f + ' snaps)').join(', ') + ' on fire: +' + E.FIRE_BOOST + ' rating until he is stopped.' + '</span></div>' + confRow;
+}
+/* ---------- in-game swings (E.dynAfter): who is up and who is down right now, both teams ---------- */
+const SWING_ICON = { dfire: '🔥', cbl: '🔒', rhythm: '🎯', rattled: '😵', burned: '🥵', butter: '🧈' };
+function swingRowHTML(G) {
+  const st = G.state, T = G.teams; if (st.kick || st.pat) return '';
+  const chips = [];
+  Object.values(st.dyn || {}).forEach(d => { if (!(d.f > 0) || !d.n) return; chips.push('<span class="swing ' + (d.b > 0 ? 'up' : 'down') + (d.t === S.me ? ' mine' : '') + '" title="' + esc(T[d.t].name) + '">' + (SWING_ICON[d.k] || '') + ' ' + esc(d.n) + ' ' + (d.b > 0 ? '+' : '') + d.b + ' <i>' + esc(E.DYN_LABEL[d.k] || d.k) + (d.f < 90 ? ' · ' + d.f : '') + '</i></span>'); });
+  ['a', 'b'].forEach(t => {
+    if (st.wall && st.wall[t] >= 5) chips.push('<span class="swing up' + (t === S.me ? ' mine' : '') + '">🧱 ' + esc(T[t].name) + ' line +' + E.WALL_BOOST + ' <i>a wall this drive</i></span>');
+    if (st.spark && st.spark[t] > 0) chips.push('<span class="swing up' + (t === S.me ? ' mine' : '') + '">⚡ ' + esc(T[t].name) + ' defense +' + E.SPARK_BOOST + ' <i>fired up · ' + st.spark[t] + '</i></span>');
+    if (E.clutchFor(st, t)) chips.push('<span class="swing up' + (t === S.me ? ' mine' : '') + '">⏱️ ' + esc(T[t].name) + ' clutch +' + E.CLUTCH_BOOST + ' <i>for their most aware players</i></span>');
+  });
+  return chips.length ? '<div class="ctlrow swings">' + chips.join('') + '</div>' : '';
+}
+function wxRowHTML(st) {
+  const W = E.WEATHER[st.wx]; if (!W || st.wx === 'clear' || st.kick || st.playNo > 6) return '';
+  return '<div class="ctlrow wxrow wx-' + st.wx + '"><span>' + W.icon + ' <b>' + esc(W.label) + '</b>: ' + esc(W.desc) + '</span></div>';
 }
 /* ---------- the defense before the snap ----------
    momentum (both defenses: the meter, and a lockdown when one is on), the read on the offense (against a computer offense its formation,

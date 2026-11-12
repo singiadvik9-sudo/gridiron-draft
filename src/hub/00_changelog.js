@@ -2,6 +2,17 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-12', title: 'Weather, hot streaks and a fairer defense', items: [
+    'Weather has real effects. Rain and heavy rain make the ball slippery (more fumbles, drops and slips, harder throws), snow slows everyone down and shortens kicks, wind pushes the deep ball and kicks around, and freezing cold makes the ball hard to hold. The weather shows on the scoreboard and falls on the field.',
+    'Pass defense is fairer. Defenders only knock down passes they can actually reach, interceptions are rarer, and receivers win more of the balls thrown their way.',
+    'Run plays are fixed. The backside edge rusher no longer gets a free run at every handoff, blocked defenders can shed to make the tackle, and a back who breaks a tackle in the open can break a big one.',
+    'Jukes only count toward a confidence boost when they are timed as a defender closes in, about a yard and a half to two yards away.',
+    'Quarterbacks get hot: two big completions (or a few good scrambles) light them on fire, and now and then they throw a DIME, a perfect pass that is always caught and gives the receiver a burst for the play.',
+    'Any defender who gets a sack, an interception or a forced fumble is on fire right away. A corner who keeps his man covered goes on lockdown (+6) until he is beaten.',
+    'More swings during a game: In rhythm (3 completions in a row), Clutch (late and close), a Wall (a drive with no sacks or losses), a Spark (a defensive score), Rattled quarterbacks, Burned defenders, Butterfingers after a fumble, and Iced kickers after a timeout. Every active one shows above your play calls.',
+    'Campaign: a dozen new midseason events (prime-time games, trash-talking coaches, contract demands, injury scares, viral celebrations, docuseries cameras and more), plus the owner\'s season kickoff, the trade deadline and a midseason report card. They come most weeks now.',
+    'Mail is brighter: a big card slides in when new mail arrives, every message has a colour and an icon for who sent it, and the Inbox tab glows with the count.'
+  ] },
   { id: '2026-11-11-2', title: 'Audibles, a brighter look, and handier controls', items: [
     'Offense audibles: pick a play type in the new Audible row (A cycles it). If the defense shows a look your call is weak against, your quarterback may check to the best play of that type. Better quarterbacks read it more often, and a disguised look can fool them.',
     'A brighter game: freshly mowed stripes, end zones in team colours, stadium lights, glowing lines of scrimmage and first down, a team-coloured scoreboard and a glowing field when a defense is in lockdown.',

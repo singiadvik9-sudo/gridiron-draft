@@ -26,7 +26,7 @@ function carry(n, pick, act) {
     const sim = carry(n, 'RUN_OUT', (sim, c, nd) => c.cool === 0 && (n % 2 ? nd < 2.2 : nd > 6 && !jk) ? (jk = 1, [5]) : []);   // half the time in a defender's face, half in open space
     const j = sim.evt.filter(e => e[0] === 'juked'); if (n % 2) close += j.length ? 1 : 0; else far += j.length ? 1 : 0;
     if (j.some(e => !sim.by[e[3]] || sim.by[e[3]].side !== 'd')) close = -1e9; }
-  ok(close > N / 2 * 0.02 && far === 0, 'jukes right in a defender\'s face that shake him are counted (on ' + close + ' of ' + N / 2 + ' carries), ones in open space never (' + far + ')'); }
+  ok(close > N / 2 * 0.008 && far === 0, 'jukes timed as a defender closes in (a yard and a half to two off) that shake him are counted (on ' + close + ' of ' + N / 2 + ' carries), ones in open space never (' + far + ')'); }
 // the engine: one roll in four for each move or tough catch, a contested catch always, a drop shakes him and puts out his fire
 { const T = LG.teamsFor(L, 1, 2), U = { a: E.teamUnits(T.a), b: E.teamUnits(T.b) }, st0 = Object.assign(E.initState(2), { poss: 'a' });
   const after = (e0, st) => { const nst = {}, e = Object.assign({ off: 'a', offPick: 'RUN_IN', text: '' }, e0); E.__confAfter(st || st0, nst, e, T, 77); return { nst, e }; };

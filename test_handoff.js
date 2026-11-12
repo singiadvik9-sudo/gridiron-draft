@@ -14,5 +14,5 @@ const gap = (pick, stick) => { let max = 0, n0 = 0, yd = 0, N = 200;
   return { max, n0, N, avg: yd / N }; };
 ['RUN_IN', 'RUN_OUT', 'DRAW', 'REVERSE'].forEach(pick => {
   const h = gap(pick, { dx: 1, dy: 0.7 }); ok(h.n0 === h.N && h.max < 2.6, pick + ': a quarterback you steer is held at the mesh and hands it off within reach (largest gap ' + h.max.toFixed(1) + ' yards; it was over 5)'); });
-const ai = { RUN_IN: 3.5, RUN_OUT: 4.3 };
-Object.keys(ai).forEach(pick => { const h = gap(pick); ok(h.max < 2.6 && Math.abs(h.avg - ai[pick]) < 0.5, pick + ' with the computer: handoffs within reach (' + h.max.toFixed(1) + ' yards) and runs gain what they did (' + h.avg.toFixed(2) + ' a carry)'); });
+const ai = { RUN_IN: 4.7, RUN_OUT: 5.6 };   // (2026-11: runs retuned: the backside edge stays home, blocked defenders shed to tackle, safeties miss in space)
+Object.keys(ai).forEach(pick => { const h = gap(pick); ok(h.max < 2.6 && Math.abs(h.avg - ai[pick]) < 0.6, pick + ' with the computer: handoffs within reach (' + h.max.toFixed(1) + ' yards) and runs gain what they did (' + h.avg.toFixed(2) + ' a carry)'); });

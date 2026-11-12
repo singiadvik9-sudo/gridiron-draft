@@ -103,17 +103,41 @@ ACT['camp-pick'] = async t => {
 ACT['camp-exit'] = async () => { await campSave(); go('camp'); };
 
 /* the inbox: messages, contract talks in place, answers to players and PR events */
+// who a message is from decides its colour and icon (the owner gold, the league red, a player blue ...)
+function mailLook(m) {
+  const f = String(m.from || '');
+  const k = m.kind === 'contract' ? 'deal' : /owner/i.test(f) ? 'owner' : /league office/i.test(f) ? 'league' : m.kind === 'play' || m.pid && !/staff|PR|relations|team|office|media/i.test(f) ? 'player' : /PR|media|radio|broadcast|stream|social/i.test(f) ? 'media' : m.opts ? 'event' : 'staff';
+  return { k, icon: { deal: '📝', owner: '👔', league: '⚖️', player: '🏈', media: '📺', event: '📣', staff: '📋' }[k] };
+}
 function inboxHTML(L, tid) {
-  const sel = FR.mail; let h = '<div class="inbox"><div class="panel mlist"><h3>Inbox</h3>' + (L.inbox.length ? '<ul class="mails">' + L.inbox.map(m => '<li class="' + (m.read ? '' : 'new') + (sel === m.id ? ' on' : '') + '" data-h="mail-open" data-id="' + m.id + '"><b>' + esc(m.from) + '</b><span>' + esc(m.subj) + '</span><small>' + esc(m.when) + '</small></li>').join('') + '</ul>' : '<p class="hint">Nothing yet.</p>') + '</div><div class="panel mread">';
+  const sel = FR.mail, nNew = LG.unread(L);
+  let h = '<div class="inbox"><div class="panel mlist"><h3>Inbox ' + (nNew ? '<span class="mbadge">' + nNew + ' new</span>' : '') + '</h3>' + (L.inbox.length ? '<ul class="mails">' + L.inbox.map(m => { const lk = mailLook(m); return '<li class="mk-' + lk.k + (m.read ? '' : ' new') + (sel === m.id ? ' on' : '') + (m.opts && m.ans == null ? ' ask' : '') + '" data-h="mail-open" data-id="' + m.id + '"><span class="mic">' + lk.icon + '</span><b>' + esc(m.from) + '</b><span>' + esc(m.subj) + '</span><small>' + esc(m.when) + (m.opts && m.ans == null ? ' · needs an answer' : '') + '</small></li>'; }).join('') + '</ul>' : '<p class="hint">Nothing yet.</p>') + '</div><div class="panel mread">';
   const m = L.inbox.find(x => x.id === sel), cp = sel && sel[0] === 'c' ? L.players[sel.slice(1)] : m && m.kind === 'contract' ? L.players[m.pid] : null;
   if (cp) h += '<h3>Contract talks: ' + esc(cp.n) + ' <small>' + cp.p + ' ' + cp.o + ', age ' + cp.a + '</small></h3>' + threadHTML(L, cp);
   else if (m) {
-    h += '<h3>' + esc(m.subj) + '</h3><p class="sub">From ' + esc(m.from) + ' · ' + esc(m.when) + '</p><p>' + esc(m.body) + '</p>';
+    const lk = mailLook(m);
+    h += '<div class="mhead mk-' + lk.k + '"><span class="mic big">' + lk.icon + '</span><div><h3>' + esc(m.subj) + '</h3><p class="sub">From ' + esc(m.from) + ' · ' + esc(m.when) + '</p></div></div><p class="mbody">' + esc(m.body) + '</p>';
     if (m.opts) h += m.ans != null ? '<p class="hint">' + (m.by ? esc(m.by) + ' chose: ' : 'You chose: ') + esc(m.opts[m.ans].t) + '</p>' : '<div class="row">' + m.opts.map((o, i) => '<button class="btn small" data-h="mail-ans" data-id="' + m.id + '" data-i="' + i + '">' + esc(o.t) + '</button>').join('') + '</div>';
   } else h += '<p class="hint">Pick a message.</p>';
   return h + '</div></div>';
 }
 ACT['mail-open'] = async t => { FR.mail = t.dataset.id; await FR.A.act('read', { id: t.dataset.id }); };
+/* new mail: a big card slides in (once per new message), and the Inbox tab glows with the count */
+const MAILSEEN = {};
+function mailNotify(L) {
+  const key = String(L.seed) + ':' + (L.user != null ? L.user : ''), n = L.mailN || 0;
+  if (MAILSEEN[key] == null) { MAILSEEN[key] = n; return; }
+  if (n <= MAILSEEN[key]) return;
+  const fresh = (L.inbox || []).filter(m => !m.read && +String(m.id).slice(1) > MAILSEEN[key]); MAILSEEN[key] = n;
+  if (!fresh.length) return;
+  const m = fresh[0], lk = mailLook(m), old = document.getElementById('mailpop'); if (old) old.remove();
+  const el = document.createElement('div'); el.id = 'mailpop'; el.className = 'mailpop mk-' + lk.k; el.setAttribute('role', 'status');
+  el.innerHTML = '<span class="mic big">' + lk.icon + '</span><div class="mp-txt"><span class="eyebrow">' + (fresh.length > 1 ? fresh.length + ' new messages' : 'New message') + '</span><b>' + esc(m.subj) + '</b><small>From ' + esc(m.from) + (m.opts ? ' · needs an answer' : '') + '</small></div><div class="mp-btns"><button class="btn small primary" data-h="mail-pop" data-id="' + esc(m.id) + '">Read it</button><button class="btn small" data-h="mail-pop-x">Later</button></div>';
+  document.body.appendChild(el); setTimeout(() => { if (el.parentNode) el.classList.add('out'); setTimeout(() => el.remove(), 400); }, 9000);
+}
+const inboxLabel = L => 'Inbox' + (LG.unread(L) ? ' <span class="mbadge glow">' + LG.unread(L) + '</span>' : '');
+ACT['mail-pop'] = async t => { const id = t.dataset.id, el = document.getElementById('mailpop'); if (el) el.remove(); FR.tab = 'inbox'; FR.mail = id; if (FR.A) await FR.A.act('read', { id }); };
+ACT['mail-pop-x'] = async () => { const el = document.getElementById('mailpop'); if (el) el.remove(); };
 ACT['mail-ans'] = async t => { const r = await FR.A.act('mail', { id: t.dataset.id, i: +t.dataset.i }); if (r && r.msg) toast(r.msg); };
 /* the Franchise tab: morale, money, facilities, coordinators */
 function franchiseHTML(L, tid) {
@@ -131,10 +155,10 @@ function franchiseHTML(L, tid) {
 ACT['fac-up'] = async t => { const r = await FR.A.act('upgrade', { k: t.dataset.k }); if (r && r.msg) toast(r.msg); };
 ACT['coach-hire'] = async t => { const r = await FR.A.act('hire', { i: +t.dataset.i }); if (r && r.msg) toast(r.msg); };
 function campAdapter() {
-  const L = C.L, tid = L.user; LG.campInit(L);
+  const L = C.L, tid = L.user; LG.campInit(L); setTimeout(() => mailNotify(L), 0);
   const after = (now) => { campDirty(now); frShow(campAdapter()); };
   return {
-    tabs: [{ id: 'inbox', label: 'Inbox' + (LG.unread(L) ? ' (' + LG.unread(L) + ')' : ''), html: () => inboxHTML(L, tid) }, { id: 'franchise', label: 'Franchise', html: () => franchiseHTML(L, tid) }],
+    tabs: [{ id: 'inbox', label: inboxLabel(L), html: () => inboxHTML(L, tid) }, { id: 'franchise', label: 'Franchise', html: () => franchiseHTML(L, tid) }],
     kind: 'campaign', L, tid, title: 'Campaign', canAdvance: true, canEditRoster: () => true, status: savedText(),
     headBtns: (H.user ? '<button class="btn small" data-h="camp-share" title="Run this team together with friends">Share</button>' : '') + '<button class="btn small" data-h="camp-exit">Save &amp; exit</button>',
     cpuOffers: async pos => LG.cpuOffers(L, tid, pos),

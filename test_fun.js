@@ -16,7 +16,8 @@ for (let g = 0; g < games; g++) {
   const R = E.replay(400 + g, T, {}, ['a', 'b']);
   R.log.forEach(e => { if (e.fire) fires++; if (e.fireOut) outs++; });
 }
-ok(fires / games > 0.8 && fires / games < 4, 'players catch fire a couple of times a game (' + (fires / games).toFixed(2) + ' a game, cooled off ' + (outs / games).toFixed(2) + ')');
+ok(fires / games > 0.8 && fires / games < 6.5,   // (quarterbacks catch fire too now)
+   'players catch fire a couple of times a game (' + (fires / games).toFixed(2) + ' a game, cooled off ' + (outs / games).toFixed(2) + ')');
 { const R = E.replay(401, T, {}, ['a', 'b']);
   ok(JSON.stringify(E.replay(401, T, {}, ['a', 'b']).log) === JSON.stringify(R.log), 'the same game replays exactly, fire included (what the league server checks)');
   const sq = T.a.squad, hb = sq.hb, st = Object.assign({}, st0, { fire: { [hb.i]: { s: 2, f: 4, n: hb.n } } }), hot = E.onFire(sq, st);

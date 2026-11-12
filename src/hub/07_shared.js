@@ -65,7 +65,7 @@ function sharedAdapter() {
   const L = C.L, tid = L.user, S0 = C.shared, M = S0.meta || {}; LG.campInit(L);
   const owner = M.owner === H.user, on = M.online || [];
   return {
-    tabs: [{ id: 'inbox', label: 'Inbox' + (LG.unread(L) ? ' (' + LG.unread(L) + ')' : ''), html: () => inboxHTML(L, tid) }, { id: 'franchise', label: 'Franchise', html: () => franchiseHTML(L, tid) }],
+    tabs: [{ id: 'inbox', label: inboxLabel(L), html: () => inboxHTML(L, tid) }, { id: 'franchise', label: 'Franchise', html: () => franchiseHTML(L, tid) }],
     kind: 'campaign', L, tid, title: 'Shared campaign', canAdvance: true, canEditRoster: () => !(M.busy && M.busy.by !== H.user), status: on.length + ' of ' + (M.members || []).length + ' online',
     headBtns: '<button class="btn small" data-h="sh-invite">Invite</button>' + (owner ? '<button class="btn small ghost" data-h="sh-end">Stop sharing</button>' : '<button class="btn small ghost" data-h="sh-leave">Leave</button>') + '<button class="btn small" data-h="sh-exit">Exit</button>',
     cpuOffers: async pos => LG.cpuOffers(L, tid, pos),
