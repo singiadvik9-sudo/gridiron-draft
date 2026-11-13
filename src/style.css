@@ -776,3 +776,12 @@ kbd { font-family: var(--display); font-size: 11px; padding: 3px 7px; background
 .mailpop .mp-btns { display: flex; gap: 6px; flex-wrap: wrap; }
 @keyframes mpin { from { transform: translate(-50%, -40px) scale(.9); opacity: 0; } to { transform: translate(-50%, 0) scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .mailpop, .mbadge.glow { animation: none; } }
+
+/* career tab */
+.coachcard .cc-top { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.cc-face { font-size: 40px; width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; background: radial-gradient(circle at 30% 30%, #2a3570, #141a3a); border: 2px solid var(--flag); box-shadow: 0 0 16px rgba(255,210,63,.3); }
+.cc-earn { margin-left: auto; text-align: right; display: grid; }
+.cc-earn b { font-family: var(--display); font-size: 22px; color: var(--good); text-shadow: 0 0 12px rgba(63,224,138,.4); }
+.mails li.mk-life, .mk-life { --mk: #ff8ad8; }
+.mk-scandal { --mk: #ff3b3b; }
+.mk-job { --mk: #ffd23f; }

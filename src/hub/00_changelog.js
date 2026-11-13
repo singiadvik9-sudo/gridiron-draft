@@ -2,6 +2,15 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-12-2', title: 'Coach career mode', items: [
+    'Campaigns now follow your coaching career (new Career tab). You start as a single 26-year-old head coach on a four-year deal, and you never age.',
+    'Two losing seasons in a row, or a fan base that has turned on you, gets you fired, and you take a job wherever you can get one. Two winning seasons in a row and other teams make offers: sign one, ask your agent to push for more, or stay where you are. Every move takes you to that team as it is.',
+    'Life off the field about every two weeks: dating, meeting the parents, proposing, a wedding in the bye week, calls from Mom, your sister\'s wedding, investments in very bad ideas, yacht parties and team parties, plus a few nods to famous coaching moments (nobody real is named).',
+    'Your partner and your family each have their own mood, and a partner who is fed up will leave.',
+    'Scandals only happen when you make a stupid choice, and some of them get you in real trouble. The fans remember.',
+    'Career earnings add up every season. It is just a number to be proud of.',
+    'Career mode is for campaigns you run on your own (a shared campaign is the team\'s).'
+  ] },
   { id: '2026-11-12', title: 'Weather, hot streaks and a fairer defense', items: [
     'Weather has real effects. Rain and heavy rain make the ball slippery (more fumbles, drops and slips, harder throws), snow slows everyone down and shortens kicks, wind pushes the deep ball and kicks around, and freezing cold makes the ball hard to hold. The weather shows on the scoreboard and falls on the field.',
     'Pass defense is fairer. Defenders only knock down passes they can actually reach, interceptions are rarer, and receivers win more of the balls thrown their way.',
