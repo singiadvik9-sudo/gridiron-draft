@@ -106,8 +106,8 @@ ACT['camp-exit'] = async () => { await campSave(); go('camp'); };
 // who a message is from decides its colour and icon (the owner gold, the league red, a player blue ...)
 function mailLook(m) {
   const f = String(m.from || '');
-  const k = m.kind === 'contract' ? 'deal' : /owner/i.test(f) ? 'owner' : /league office/i.test(f) ? 'league' : m.kind === 'play' || m.pid && !/staff|PR|relations|team|office|media/i.test(f) ? 'player' : /PR|media|radio|broadcast|stream|social/i.test(f) ? 'media' : m.opts ? 'event' : 'staff';
-  return { k, icon: { deal: '📝', owner: '👔', league: '⚖️', player: '🏈', media: '📺', event: '📣', staff: '📋' }[k] };
+  const k = m.kind === 'scandal' ? 'scandal' : m.kind === 'job' ? 'job' : m.kind === 'life' ? 'life' : m.kind === 'contract' ? 'deal' : /owner/i.test(f) ? 'owner' : /league office/i.test(f) ? 'league' : m.kind === 'play' || m.pid && !/staff|PR|relations|team|office|media/i.test(f) ? 'player' : /PR|media|radio|broadcast|stream|social/i.test(f) ? 'media' : m.opts ? 'event' : 'staff';
+  return { k, icon: { scandal: '🚨', job: '💼', life: '💬', deal: '📝', owner: '👔', league: '⚖️', player: '🏈', media: '📺', event: '📣', staff: '📋' }[k] };
 }
 function inboxHTML(L, tid) {
   const sel = FR.mail, nNew = LG.unread(L);
@@ -139,6 +139,23 @@ const inboxLabel = L => 'Inbox' + (LG.unread(L) ? ' <span class="mbadge glow">' 
 ACT['mail-pop'] = async t => { const id = t.dataset.id, el = document.getElementById('mailpop'); if (el) el.remove(); FR.tab = 'inbox'; FR.mail = id; if (FR.A) await FR.A.act('read', { id }); };
 ACT['mail-pop-x'] = async () => { const el = document.getElementById('mailpop'); if (el) el.remove(); };
 ACT['mail-ans'] = async t => { const r = await FR.A.act('mail', { id: t.dataset.id, i: +t.dataset.i }); if (r && r.msg) toast(r.msg); };
+/* the Career tab: you (26, forever), your contract, the hot seat, what the fans think of you, your partner and family, career earnings, every
+   season you have coached and any job offers on the table */
+function careerHTML(L) {
+  const c = L.coach; if (!c) return '<p class="hint">Career mode is not on for this campaign.</p>';
+  const meter = (l, v, cls) => '<div class="st"><span>' + l + '</span><span class="bar"><i class="' + (cls || (v >= 66 ? 'hi' : v >= 40 ? 'mid' : 'lo')) + '" style="width:' + v + '%"></i></span><b>' + v + '</b></div>';
+  const rel = c.rel === 'single' ? 'Single' : (c.rel === 'dating' ? 'Dating ' : c.rel === 'engaged' ? 'Engaged to ' : 'Married to ') + esc(c.partner ? c.partner.n : '');
+  const team = L.teams[c.ct.tid] || L.teams[L.user];
+  let h = '<div class="panel coachcard"><div class="cc-top"><div class="cc-face">🧢</div><div><h3>Head Coach · ' + tmName(L.teams[L.user]) + '</h3><p class="sub">Age ' + c.age + ' · ' + rel + (c.scand ? ' · ' + c.scand + ' scandal' + (c.scand > 1 ? 's' : '') : '') + '</p></div>' +
+    '<div class="cc-earn"><span class="eyebrow">Career earnings</span><b>$' + c.earn.toFixed(1) + 'M</b></div></div>' +
+    '<div class="stats">' + meter('Fans', c.pop) + meter('Hot seat', c.hot, c.hot >= 66 ? 'lo' : c.hot >= 40 ? 'mid' : 'hi') + (c.partner ? meter(esc(c.partner.n), c.partner.mood) : '') + meter('Family', c.fam) + '</div>' +
+    '<p class="hint">Contract: ' + (c.need ? '<b>none</b> (take an offer below before the season starts)' : c.ct.yrs + ' more season' + (c.ct.yrs === 1 ? '' : 's') + ' at $' + c.ct.sal + 'M a year with the ' + esc(team.nick)) + '. Two losing seasons in a row (or a fan base that has turned on you) gets you fired; two winning seasons in a row and other teams come calling. Off the field, your choices are yours: the fans remember the stupid ones.</p></div>';
+  if (c.offers && c.offers.length) h += '<div class="panel offers"><h3>Offers</h3>' + tbl(['Team', 'Rating', 'Years', 'Salary', ''], c.offers.map((o, i) => { const t = L.teams[o.tid], r = LG.teamRating(L, o.tid); return '<tr><td class="nm">' + tmName(t) + (o.k === 'ext' ? ' <small>(stay)</small>' : '') + '</td><td>' + r.ovr + '</td><td>' + o.yrs + '</td><td>$' + o.sal + 'M</td><td><button class="btn small primary" data-h="coach-take" data-i="' + i + '">Sign</button>' + (o.k !== 'ext' && !o.pushed ? ' <button class="btn small" data-h="coach-push" data-i="' + i + '">Ask for more</button>' : '') + '</td></tr>'; }).join('')) + '</div>';
+  h += '<div class="panel"><h3>Coaching record</h3>' + (c.hist.length ? tbl(['Season', 'Team', 'Record', ''], c.hist.map(x => '<tr><td>' + x.s + '</td><td>' + esc(x.nick) + '</td><td>' + x.w + '-' + x.l + (x.t ? '-' + x.t : '') + '</td><td>' + (x.champ ? '🏆 Champions' : x.po ? 'Playoffs' : '') + (x.why ? ' <i class="bust">' + esc(x.why) + '</i>' : '') + '</td></tr>').join('')) : '<p class="hint">Your first season is under way.</p>') + '</div>';
+  return h;
+}
+ACT['coach-take'] = async t => { const r = await FR.A.act('coach-take', { i: +t.dataset.i }); if (r && r.msg) toast(r.msg); };
+ACT['coach-push'] = async t => { const r = await FR.A.act('coach-push', { i: +t.dataset.i }); if (r && r.msg) toast(r.msg); };
 /* the Franchise tab: morale, money, facilities, coordinators */
 function franchiseHTML(L, tid) {
   const meter = (l, v) => '<div class="st"><span>' + l + '</span><span class="bar"><i class="' + (v >= 66 ? 'hi' : v >= 40 ? 'mid' : 'lo') + '" style="width:' + v + '%"></i></span><b>' + v + '</b></div>';
@@ -155,10 +172,10 @@ function franchiseHTML(L, tid) {
 ACT['fac-up'] = async t => { const r = await FR.A.act('upgrade', { k: t.dataset.k }); if (r && r.msg) toast(r.msg); };
 ACT['coach-hire'] = async t => { const r = await FR.A.act('hire', { i: +t.dataset.i }); if (r && r.msg) toast(r.msg); };
 function campAdapter() {
-  const L = C.L, tid = L.user; LG.campInit(L); setTimeout(() => mailNotify(L), 0);
+  const L = C.L, tid = L.user; LG.campInit(L); LG.careerOn(L); setTimeout(() => mailNotify(L), 0);
   const after = (now) => { campDirty(now); frShow(campAdapter()); };
   return {
-    tabs: [{ id: 'inbox', label: inboxLabel(L), html: () => inboxHTML(L, tid) }, { id: 'franchise', label: 'Franchise', html: () => franchiseHTML(L, tid) }],
+    tabs: [{ id: 'inbox', label: inboxLabel(L), html: () => inboxHTML(L, tid) }, { id: 'franchise', label: 'Franchise', html: () => franchiseHTML(L, tid) }].concat(L.coach ? [{ id: 'career', label: 'Career' + (L.coach.offers && L.coach.offers.length ? ' <span class="mbadge glow">' + L.coach.offers.length + '</span>' : ''), html: () => careerHTML(L) }] : []),
     kind: 'campaign', L, tid, title: 'Campaign', canAdvance: true, canEditRoster: () => true, status: savedText(),
     headBtns: (H.user ? '<button class="btn small" data-h="camp-share" title="Run this team together with friends">Share</button>' : '') + '<button class="btn small" data-h="camp-exit">Save &amp; exit</button>',
     cpuOffers: async pos => LG.cpuOffers(L, tid, pos),
@@ -178,7 +195,7 @@ function campAdapter() {
         if (alerts.length && !gone.length) setTimeout(() => G.openModal('<h3>Scouting report</h3><ul class="news">' + alerts.join('') + '</ul>'), 50);
         if (gone.length) setTimeout(() => G.openModal((alerts.length ? '<h3>Scouting report</h3><ul class="news">' + alerts.join('') + '</ul>' : '') + '<h3>Retirements</h3><p class="sub">' + gone.length + ' of your players ' + (gone.length > 1 ? 'have' : 'has') + ' retired.</p><ul class="news">' + gone.map(p => '<li><a href="#" class="plk" data-h="fr-pl" data-id="' + G.esc(p.i) + '">' + G.esc(p.n) + '</a> (' + p.p + ', ' + p.a + ', peak ' + (p.peak || p.o) + ') <button class="btn small" data-h="fr-hof" data-id="' + p.i + '">Hall of Fame</button></li>').join('') + '</ul><p class="hint">Their stats stay with them for good (Stats tab, Your retired players).</p>'), 50);
       }
-      else if (op === 'season') { LG.campGo(L, tid, 'season'); FR.tab = 'home'; }
+      else if (op === 'season') { const b = LG.campGo(L, tid, 'season'); if (b) { toast(b); FR.tab = 'career'; } else FR.tab = 'home'; }
       else if (op === 'fa-next') { LG.campGo(L, tid, 'fa-next'); if (L.phase === 'draft') FR.tab = 'draft'; }
       else LG.campGo(L, tid, op);
       after(true);

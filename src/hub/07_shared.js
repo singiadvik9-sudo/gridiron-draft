@@ -133,6 +133,7 @@ ACT['sh-inv1'] = async t => {
 ACT['camp-share'] = async () => {
   if (!confirm('Share this campaign? It moves out of slot ' + C.slot + ' into your shared campaigns, and you can invite friends to run the team with you. (You can stop sharing later and take it back.)')) return;
   await campSave();
+  C.L.career = 0;   // (career mode is for one coach: a shared campaign is the team's, not a person's)
   const z = await gz(JSON.stringify(C.L)), r = await run(() => call('camp', Object.assign({ op: 'create' }, z ? { Lz: z } : { L: C.L }))); if (!r) return;
   await run(() => SAVE.del(C.slot).then(() => true));
   await sharedOpen(r.code); ACT['sh-invite']();
