@@ -2,6 +2,12 @@
    Newest first. Each release has an id (its date, with -2, -3 for more on the same day); someone who has not seen the newest one is
    shown every release since the last one they saw (What's new). Write for players: what changed and where to find it. */
 const CHANGELOG = [
+  { id: '2026-11-12-3', title: 'Family, and the coaching carousel', items: [
+    'Your partner needs attention: their mood fades a little every week of the season. Plan a date night, pick out a gift or take a weekend getaway from the Career tab (the getaway costs you some time with the team). Ignore them and you will get a warning, then a goodbye.',
+    'The fans like a coach with a family: fan morale gets a regular lift while you are dating, more when you are engaged, more again when you are married, and more with kids. A baby can be on the way once you are married.',
+    'Stand up for your partner in public: a heckler in the stands, a nasty tabloid story, photographers at dinner, trolls after a loss, a stumble at a charity drive, a breakdown on the highway, away fans mocking their sign. Step in and the fans and your partner love you for it. Look away and it costs you.',
+    'The coaching carousel: every loss heats your seat and the owner sends a vote of confidence (never good news), then a final warning. Get fired and you give a last press conference and hear from home. Interview with teams that want you (sell a vision to a rebuilding team, promise to win now to a contender) to push the offer up, or pass on them. A new job comes with an introductory press conference, and your partner decides whether to move with you.'
+  ] },
   { id: '2026-11-12-2', title: 'Coach career mode', items: [
     'Campaigns now follow your coaching career (new Career tab). You start as a single 26-year-old head coach on a four-year deal, and you never age.',
     'Two losing seasons in a row, or a fan base that has turned on you, gets you fired, and you take a job wherever you can get one. Two winning seasons in a row and other teams make offers: sign one, ask your agent to push for more, or stay where you are. Every move takes you to that team as it is.',

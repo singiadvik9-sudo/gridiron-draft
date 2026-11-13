@@ -146,15 +146,23 @@ function careerHTML(L) {
   const meter = (l, v, cls) => '<div class="st"><span>' + l + '</span><span class="bar"><i class="' + (cls || (v >= 66 ? 'hi' : v >= 40 ? 'mid' : 'lo')) + '" style="width:' + v + '%"></i></span><b>' + v + '</b></div>';
   const rel = c.rel === 'single' ? 'Single' : (c.rel === 'dating' ? 'Dating ' : c.rel === 'engaged' ? 'Engaged to ' : 'Married to ') + esc(c.partner ? c.partner.n : '');
   const team = L.teams[c.ct.tid] || L.teams[L.user];
-  let h = '<div class="panel coachcard"><div class="cc-top"><div class="cc-face">🧢</div><div><h3>Head Coach · ' + tmName(L.teams[L.user]) + '</h3><p class="sub">Age ' + c.age + ' · ' + rel + (c.scand ? ' · ' + c.scand + ' scandal' + (c.scand > 1 ? 's' : '') : '') + '</p></div>' +
+  const kids = c.kids ? ' · ' + c.kids + ' kid' + (c.kids > 1 ? 's' : '') : '';
+  const famLine = c.partner ? (c.partner.mood >= 35 ? 'The fans like a coach with a family: fan morale gets a lift every ' + (c.rel === 'married' ? 'week' : c.rel === 'engaged' ? 'two weeks' : 'three weeks') + (c.kids ? ', and more with kids' : '') + '. Stand up for ' + esc(c.partner.n) + ' in public when it counts and they like you even more.' : 'Things at home are rocky enough that the fans have noticed: no family bonus until ' + esc(c.partner.n) + ' is happier.') : 'Single: no family bonus with the fans yet.';
+  let h = '<div class="panel coachcard"><div class="cc-top"><div class="cc-face">🧢</div><div><h3>Head Coach · ' + tmName(L.teams[L.user]) + '</h3><p class="sub">Age ' + c.age + ' · ' + rel + (c.scand ? ' · ' + c.scand + ' scandal' + (c.scand > 1 ? 's' : '') : '') + kids + '</p></div>' +
     '<div class="cc-earn"><span class="eyebrow">Career earnings</span><b>$' + c.earn.toFixed(1) + 'M</b></div></div>' +
     '<div class="stats">' + meter('Fans', c.pop) + meter('Hot seat', c.hot, c.hot >= 66 ? 'lo' : c.hot >= 40 ? 'mid' : 'hi') + (c.partner ? meter(esc(c.partner.n), c.partner.mood) : '') + meter('Family', c.fam) + '</div>' +
-    '<p class="hint">Contract: ' + (c.need ? '<b>none</b> (take an offer below before the season starts)' : c.ct.yrs + ' more season' + (c.ct.yrs === 1 ? '' : 's') + ' at $' + c.ct.sal + 'M a year with the ' + esc(team.nick)) + '. Two losing seasons in a row (or a fan base that has turned on you) gets you fired; two winning seasons in a row and other teams come calling. Off the field, your choices are yours: the fans remember the stupid ones.</p></div>';
+    '<p class="hint">Contract: ' + (c.need ? '<b>none</b> (take an offer below before the season starts)' : c.ct.yrs + ' more season' + (c.ct.yrs === 1 ? '' : 's') + ' at $' + c.ct.sal + 'M a year with the ' + esc(team.nick)) + '. Two losing seasons in a row (or a fan base that has turned on you) gets you fired; two winning seasons in a row and other teams come calling. Off the field, your choices are yours: the fans remember the stupid ones.</p><p class="hint famline">' + famLine + '</p></div>';
+  if (c.partner) {
+    const now = L.season * 100 + (L.week || 0), wait = k => { const last = (c.dates || {})[k], d = LG.DATES[k]; return last != null && Math.floor(last / 100) === L.season && now - last < d.cd ? d.cd - (now - last) : 0; };
+    h += '<div class="panel dates"><h3>' + esc(c.partner.n) + ' <small>mood ' + c.partner.mood + (c.partner.mood < 30 ? ' · feeling ignored' : c.partner.mood >= 75 ? ' · very happy' : '') + '</small></h3><p class="hint">' + esc(c.partner.n) + '\'s mood fades a little every week of the season. Make them happy now and then, or they will leave.</p><div class="row">' +
+      Object.keys(LG.DATES).map(k => { const d = LG.DATES[k], w = wait(k); return '<button class="btn small' + (k === 'date' ? ' primary' : '') + '" data-h="coach-date" data-k="' + k + '" title="' + esc(d.desc) + '"' + (w ? ' disabled' : '') + '>' + esc(d.label) + ' (+' + d.mood + ')' + (w ? ' · ' + w + 'w' : '') + '</button>'; }).join('') + '</div></div>';
+  }
   if (c.offers && c.offers.length) h += '<div class="panel offers"><h3>Offers</h3>' + tbl(['Team', 'Rating', 'Years', 'Salary', ''], c.offers.map((o, i) => { const t = L.teams[o.tid], r = LG.teamRating(L, o.tid); return '<tr><td class="nm">' + tmName(t) + (o.k === 'ext' ? ' <small>(stay)</small>' : '') + '</td><td>' + r.ovr + '</td><td>' + o.yrs + '</td><td>$' + o.sal + 'M</td><td><button class="btn small primary" data-h="coach-take" data-i="' + i + '">Sign</button>' + (o.k !== 'ext' && !o.pushed ? ' <button class="btn small" data-h="coach-push" data-i="' + i + '">Ask for more</button>' : '') + '</td></tr>'; }).join('')) + '</div>';
   h += '<div class="panel"><h3>Coaching record</h3>' + (c.hist.length ? tbl(['Season', 'Team', 'Record', ''], c.hist.map(x => '<tr><td>' + x.s + '</td><td>' + esc(x.nick) + '</td><td>' + x.w + '-' + x.l + (x.t ? '-' + x.t : '') + '</td><td>' + (x.champ ? '🏆 Champions' : x.po ? 'Playoffs' : '') + (x.why ? ' <i class="bust">' + esc(x.why) + '</i>' : '') + '</td></tr>').join('')) : '<p class="hint">Your first season is under way.</p>') + '</div>';
   return h;
 }
 ACT['coach-take'] = async t => { const r = await FR.A.act('coach-take', { i: +t.dataset.i }); if (r && r.msg) toast(r.msg); };
+ACT['coach-date'] = async t => { const r = await FR.A.act('coach-date', { k: t.dataset.k }); if (r && r.msg) toast(r.msg); };
 ACT['coach-push'] = async t => { const r = await FR.A.act('coach-push', { i: +t.dataset.i }); if (r && r.msg) toast(r.msg); };
 /* the Franchise tab: morale, money, facilities, coordinators */
 function franchiseHTML(L, tid) {
@@ -175,7 +183,7 @@ function campAdapter() {
   const L = C.L, tid = L.user; LG.campInit(L); LG.careerOn(L); setTimeout(() => mailNotify(L), 0);
   const after = (now) => { campDirty(now); frShow(campAdapter()); };
   return {
-    tabs: [{ id: 'inbox', label: inboxLabel(L), html: () => inboxHTML(L, tid) }, { id: 'franchise', label: 'Franchise', html: () => franchiseHTML(L, tid) }].concat(L.coach ? [{ id: 'career', label: 'Career' + (L.coach.offers && L.coach.offers.length ? ' <span class="mbadge glow">' + L.coach.offers.length + '</span>' : ''), html: () => careerHTML(L) }] : []),
+    tabs: [{ id: 'inbox', label: inboxLabel(L), html: () => inboxHTML(L, tid) }, { id: 'franchise', label: 'Franchise', html: () => franchiseHTML(L, tid) }].concat(L.coach ? [{ id: 'career', label: 'Career' + (L.coach.partner && L.coach.partner.mood < 30 ? ' 💔' : '') + (L.coach.offers && L.coach.offers.length ? ' <span class="mbadge glow">' + L.coach.offers.length + '</span>' : ''), html: () => careerHTML(L) }] : []),
     kind: 'campaign', L, tid, title: 'Campaign', canAdvance: true, canEditRoster: () => true, status: savedText(),
     headBtns: (H.user ? '<button class="btn small" data-h="camp-share" title="Run this team together with friends">Share</button>' : '') + '<button class="btn small" data-h="camp-exit">Save &amp; exit</button>',
     cpuOffers: async pos => LG.cpuOffers(L, tid, pos),
