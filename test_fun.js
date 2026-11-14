@@ -37,7 +37,7 @@ ok(lYd > bYd, 'and deep lobs gain more than deep bullets (' + (lYd / n0).toFixed
 { const r = throwAt(5, true); ok(r.a.lob === true && JSON.stringify(throwAt(5, true).out) === JSON.stringify(r.out), 'lobs replay exactly'); }
 // trick plays on the field: each one does its thing in the live sim, and replays exactly
 { const evOf = (play, k, tr) => { const R = LV.run({ seed: 300 + k, playNo: k, ballOn: 35, toGo: 8, offPick: play, defPick: ['ZONE', 'MAN', 'COV3', 'BLITZ'][k % 4], OS: T.a.squad, DS: T.b.squad, ctlO: !!tr, ctlD: !tr }, tr || [], []); return { R, ev: R.sim.evt.map(e => e[0] + ':' + (e[2] || '')) }; };
-  const flea = evOf('TRICK', 1).ev;
+  const flea = evOf('TRICK', 2).ev;   // (a snap where the pitch is clean: now and then the defense blows it up first)
   ok(flea.indexOf('hand:HB') >= 0 && flea.indexOf('pitch:HB') >= 0 && flea.indexOf('pitched:QB') >= 0 && flea.indexOf('throw:WR1') + flea.indexOf('throw:WR2') + flea.indexOf('throw:TE') > -3, 'flea flicker: handoff, the back pitches it back to the quarterback, then the throw (' + flea.join(' ') + ')');
   const hbp = evOf('HBPASS', 2).ev;
   ok(hbp.indexOf('pitch:QB') >= 0 && hbp.indexOf('pitched:HB') >= 0 && hbp.some(e => /^throw:/.test(e)), 'halfback pass: the toss to the back, then he throws it (' + hbp.join(' ') + ')');
