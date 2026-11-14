@@ -44,6 +44,7 @@ function frShow(A) {
   const keep = window.scrollY;
   setMain(h); window.scrollTo(0, keep);
 }
+ACT['fr-advance'] = async t => { t.disabled = true; if (FR.A && FR.A.advance) await FR.A.advance(); };
 ACT['fr-tab'] = t => { FR.tab = t.dataset.t; frShow(FR.A); window.scrollTo(0, 0); };
 
 const FRV = {};
@@ -59,7 +60,7 @@ FRV.home = A => {
         '<div class="row"><button class="btn primary" data-h="fr-play" data-g="' + g.id + '">Play game</button>' + (hv ? '' : '<button class="btn" data-h="fr-sim" data-g="' + g.id + '">Sim game</button>') + '</div>' +
         (hv ? '<p class="hint">Both teams are managed by people. You both play it live, or the manager can sim the week.</p>' : '') + '</div>';
     } else if (L.phase === 'playoffs') h += '<div class="panel next"><h2>' + (L.po && L.po.out && L.po.out[tid] ? 'Your season is over' : 'Waiting on the other games') + '</h2></div>';
-    else h += '<div class="panel next"><h2>No game this week</h2><p class="sub">' + (A.waitMsg || 'The week moves on once every game is done.') + '</p></div>';
+    else h += '<div class="panel next"><h2>No game this week</h2><p class="sub">' + (A.waitMsg || 'The week moves on once every game is done.') + '</p>' + (A.advance ? '<div class="row"><button class="btn primary" data-h="fr-advance">Sim to my next game</button></div>' : '') + '</div>';
   } else if (L.phase === 'fa') {
     const f = L.fa, exp = f.exp.map(id => PL(L, id)).filter(Boolean);
     h += '<div class="panel next"><span class="eyebrow">Free agency · day ' + f.day + ' of ' + f.days + '</span><h2>' + exp.length + ' of your contracts are ending</h2><p class="sub">Negotiate on the Free agents tab, or let them walk. Anyone unsigned when free agency ends is gone. CPU teams sign players each day. The draft comes next.</p><div class="row"><button class="btn primary" data-h="fr-tab" data-t="fa">Open free agency</button><button class="btn" data-h="fa-next">' + (f.day >= f.days ? 'Finish free agency: go to the draft' : 'Next day') + '</button></div></div>';
