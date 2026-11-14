@@ -60,8 +60,8 @@ ok(moved.win > 0.3 && moved.sack > plain.sack + 0.02, 'rush moves let the linema
 // playing defense: no surprise switches, E goes to whoever can get to the ball first, tackles that connect, and a timed jump on the ball
 { const TT = T('BUF', 'ARI'), mk = (i, o) => LV.create(Object.assign({ seed: 900 + i, playNo: i, ballOn: 30, toGo: 10, offPick: 'PASS_M', defPick: 'ZONE', OS: TT.a.squad, DS: TT.b.squad, ctlO: false, ctlD: true }, o || {}));
   let kept = 0, thrown = 0;
-  for (let i = 0; i < 60; i++) { const sim = mk(i); const me0 = sim.ctlId.d; while (!sim.out && !sim.thrown) LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [] }); if (!sim.thrown) continue; thrown++; LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [] }); if (sim.ctlId.d === me0) kept++; }
-  ok(thrown > 30 && kept === thrown, 'the throw does not take your defender away from you (' + kept + ' of ' + thrown + ')');
+  for (let i = 0; i < 60; i++) { const sim = mk(i); const me0 = sim.ctlId.d; while (!sim.out && !sim.thrown) LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [] }); if (!sim.thrown) continue; thrown++; const a = sim.ball.air, ref = a ? { x: a.ex, y: a.ey } : null, d0 = ref && Math.hypot(sim.by[me0].x - ref.x, sim.by[me0].y - ref.y); LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [] }); const me1 = sim.by[sim.ctlId.d]; if (sim.ctlId.d === me0 || d0 >= 5 && Math.hypot(me1.x - ref.x, me1.y - ref.y) < d0) kept++; }
+  ok(thrown > 30 && kept === thrown, 'the throw moves you only when your defender is out of the play, and only to someone closer to the ball (' + kept + ' of ' + thrown + ' throws fair)');
   { const sim = mk(3, { offPick: 'RUN_OUT' }); while (!sim.out && !sim.handoff) LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [] });
     const c = sim.by[sim.ball.car], rank = sim.D.filter(p => p.hold === 0 && !p.eng).sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) / a.vmax - Math.hypot(b.x - c.x, b.y - c.y) / b.vmax).map(p => p.id);
     const was = sim.ctlId.d; LV.step(sim, null, { dx: 0, dy: 0 }, { o: [], d: [6] }); const first = sim.ctlId.d;

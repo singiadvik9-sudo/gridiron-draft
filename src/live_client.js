@@ -375,6 +375,12 @@ const LV = {
         if (job === 'rush' || job === 'zone') it.tag += job === 'rush' ? ' · RUSH' : ' · ZONE';
         if (lastSw && lastSw[2] === p.id && sim.t - lastSw[1] < 14) { it.pop = 'NOW YOU'; it.popCol = '#ffcf3f'; }
         if (lastTimed && lastTimed[2] === p.id && sim.t - lastTimed[1] < 14) { it.pop = 'GOOD TIMING!'; it.popCol = '#3fdc6a'; }
+        // the moment to make a play: a cue over your man when the ball carrier is in reach (dive) or the throw is coming down on you (jump)
+        if (!it.pop && !sim.out && !p.eng && !(p.cool > 0)) {
+          const car = sim.ball.car && sim.by[sim.ball.car], ar = sim.ball.air;
+          if (ar && !ar.away && !ar.pitch && ar.k >= ar.n * 0.45 && Math.hypot(p.x - ar.ex, p.y - ar.ey) < 2.8) { it.pop = 'JUMP! (W)'; it.popCol = '#5fd4ff'; }
+          else if (car && car.side === 'o' && !(car.id === sim.passer && !sim.thrown && sim.kind === 'pass' && car.x <= 0 && Math.hypot(p.x - car.x, p.y - car.y) > 1.6) && Math.hypot(p.x - car.x, p.y - car.y) < 2.0) { it.pop = 'DIVE! (SPACE)'; it.popCol = '#5fd4ff'; }
+        }
         if (p.jumpW > 0) it.lift = Math.round(Math.sin(Math.PI * (1 - p.jumpW / 9)) * 12);   // up he goes
       }
       if (p.moveT != null && sim.t - p.moveT < 16) it.pop = { win: 'BEAT HIM!', stuck: 'STONEWALLED', bull: 'BULL RUSH' }[p.move];

@@ -109,3 +109,23 @@ const mk = n => { const r = E.mulberry32(n); return [E.mkTeam('A', E.autoDraft(r
   }
   ok(ck > 0, 'your quarterback checked to a screen in play (' + ck + ' times in 6 games)');
 }
+
+// ---- fourth down, the way a modern staff calls it
+{
+  const r = E.mulberry32(1), A = E.mkTeam('A', E.autoDraft(r)), B = E.mkTeam('B', E.autoDraft(r)), U = { a: E.teamUnits(A), b: E.teamUnits(B) };
+  const call = o => { const c = {}; for (let s = 0; s < 60; s++) { const p = E.cpuMove(Object.assign(E.initState(1), { poss: 'a', down: 4, kick: null, q: 2, clock: 100, score: { a: 0, b: 0 }, playNo: s }, o), U, 'a', s, 'off'); const k = E.OFF[p].cat === 'SPEC' ? p : 'GO'; c[k] = (c[k] || 0) + 1; } return c; };
+  ok(call({ ballOn: 50, toGo: 1 }).GO === 60 && call({ ballOn: 35, toGo: 1 }).GO === 60, '4th and inches past your own 30: go for it');
+  ok(call({ ballOn: 25, toGo: 7 }).PUNT === 60 && call({ ballOn: 75, toGo: 8 }).FG === 60, '4th and long: punt from deep, kick in range');
+  ok(call({ q: 4, clock: 80, score: { a: 10, b: 17 }, ballOn: 30, toGo: 9 }).GO === 60, 'behind by a touchdown on the last drive: never punt');
+  ok(call({ q: 4, clock: 50, score: { a: 10, b: 12 }, ballOn: 75, toGo: 6 }).FG === 60, 'behind by two late, in range: kick the winner');
+  ok(call({ q: 4, clock: 50, score: { a: 14, b: 10 }, ballOn: 40, toGo: 3 }).PUNT === 60, 'ahead late, deep in your own end: punt');
+}
+
+// ---- the ball in the air: the defender you steer is moved to the one who can get there, when yours is out of the play
+{
+  let sw = 0, n = 0;
+  for (let i = 0; i < 300; i++) { const [A, B] = mk(i % 30 + 1); const sim = L.create({ seed: i * 7 + 2, playNo: i, ballOn: 35, toGo: 10, offPick: ['PASS_M', 'PASS_D'][i % 2], defPick: 'ZONE', OS: A.squad, DS: B.squad, ctlD: true });
+    sim.ctlId.d = sim.D.find(p => p.grp === 'DL').id; let tT = null;
+    while (!sim.out && sim.t < L.MAXT) { L.step(sim, null, null, { o: [], d: [] }); if (sim.ball.air && tT == null) tT = sim.t; if (tT != null && sim.t === tT + 2) { n++; if (sim.by[sim.ctlId.d].grp !== 'DL') sw++; } } }
+  ok(n > 100 && sw / n > 0.35, 'a lineman you were steering hands off to a defender near the throw (short throws near the line stay with him) (' + sw + ' of ' + n + ')');
+}
