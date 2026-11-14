@@ -103,3 +103,20 @@ function career(seed, tid, seasons, dumbP) {
   c.partner = { n: 'Sam', mood: 40 }; const to = c.offers[0].tid; LG.takeOffer(L, 0);
   ok(L.user === to && L.inbox.some(m => /introductory press conference/i.test(m.subj)) && L.inbox.some(m => /I am not moving/.test(m.subj)) && c.partner.mood === 25, 'a new job: an introductory press conference, and an unhappy partner will not move with you');
 }
+
+// ---- offers you did not take expire when the season starts; nobody switches teams mid-season (that left a week nobody could finish)
+{
+  const L = LG.newNFL({ user: 4, seed: 11 }); L.teams[4].owner = 'You'; LG.campInit(L); LG.careerOn(L); LG.runUntilHuman(L, 60);
+  const c = L.coach; c.offers = [{ tid: 9, yrs: 3, sal: 5, k: 'good' }];
+  const r = LG.campOp(L, 4, 'coach-take', { i: 0 });
+  ok(!r.ok && /expired/.test(r.msg) && L.user === 4 && !c.offers.length, 'in season, an old offer cannot be signed: it expired');
+  // a save already stuck that way: your old team's game is left with nobody to play it, the new team has played; simming it moves the week on
+  const L2 = LG.newNFL({ user: 4, seed: 12 }); L2.teams[4].owner = 'You'; LG.campInit(L2); LG.careerOn(L2); LG.runUntilHuman(L2, 60);
+  const mine = LG.weekGames(L2)[0], other = L2.sched.find(g => g.w === L2.week && g.done && g.h !== 4 && g.a !== 4);
+  LG.moveTeam(L2, other ? other.h : 9); const wk = L2.week;
+  ok(LG.weekGames(L2).length === 1 && !LG.humanSides(L2, mine).some(Boolean), 'the stuck week: one game left, and no person on either side');
+  LG.runUntilHuman(L2, 60); ok(L2.week > wk || L2.phase !== 'regular', 'simming it moves the week on');
+  // starting a season clears the offers you passed on
+  const L3 = LG.newNFL({ user: 4, seed: 13 }); L3.teams[4].owner = 'You'; LG.campInit(L3); LG.careerOn(L3); L3.phase = 'preseason'; L3.coach.offers = [{ tid: 9, yrs: 3, sal: 5, k: 'good' }];
+  LG.campGo(L3, 4, 'season'); ok(!L3.coach.offers.length && L3.inbox.some(m => /off the table/.test(m.subj)), 'starting a season: the offers you passed on are off the table');
+}
