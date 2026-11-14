@@ -221,4 +221,9 @@ function campAdapter() {
     }
   };
 }
-V.camphub = () => { if (!C.L) { go('camp'); return; } if (C.shared) { sharedShow(); return; } frShow(campAdapter()); };
+// a week that cannot finish (a game left with nobody to play it, as in a save where you changed teams mid-season): sim it and move on
+function campUnstick(L) {
+  if ((L.phase !== 'regular' && L.phase !== 'playoffs') || !LG.weekGames(L).length || LG.weekGames(L).some(g => { const h = LG.humanSides(L, g); return h[0] || h[1]; })) return false;
+  LG.runUntilHuman(L, 60); LG.checkFinal(L); return true;
+}
+V.camphub = () => { if (!C.L) { go('camp'); return; } if (C.shared) { sharedShow(); return; } if (campUnstick(C.L)) campDirty(true); frShow(campAdapter()); };
