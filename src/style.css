@@ -785,3 +785,12 @@ kbd { font-family: var(--display); font-size: 11px; padding: 3px 7px; background
 .mails li.mk-life, .mk-life { --mk: #ff8ad8; }
 .mk-scandal { --mk: #ff3b3b; }
 .mk-job { --mk: #ffd23f; }
+/* the inbox as conversations: one row per person, the whole back-and-forth when you open it */
+.mails li b .tcount { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: rgba(255,255,255,.14); color: #fff; font-size: 11px; text-align: center; }
+.mthread { display: grid; gap: 10px; }
+.tmsg { padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); }
+.tmsg.latest { border-color: rgba(255,210,63,.45); background: rgba(255,210,63,.06); }
+.tmsg .tm-h { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.tmsg .tm-h small { opacity: .6; font-size: 11px; white-space: nowrap; }
+.tmsg .mbody { margin: 6px 0 0; }
+.tmsg .tm-you { margin: 8px 0 0; padding: 6px 10px; border-radius: 8px; background: rgba(80,160,255,.15); justify-self: end; font-size: 13px; }

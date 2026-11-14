@@ -110,15 +110,18 @@ function mailLook(m) {
   return { k, icon: { scandal: '🚨', job: '💼', life: '💬', deal: '📝', owner: '👔', league: '⚖️', player: '🏈', media: '📺', event: '📣', staff: '📋' }[k] };
 }
 function inboxHTML(L, tid) {
-  const sel = FR.mail, nNew = LG.unread(L);
-  let h = '<div class="inbox"><div class="panel mlist"><h3>Inbox ' + (nNew ? '<span class="mbadge">' + nNew + ' new</span>' : '') + '</h3>' + (L.inbox.length ? '<ul class="mails">' + L.inbox.map(m => { const lk = mailLook(m); return '<li class="mk-' + lk.k + (m.read ? '' : ' new') + (sel === m.id ? ' on' : '') + (m.opts && m.ans == null ? ' ask' : '') + '" data-h="mail-open" data-id="' + m.id + '"><span class="mic">' + lk.icon + '</span><b>' + esc(m.from) + '</b><span>' + esc(m.subj) + '</span><small>' + esc(m.when) + (m.opts && m.ans == null ? ' · needs an answer' : '') + '</small></li>'; }).join('') + '</ul>' : '<p class="hint">Nothing yet.</p>') + '</div><div class="panel mread">';
-  const m = L.inbox.find(x => x.id === sel), cp = sel && sel[0] === 'c' ? L.players[sel.slice(1)] : m && m.kind === 'contract' ? L.players[m.pid] : null;
-  if (cp) h += '<h3>Contract talks: ' + esc(cp.n) + ' <small>' + cp.p + ' ' + cp.o + ', age ' + cp.a + '</small></h3>' + threadHTML(L, cp);
-  else if (m) {
-    const lk = mailLook(m);
-    h += '<div class="mhead mk-' + lk.k + '"><span class="mic big">' + lk.icon + '</span><div><h3>' + esc(m.subj) + '</h3><p class="sub">From ' + esc(m.from) + ' · ' + esc(m.when) + '</p></div></div><p class="mbody">' + esc(m.body) + '</p>';
-    if (m.opts) h += m.ans != null ? '<p class="hint">' + (m.by ? esc(m.by) + ' chose: ' : 'You chose: ') + esc(m.opts[m.ans].t) + '</p>' : '<div class="row">' + m.opts.map((o, i) => '<button class="btn small" data-h="mail-ans" data-id="' + m.id + '" data-i="' + i + '">' + esc(o.t) + '</button>').join('') + '</div>';
-  } else h += '<p class="hint">Pick a message.</p>';
+  const sel = FR.mail, nNew = LG.unread(L), TH = LG.mailThreads(L);
+  const cur = sel && sel[0] !== 'c' ? L.inbox.find(x => x.id === sel) : null, curK = cur ? LG.threadKey(cur) : sel && sel[0] === 'c' ? 'p:' + sel.slice(1) : null;
+  let h = '<div class="inbox"><div class="panel mlist"><h3>Inbox ' + (nNew ? '<span class="mbadge">' + nNew + ' new</span>' : '') + '</h3>' + (TH.length ? '<ul class="mails">' + TH.map(t => { const m = t.last, lk = mailLook(m);
+    return '<li class="mk-' + lk.k + (t.unread ? ' new' : '') + (curK === t.key ? ' on' : '') + (t.ask ? ' ask' : '') + '" data-h="mail-open" data-id="' + m.id + '"><span class="mic">' + lk.icon + '</span><b>' + esc(m.from) + (t.msgs.length > 1 ? ' <span class="tcount">' + t.msgs.length + '</span>' : '') + '</b><span>' + esc(m.subj) + '</span><small>' + esc(m.when) + (t.ask ? ' · needs an answer' : '') + '</small></li>'; }).join('') + '</ul>' : '<p class="hint">Nothing yet.</p>') + '</div><div class="panel mread">';
+  const th = curK && TH.find(t => t.key === curK), pid = curK && curK.slice(0, 2) === 'p:' ? curK.slice(2) : null, cp = pid ? L.players[pid] : null;
+  if (cp && (sel[0] === 'c' || L.talks && L.talks[pid])) h += '<h3>Contract talks: ' + esc(cp.n) + ' <small>' + cp.p + ' ' + cp.o + ', age ' + cp.a + '</small></h3>' + threadHTML(L, cp);
+  if (th) {
+    const lk = mailLook(th.last);
+    h += '<div class="mhead mk-' + lk.k + '"><span class="mic big">' + lk.icon + '</span><div><h3>' + esc(th.last.from) + '</h3><p class="sub">' + th.msgs.length + ' message' + (th.msgs.length > 1 ? 's, newest first' : '') + '</p></div></div><div class="mthread">' +
+      th.msgs.slice().reverse().map(m => '<div class="tmsg' + (m.id === th.last.id ? ' latest' : '') + '"><div class="tm-h"><b>' + esc(m.subj) + '</b><small>' + esc(m.when) + '</small></div><p class="mbody">' + esc(m.body) + '</p>' +
+        (m.opts ? (m.ans != null ? '<p class="tm-you">' + (m.by ? esc(m.by) + ': ' : 'You: ') + esc(m.opts[m.ans].t) + '</p>' : '<div class="row">' + m.opts.map((o, i) => '<button class="btn small" data-h="mail-ans" data-id="' + m.id + '" data-i="' + i + '">' + esc(o.t) + '</button>').join('') + '</div>') : '') + '</div>').join('') + '</div>';
+  } else if (!cp) h += '<p class="hint">Pick a conversation.</p>';
   return h + '</div></div>';
 }
 ACT['mail-open'] = async t => { FR.mail = t.dataset.id; await FR.A.act('read', { id: t.dataset.id }); };
@@ -208,6 +211,7 @@ function campAdapter() {
       else LG.campGo(L, tid, op);
       after(true);
     },
+    advance: async () => { if (!campStuck(L)) return; try { await simAway(L); LG.checkFinal(L); } catch (e) { console.error(e); toast('The week could not move on: ' + (e && e.message || e)); } after(true); },
     async sim(gid) { const g = L.sched.find(x => x.id === gid); if (!g || g.done) return; await simAway(L, () => LG.simGame(L, g)); LG.checkFinal(L); after(true); },
     async play(gid) {
       const g = L.sched.find(x => x.id === gid); if (!g || g.done) return;
@@ -216,14 +220,17 @@ function campAdapter() {
       G.startCtxCpu({ seed: LG.gameSeed(L, g), T: g.T, side, cpuSide }, {
         label: g.pl === 'po' ? 'Playoffs' : 'Week ' + g.w,
         report: async moves => { if (!LG.playVerified(L, g, moves, [cpuSide])) throw new Error('The game did not finish.'); },
-        onDone: async () => { go('camphub'); await simAway(L); LG.checkFinal(L); campDirty(true); FR.tab = 'home'; go('camphub'); }
+        onDone: async () => { go('camphub'); try { await simAway(L); LG.checkFinal(L); } catch (e) { console.error(e); toast('The week could not move on: ' + (e && e.message || e)); } campDirty(true); FR.tab = 'home'; go('camphub'); }
       });
     }
   };
 }
-// a week that cannot finish (a game left with nobody to play it, as in a save where you changed teams mid-season): sim it and move on
+// a week that cannot move on by itself: no game left that a person has to play (an orphaned game, or every game done and the week never
+// turned over). Sim what is left and move on; if that fails, say why instead of sitting on "No game this week" forever.
+function campStuck(L) { return (L.phase === 'regular' || L.phase === 'playoffs') && !LG.weekGames(L).some(g => { const h = LG.humanSides(L, g); return h[0] || h[1]; }) && !(L.phase === 'playoffs' && L.po && L.po.out && L.po.out[L.user]); }
 function campUnstick(L) {
-  if ((L.phase !== 'regular' && L.phase !== 'playoffs') || !LG.weekGames(L).length || LG.weekGames(L).some(g => { const h = LG.humanSides(L, g); return h[0] || h[1]; })) return false;
-  LG.runUntilHuman(L, 60); LG.checkFinal(L); return true;
+  if (!campStuck(L)) return false;
+  try { LG.runUntilHuman(L, 60); LG.checkFinal(L); } catch (e) { console.error(e); toast('The week could not move on: ' + (e && e.message || e)); return false; }
+  return true;
 }
 V.camphub = () => { if (!C.L) { go('camp'); return; } if (C.shared) { sharedShow(); return; } if (campUnstick(C.L)) campDirty(true); frShow(campAdapter()); };

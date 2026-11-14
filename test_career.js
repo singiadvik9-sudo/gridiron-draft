@@ -120,3 +120,17 @@ function career(seed, tid, seasons, dumbP) {
   const L3 = LG.newNFL({ user: 4, seed: 13 }); L3.teams[4].owner = 'You'; LG.campInit(L3); LG.careerOn(L3); L3.phase = 'preseason'; L3.coach.offers = [{ tid: 9, yrs: 3, sal: 5, k: 'good' }];
   LG.campGo(L3, 4, 'season'); ok(!L3.coach.offers.length && L3.inbox.some(m => /off the table/.test(m.subj)), 'starting a season: the offers you passed on are off the table');
 }
+
+// ---- the inbox as conversations: everything from one person is one thread, and reading it reads all of it
+{
+  const L = LG.newNFL({ user: 0, seed: 21 }); L.teams[0].owner = 'You'; LG.campInit(L); L.inbox = [];
+  const pid = Object.values(L.players).find(p => p.t === 0).i;
+  LG.inMail(L, { from: 'Some Player', pid, subj: 'Playing time', body: 'a', opts: [{ t: 'Yes', reply: 'Thanks, coach.' }] });
+  LG.inMail(L, { from: 'The owner', subj: 'Budget', body: 'b' }); LG.inMail(L, { from: 'The Bears owner', subj: 'A vote of confidence', body: 'c' });
+  LG.inMail(L, { from: 'Your agent', subj: 'x', body: 'd' }); LG.inMail(L, { from: 'Your agent', subj: 'y', body: 'e' });
+  const ask = L.inbox.find(m => m.pid === pid); LG.campOp(L, 0, 'mail', { id: ask.id, i: 0 });
+  const T = LG.mailThreads(L), th = k => T.find(t => t.key === k);
+  ok(T.length === 3 && th('p:' + pid).msgs.length === 2 && th('owner').msgs.length === 2 && th('f:your agent').msgs.length === 2, 'one thread per person: the player (with his reply), the owner, your agent (' + T.map(t => t.msgs.length).join(', ') + ')');
+  ok(T[0].key === 'p:' + pid && th('p:' + pid).msgs[1].subj.startsWith('Re:'), 'the newest conversation is on top, and a thread runs oldest to newest');
+  LG.campOp(L, 0, 'read', { id: th('owner').msgs[0].id }); ok(th('owner').msgs.every(m => m.read), 'opening a thread reads all of it');
+}
